@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# User units of brig VMs, enabled for all users; the brig units and the
+# OpenShell gateway drop-in limit themselves to agent with ConditionUser=.
+
+enable podman.socket
+enable openshell-gateway.service
+enable brig-gateway-proxy.socket
+enable brig-sandbox-volumes.service

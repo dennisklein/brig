@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# DHCP on every physical Ethernet link: passt serves DHCPv4, DHCPv6 and NDP.
+
+[Match]
+Kind=!*
+Type=ether
+
+[Network]
+DHCP=yes

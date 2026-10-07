@@ -1,0 +1,43 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Offers the VM's sandbox mounts to OpenShell sandboxes: keeps one
+# bind-backed Podman volume per mount, labelled so that the gateway's resource
+# admission (/usr/share/brig/gateway-mounts.toml) lets sandboxes attach it.
+#
+#   sandbox-volumes LIST
+#
+# Each line of LIST is "VOLUME DIRECTORY". Volumes from earlier boots that are
+# no longer listed, or that point elsewhere, are removed unless in use.
+set -euo pipefail
+
+owner=brig.sandbox-mount
+
+declare -A want=()
+if [[ -r $1 ]]; then
+	while read -r name dir; do
+		if [[ -n $name ]]; then
+			want[$name]=$dir
+		fi
+	done <"$1"
+fi
+
+while read -r name dir; do
+	if [[ ${want[$name]-} != "$dir" ]]; then
+		podman volume rm "$name" >/dev/null ||
+			echo "brig-sandbox-volumes: cannot remove volume $name" >&2
+	fi
+done < <(podman volume ls --filter "label=$owner" --format '{{.Name}} {{.Options.device}}')
+
+for name in "${!want[@]}"; do
+	if podman volume exists "$name"; then
+		continue
+	fi
+	podman volume create --driver local \
+		--opt type=none --opt o=bind --opt "device=${want[$name]}" \
+		--label "$owner=true" \
+		--label openshell.ai/sandbox-attachable=true \
+		--label openshell.ai/sandbox-attachable-workspace=default \
+		"$name" >/dev/null
+done

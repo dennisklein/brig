@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# The OpenShell gateway listens on 127.0.0.1:17670 only, but passt delivers
+# the host's forwarded connections to the VM's network address. This socket
+# accepts them and brig-gateway-proxy.service relays them to the gateway.
+
+[Unit]
+Description=brig: OpenShell gateway port for the host
+Documentation=https://github.com/dennisklein/brig
+ConditionUser=agent
+
+[Socket]
+ListenStream=17671
+
+[Install]
+WantedBy=sockets.target

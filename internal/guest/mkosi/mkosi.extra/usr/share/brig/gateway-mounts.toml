@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# gateway.toml for VMs with sandbox mounts: sandboxes may attach the
+# bind-backed Podman volumes that brig-sandbox-volumes.service keeps for them,
+# e.g. with
+#   --driver-config-json '{"podman":{"mounts":[{"type":"volume","source":"brig0","target":"/sandbox/src"}]}}'
+
+[openshell]
+version = 2
+
+[openshell.gateway]
+compute_driver = "podman"
+
+[openshell.drivers.podman]
+health_check_interval_secs = 10
+# Accept caller-supplied driver_config such as the mounts above.
+allow_driver_config = true
+# Bind-backed volumes expose VM paths, so they count as bind mounts.
+enable_bind_mounts = true
+
+# OpenShell's default admission policy, spelled out because brig labels its
+# volumes to match: only volumes labelled for the sandbox's workspace can be
+# attached, and direct host bind mounts stay rejected.
+[openshell.drivers.podman.resource_admission]
+enabled = true
+
+[openshell.drivers.podman.resource_admission.required_labels]
+"openshell.ai/sandbox-attachable" = "true"
+"openshell.ai/sandbox-attachable-workspace" = "${workspace}"

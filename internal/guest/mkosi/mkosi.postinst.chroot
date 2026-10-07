@@ -1,0 +1,28 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Runs inside the image after the packages and mkosi.extra/ are installed.
+# Units are enabled by the presets in mkosi.extra/, which mkosi applies after
+# this script: an explicit systemctl enable here would be undone by
+# "systemctl preset-all".
+set -euo pipefail
+
+# agent runs the OpenShell gateway and rootless Podman. Its home is the mount
+# point of the VM's persistent data disk, so it is not created here. agent
+# gets no sudo rights; administration happens via root SSH logins.
+groupadd --gid 1000 agent
+useradd --uid 1000 --gid agent --no-create-home --home-dir /home/agent \
+	--shell /bin/bash agent
+
+# Exactly one subordinate ID range, identical in every image, so that rootless
+# Podman storage on the data disk stays valid across image upgrades.
+echo 'agent:100000:65536' >/etc/subuid
+echo 'agent:100000:65536' >/etc/subgid
+
+# Start agent's user manager, and with it the gateway, at boot.
+mkdir -p /var/lib/systemd/linger
+touch /var/lib/systemd/linger/agent
+
+# Resolve via systemd-resolved, which learns the DNS server from DHCP.
+ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf

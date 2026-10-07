@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# System units of brig VMs. mkosi applies presets after mkosi.postinst.chroot,
+# and Fedora's own presets end in "disable *", so every unit is listed here.
+
+enable sshd.service
+enable systemd-networkd.service
+enable systemd-resolved.service
+enable qemu-guest-agent.service

@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# A user service of agent, like the gateway it relays to: as a system service
+# SELinux would confine systemd-socket-proxyd to systemd_socket_proxyd_port_t
+# destinations, which the gateway port is not. Relaying over loopback keeps
+# the gateway's view of its clients local.
+
+[Unit]
+Description=brig: relay the host's connections to the OpenShell gateway
+Documentation=https://github.com/dennisklein/brig
+ConditionUser=agent
+Requires=brig-gateway-proxy.socket
+After=brig-gateway-proxy.socket
+
+[Service]
+Type=notify
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:17670
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native

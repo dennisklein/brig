@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=brig: Podman volumes for sandbox mounts
+Documentation=https://github.com/dennisklein/brig
+ConditionUser=agent
+Before=openshell-gateway.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Written by brig at every boot: one "VOLUME DIRECTORY" line per sandbox mount.
+ExecStart=/usr/libexec/brig/sandbox-volumes %E/brig/sandbox-volumes
+
+[Install]
+WantedBy=default.target
