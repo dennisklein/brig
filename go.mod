@@ -6,6 +6,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.48.0
+	libvirt.org/go/libvirtxml v1.12008.0
 )
 
 require (
