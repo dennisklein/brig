@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: brig
+
+builds:
+  - id: brig
+    main: .
+    binary: brig
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/dennisklein/brig/internal/version.version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: brig
+    formats:
+      - tar.gz
+    # Default-style asset names (brig_0.1.0_linux_amd64.tar.gz) are what
+    # `mise use github:dennisklein/brig` auto-detects.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# Release notes are the annotated tag message, not a generated changelog.
+changelog:
+  disable: true
+
+release:
+  name_template: "{{ .Tag }}"
+  header: |
+    {{ .TagContents }}
