@@ -12,6 +12,19 @@ linters:
     - unconvert
     - unparam
   settings:
+    errcheck:
+      # Terminal output errors surface on Flush or are not actionable.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        # brig's job is to run ssh, qemu-img, mkosi and friends with
+        # arguments it assembles itself.
+        - G204
+        # brig reads files from user-chosen and its own state paths.
+        - G304
     revive:
       enable-default-rules: true
       rules:
