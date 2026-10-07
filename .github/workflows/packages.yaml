@@ -1,0 +1,271 @@
+name: packages
+
+# Builds signed Fedora RPMs of NVIDIA OpenShell from source and publishes
+# them, with the brig-release repository package, as a dnf repository on
+# GitHub Pages. See packaging/ for the scripts each job runs.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - packaging/**
+      - .github/workflows/packages.yaml
+  schedule:
+    # Daily check for a new OpenShell release.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+    inputs:
+      openshell-tag:
+        description: OpenShell release tag to package (default latest release)
+        required: false
+        default: ""
+      rebuild:
+        description: Rebuild even if the packages are already published
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PAGES_URL: https://dennisklein.github.io/brig
+  KEEP_VERSIONS: "2"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      fedora: ${{ steps.plan.outputs.fedora }}
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        env:
+          INPUT_TAG: ${{ inputs.openshell-tag }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: packaging/plan.sh
+      - name: Summary
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          FEDORA: ${{ steps.plan.outputs.fedora }}
+          BUILD: ${{ steps.plan.outputs.build }}
+          PUBLISH: ${{ steps.plan.outputs.publish }}
+        run: |
+          echo "OpenShell $TAG for Fedora $FEDORA: build=$BUILD publish=$PUBLISH" >> "$GITHUB_STEP_SUMMARY"
+
+  srpm:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    timeout-minutes: 60
+    steps:
+      - name: Install tools
+        run: |
+          dnf -y install cargo gcc git-core rpm-build xz
+          cargo install --locked cargo-vendor-filterer@0.5.18
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build source RPM
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: packaging/openshell/make-srpm.sh "$TAG" out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: srpm
+          path: out/*.src.rpm
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  rpm:
+    needs: [plan, srpm]
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ${{ fromJSON(needs.plan.outputs.fedora) }}
+    container:
+      image: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: srpm
+      - name: Install build dependencies
+        run: |
+          dnf -y install rpm-build dnf5-plugins
+          dnf -y builddep ./*.src.rpm
+      - name: Build RPMs
+        run: |
+          rpmbuild --rebuild --define "_topdir $PWD/rpmbuild" ./*.src.rpm
+          mkdir out
+          find rpmbuild/RPMS -name '*.rpm' ! -name '*-debuginfo-*' ! -name '*-debugsource-*' -exec cp -t out {} +
+          ls -l out
+          for pkg in out/*.rpm; do rpm -qp --requires "$pkg" | sed "s|^|${pkg##*/}: |"; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-fc${{ matrix.fedora }}
+          path: out/*.rpm
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release-rpm:
+    needs: plan
+    if: needs.plan.outputs.publish == 'real'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    steps:
+      - run: dnf -y install rpm-build
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build brig-release
+        run: |
+          packaging/brig-release/build.sh out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-release
+          path: out/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [plan, srpm, rpm, release-rpm]
+    if: >-
+      !cancelled() && !failure() && needs.plan.outputs.publish == 'real'
+    runs-on: ubuntu-latest
+    environment: rpm-signing
+    permissions:
+      contents: read
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    steps:
+      - run: dnf -y install createrepo_c findutils gnupg2 jq python3-rpm rpm-sign
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{srpm,rpm-*}"
+          path: incoming
+          merge-multiple: true
+      - name: Assemble signed repository
+        env:
+          RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+        run: packaging/publish.sh incoming site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # Assembles the repository with a throwaway key, so packaging changes are
+  # verified end to end (see smoke-test) without the real key or a deploy.
+  dry-run:
+    needs: [plan, srpm, rpm]
+    if: >-
+      !cancelled() && !failure() && needs.plan.outputs.publish == 'dry-run'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    steps:
+      - run: dnf -y install createrepo_c findutils gnupg2 jq python3-rpm rpm-build rpm-sign
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{srpm,rpm-*}"
+          path: incoming
+          merge-multiple: true
+      - name: Assemble repository with a throwaway key
+        env:
+          # The published packages carry the real key's signatures.
+          RESTORE: "false"
+        run: |
+          GNUPGHOME=$(mktemp -d)
+          export GNUPGHOME
+          gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+            --quick-gen-key 'brig dry run <dry-run@invalid>' rsa4096 sign never
+          gpg --batch --armor --export > packaging/brig-release/RPM-GPG-KEY-brig
+          RPM_SIGNING_KEY=$(gpg --batch --armor --export-secret-keys)
+          export RPM_SIGNING_KEY
+          rm -rf "$GNUPGHOME"
+          unset GNUPGHOME
+          packaging/brig-release/build.sh incoming
+          packaging/publish.sh incoming site
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-dry-run
+          path: site
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke-test:
+    needs: [plan, deploy, dry-run]
+    if: >-
+      !cancelled() && !failure() && needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ${{ fromJSON(needs.plan.outputs.fedora) }}
+    container:
+      image: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.plan.outputs.publish == 'dry-run'
+        with:
+          name: site-dry-run
+          path: site
+      - name: Install from the repository
+        env:
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+        run: |
+          if [ "$PUBLISH" = dry-run ]; then
+            dnf -y install python3
+            python3 -m http.server --directory site 8080 > /dev/null 2>&1 &
+            sleep 2
+            packaging/smoke-test.sh http://127.0.0.1:8080
+          else
+            packaging/smoke-test.sh "$PAGES_URL"
+          fi
