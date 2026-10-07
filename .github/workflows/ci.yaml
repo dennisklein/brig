@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - name: Check module is tidy
+        run: go mod tidy -diff
+      - name: Vet
+        run: go vet ./...
+      - name: Lint
+        run: golangci-lint run ./...
+      - name: Test
+        run: go test -race ./...
+      - name: Scan for known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - name: Check GoReleaser config
+        run: goreleaser check
+      - name: Build snapshot release
+        run: goreleaser release --snapshot --clean
