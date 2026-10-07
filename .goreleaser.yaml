@@ -16,7 +16,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X github.com/dennisklein/brig/internal/version.version={{ .Tag }}
+      - -s -w -X github.com/dennisklein/brig/internal/version.version=v{{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -26,10 +26,22 @@ archives:
     # Default-style asset names (brig_0.1.0_linux_amd64.tar.gz) are what
     # `mise use github:dennisklein/brig` auto-detects.
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Fixed ownership and timestamps make archives reproducible.
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
     files:
-      - LICENSE
-      - NOTICE
-      - README.md
+      - src: LICENSE
+        info: &fileinfo
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
+      - src: NOTICE
+        info: *fileinfo
+      - src: README.md
+        info: *fileinfo
 
 checksum:
   name_template: checksums.txt
@@ -41,5 +53,11 @@ changelog:
 
 release:
   name_template: "{{ .Tag }}"
+  # Tags like v1.0.0-rc.1 are published as GitHub pre-releases.
+  prerelease: auto
+  # Subject and body only; .TagContents would include a signed tag's
+  # signature block.
   header: |
-    {{ .TagContents }}
+    {{ .TagSubject }}
+
+    {{ .TagBody }}
