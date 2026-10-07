@@ -39,6 +39,6 @@ to OpenShell's own sandboxing.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newVersionCmd(), newPrintFedoraDepsCmd())
 	return cmd
 }
