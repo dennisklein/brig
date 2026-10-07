@@ -1,0 +1,276 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds NVIDIA OpenShell from source: an offline cargo build against a
+# vendored crate tarball. Derived from upstream's openshell.spec, which
+# repackages prebuilt binaries instead. Subpackages, the systemd user unit and
+# the file lists deliberately match upstream so the packages are drop-in
+# replacements.
+
+# Replaced by packaging/openshell/make-srpm.sh with the packaged release.
+%global openshell_version 0.0.0
+%global openshell_commit unknown
+# Bump when the packaging changes without a new OpenShell version.
+%global baserelease 1
+
+# No debuginfo packages: like upstream's packaging, ship stripped binaries
+# only. Copying the vendored sources into /usr/src/debug would also trip
+# brp-mangle-shebangs over .rs files that start with #![...] attributes.
+%global debug_package %{nil}
+
+# The SDK's dist-info lists grpcio and protobuf versions that Fedora may not
+# ship; keep them weak dependencies (Recommends below), as upstream does,
+# instead of letting the Python dependency generator turn them into Requires.
+%{?python_disable_dependency_generator}
+
+Name:           openshell
+Version:        %{openshell_version}
+Release:        %{baserelease}%{?dist}
+Summary:        Safe, sandboxed runtimes for autonomous AI agents
+
+License:        Apache-2.0
+URL:            https://github.com/NVIDIA/OpenShell
+# git archive of the upstream release tag
+Source0:        openshell-%{version}.tar.gz
+# the same tree's crates for x86_64 Linux, vendored by make-srpm.sh
+Source1:        openshell-%{version}-vendor.tar.xz
+
+ExclusiveArch:  x86_64
+
+BuildRequires:  cargo
+BuildRequires:  cargo-rpm-macros >= 25
+BuildRequires:  rust >= 1.94
+BuildRequires:  systemd-rpm-macros
+# aws-lc-sys and the bundled SQLite are C/C++ builds
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+BuildRequires:  cmake
+# openshell-prover links the system Z3; z3-sys generates bindings with clang
+BuildRequires:  pkgconfig(z3)
+BuildRequires:  clang
+BuildRequires:  clang-devel
+# man pages
+BuildRequires:  pandoc
+# Python SDK subpackage
+BuildRequires:  python3-devel
+
+# Runtime: container runtime for package-managed gateway sandboxes.
+Recommends:     podman
+
+%description
+OpenShell provides safe, sandboxed runtimes for autonomous AI agents.
+It offers a CLI for managing gateway registrations, sandboxes, and providers with
+policy-enforced egress routing, credential proxying, and privacy-aware
+profile-backed model-provider access.
+
+Built from source at upstream commit %{openshell_commit}.
+
+# --- Gateway sub-package ---
+%package gateway
+Summary:        OpenShell gateway server with Podman sandbox driver
+Requires:       podman
+Requires:       openssl
+Requires:       %{name} = %{version}-%{release}
+
+%description gateway
+OpenShell gateway server providing the control-plane API for sandbox
+lifecycle management. This package installs Podman-oriented defaults in
+gateway TOML while leaving compute driver selection to gateway auto-detection
+or explicit operator configuration.
+
+# --- Standalone policy prover sub-package ---
+%package prover
+Summary:        Standalone OpenShell policy boundary prover
+
+%description prover
+OpenShell policy prover for checking whether a local candidate policy stays
+within an operator-supplied maximum without connecting to a gateway.
+
+# --- Python SDK sub-package ---
+%package -n python3-%{name}
+Summary:        OpenShell Python SDK for agent execution and management
+BuildArch:      noarch
+# Recommends instead of Requires: Fedora may ship older grpcio and protobuf
+# than the SDK needs; those can be installed via pip/uv instead.
+Recommends:     python3-cloudpickle >= 3.0
+Recommends:     python3-grpcio >= 1.60
+Recommends:     python3-protobuf >= 4.25
+Recommends:     %{name}
+
+%description -n python3-%{name}
+Python SDK for OpenShell providing programmatic access to sandbox
+management, agent execution, and provider access via gRPC.
+
+%prep
+%autosetup -n %{name}-%{version} -a1
+%cargo_prep -v vendor
+# Some crates ship sources with stray executable bits.
+find vendor -type f -name '*.rs' -perm /111 -exec chmod a-x {} +
+
+# Stamp the release version into the workspace (upstream keeps 0.0.0) and
+# into the lock file entries of the workspace crates, so --locked builds pass.
+sed -i 's/^version = "0.0.0"$/version = "%{version}"/' Cargo.toml Cargo.lock
+grep -q '^version = "%{version}"$' Cargo.toml
+if grep -q '^version = "0.0.0"$' Cargo.lock; then exit 1; fi
+
+%build
+# Pin the default supervisor/sandbox image tags to this release.
+export OPENSHELL_IMAGE_TAG=%{version}
+# Fedora installs the Z3 headers below /usr/include/z3.
+export BINDGEN_EXTRA_CLANG_ARGS="-I%{_includedir}/z3"
+%cargo_build -- --package openshell-cli --bin openshell
+%cargo_build -- --package openshell-gateway --bin openshell-gateway
+%cargo_build -- --package openshell-prover-cli --bin openshell-prover
+
+%cargo_vendor_manifest
+%{cargo_license_summary}
+%{cargo_license} > LICENSE.dependencies
+
+pandoc -s -t man deploy/man/openshell.1.md -o openshell.1
+pandoc -s -t man deploy/man/openshell-gateway.8.md -o openshell-gateway.8
+
+%install
+install -Dpm 0755 target/rpm/openshell %{buildroot}%{_bindir}/openshell
+install -Dpm 0755 target/rpm/openshell-prover %{buildroot}%{_bindir}/openshell-prover
+install -Dpm 0755 target/rpm/openshell-gateway %{buildroot}%{_bindir}/openshell-gateway
+
+# Default gateway TOML config templates and their migration helper; the
+# systemd unit seeds ~/.config/openshell/gateway.toml on first start.
+install -Dpm 0644 deploy/rpm/gateway.toml.default %{buildroot}%{_datadir}/%{name}-gateway/gateway.toml.default
+install -Dpm 0644 deploy/rpm/gateway.toml.default.v1 %{buildroot}%{_datadir}/%{name}-gateway/gateway.toml.default.v1
+install -Dpm 0755 deploy/rpm/migrate-gateway-config.sh %{buildroot}%{_libexecdir}/%{name}-gateway-migrate-config
+
+# Gateway systemd user unit, identical to upstream's.
+install -d %{buildroot}%{_userunitdir}
+cat > %{buildroot}%{_userunitdir}/%{name}-gateway.service << 'UNIT'
+[Unit]
+Description=OpenShell Gateway (user)
+Documentation=https://github.com/NVIDIA/OpenShell
+After=podman.socket
+Wants=podman.socket
+
+[Service]
+Type=exec
+# On first start the unit seeds a default TOML config and generates PKI.
+# Client certs are placed in ~/.config/openshell/gateways/openshell/mtls/ so
+# the CLI discovers them automatically.
+# See /usr/share/doc/openshell-gateway/ for details.
+
+# Seed a default TOML config on first start. On upgrade, replace only the exact
+# schema-v1 config previously seeded by this package; preserve edited files.
+# %%E expands to $XDG_CONFIG_HOME (~/.config) in user units.
+ExecStartPre=%{_libexecdir}/%{name}-gateway-migrate-config %%E/openshell/gateway.toml /usr/share/openshell-gateway/gateway.toml.default /usr/share/openshell-gateway/gateway.toml.default.v1
+
+# Reject an invalid selected configuration before generating certificates or
+# starting the gateway. The environment file below applies to every command.
+ExecStartPre=/usr/bin/openshell-gateway config preflight
+
+# Auto-generate PKI on first start if not present.
+# The default local TLS dir uses %%h because %%S resolves differently across
+# systemd user-manager versions. gateway.env may override this path.
+Environment=OPENSHELL_LOCAL_TLS_DIR=%%h/.local/state/openshell/tls
+ExecStartPre=/usr/bin/openshell-gateway generate-certs --output-dir ${OPENSHELL_LOCAL_TLS_DIR} --server-san host.openshell.internal
+
+# gateway.env is honored for backward compatibility with pre-1415 installs.
+# New installs use runtime defaults; create gateway.toml to override.
+# See TROUBLESHOOTING.md for the env-to-TOML migration guide.
+EnvironmentFile=-%%E/openshell/gateway.env
+ExecStart=/usr/bin/openshell-gateway
+StateDirectory=openshell
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=default.target
+UNIT
+
+install -d %{buildroot}%{_docdir}/%{name}-gateway
+install -pm 0644 deploy/rpm/QUICKSTART.md %{buildroot}%{_docdir}/%{name}-gateway/QUICKSTART.md
+install -pm 0644 deploy/rpm/CONFIGURATION.md %{buildroot}%{_docdir}/%{name}-gateway/CONFIGURATION.md
+install -pm 0644 deploy/rpm/TROUBLESHOOTING.md %{buildroot}%{_docdir}/%{name}-gateway/TROUBLESHOOTING.md
+
+install -Dpm 0644 openshell.1 %{buildroot}%{_mandir}/man1/openshell.1
+install -Dpm 0644 openshell-gateway.8 %{buildroot}%{_mandir}/man8/openshell-gateway.8
+
+# Python SDK modules (test files are intentionally excluded)
+install -d %{buildroot}%{python3_sitelib}/%{name}/_proto
+install -pm 0644 python/%{name}/__init__.py %{buildroot}%{python3_sitelib}/%{name}/
+install -pm 0644 python/%{name}/sandbox.py %{buildroot}%{python3_sitelib}/%{name}/
+install -pm 0644 python/%{name}/_proto/__init__.py %{buildroot}%{python3_sitelib}/%{name}/_proto/
+install -pm 0644 python/%{name}/_proto/*.py %{buildroot}%{python3_sitelib}/%{name}/_proto/
+
+# dist-info so importlib.metadata can resolve the package version
+install -d %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info
+cat > %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info/METADATA << META
+Metadata-Version: 2.1
+Name: %{name}
+Version: %{version}
+Summary: OpenShell Python SDK for agent execution and management
+License: Apache-2.0
+Requires-Python: >=3.12
+Requires-Dist: cloudpickle>=3.0
+Requires-Dist: grpcio>=1.60
+Requires-Dist: protobuf>=4.25
+META
+echo rpm > %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info/INSTALLER
+touch %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info/RECORD
+
+%check
+%{buildroot}%{_bindir}/openshell --version | grep -F ' %{version}'
+%{buildroot}%{_bindir}/openshell-prover --version | grep -F ' %{version}'
+%{buildroot}%{_bindir}/openshell-gateway --version | grep -F ' %{version}'
+PYTHONPATH=%{buildroot}%{python3_sitelib} %{python3} -c "from importlib.metadata import version; assert version('openshell') == '%{version}'"
+grep -q '%{name}-gateway-migrate-config' %{buildroot}%{_userunitdir}/%{name}-gateway.service
+
+%post gateway
+%systemd_user_post %{name}-gateway.service
+
+%preun gateway
+%systemd_user_preun %{name}-gateway.service
+
+%postun gateway
+%systemd_user_postun_with_restart %{name}-gateway.service
+
+%files
+%license LICENSE
+%license LICENSE.dependencies
+%license cargo-vendor.txt
+%doc README.md
+%{_bindir}/%{name}
+%{_mandir}/man1/openshell.1*
+
+%files prover
+%license LICENSE
+%license LICENSE.dependencies
+%license cargo-vendor.txt
+%{_bindir}/%{name}-prover
+
+%files gateway
+%license LICENSE
+%license LICENSE.dependencies
+%license cargo-vendor.txt
+%doc %{_docdir}/%{name}-gateway/QUICKSTART.md
+%doc %{_docdir}/%{name}-gateway/CONFIGURATION.md
+%doc %{_docdir}/%{name}-gateway/TROUBLESHOOTING.md
+%{_bindir}/%{name}-gateway
+%{_userunitdir}/%{name}-gateway.service
+%{_libexecdir}/%{name}-gateway-migrate-config
+%{_datadir}/%{name}-gateway/gateway.toml.default
+%{_datadir}/%{name}-gateway/gateway.toml.default.v1
+%{_mandir}/man8/openshell-gateway.8*
+
+%files -n python3-%{name}
+%license LICENSE
+%{python3_sitelib}/%{name}/
+%{python3_sitelib}/%{name}-%{version}.dist-info/
+
+%changelog
+* Wed Oct 07 2026 Dennis Klein <d.klein@gsi.de> - 0.0.0-1
+- Build OpenShell from source with vendored crates
