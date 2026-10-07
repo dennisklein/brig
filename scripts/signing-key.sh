@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Create the OpenPGP key that signs brig's RPM packages and repository
+# metadata. Run it once, on a trusted machine, from a checkout of the repo:
+#
+# - generates an RSA-4096 signing key without passphrase or expiry in a
+#   throwaway GnuPG home
+# - creates the GitHub environment rpm-signing if needed and restricts it to
+#   the main branch, so that only workflow runs on main can read its secrets
+# - stores the secret key as secret RPM_SIGNING_KEY of that environment via
+#   the gh CLI
+# - writes the public key to packaging/brig-release/RPM-GPG-KEY-brig, to be
+#   committed
+# - keeps a backup of the secret key and its revocation certificate in
+#   ${XDG_DATA_HOME:-~/.local/share}/brig/signing-key/; move them to offline
+#   storage
+#
+# Env: BRIG_SIGNING_UID  key user ID (default: brig package signing <d.klein@gsi.de>)
+#      BRIG_REPO         GitHub repository (default: dennisklein/brig)
+set -euo pipefail
+
+uid=${BRIG_SIGNING_UID:-brig package signing <d.klein@gsi.de>}
+repo=${BRIG_REPO:-dennisklein/brig}
+environment=rpm-signing
+secret=RPM_SIGNING_KEY
+
+for cmd in gpg gh git; do
+  command -v "$cmd" > /dev/null || { echo "$cmd is required" >&2; exit 1; }
+done
+root=$(git rev-parse --show-toplevel)
+pubkey=$root/packaging/brig-release/RPM-GPG-KEY-brig
+backup=${XDG_DATA_HOME:-$HOME/.local/share}/brig/signing-key
+if [ -e "$pubkey" ]; then
+  echo "$pubkey already exists; to rotate the key, delete it and bump brig-release's Version" >&2
+  exit 1
+fi
+gh auth status > /dev/null
+
+# Restrict the environment before any key exists. This replaces the
+# environment's protection rules with a deployment branch policy.
+gh api --silent --method PUT "repos/$repo/environments/$environment" \
+  -F 'deployment_branch_policy[protected_branches]=false' \
+  -F 'deployment_branch_policy[custom_branch_policies]=true'
+branches=$(gh api "repos/$repo/environments/$environment/deployment-branch-policies" \
+  --jq '.branch_policies[] | select(.type == "branch") | .name')
+if ! grep -qx main <<< "$branches"; then
+  gh api --silent --method POST "repos/$repo/environments/$environment/deployment-branch-policies" \
+    -f name=main -f type=branch
+fi
+
+GNUPGHOME=$(mktemp -d)
+export GNUPGHOME
+trap 'rm -rf "$GNUPGHOME"' EXIT
+
+gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+  --quick-gen-key "$uid" rsa4096 sign never
+fpr=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+
+umask 077
+mkdir -p "$backup"
+gpg --batch --pinentry-mode loopback --passphrase '' --armor \
+  --export-secret-keys "$fpr" > "$backup/$fpr.secret.asc"
+cp "$GNUPGHOME/openpgp-revocs.d/$fpr.rev" "$backup/$fpr.rev"
+
+gh secret set "$secret" --repo "$repo" --env "$environment" < "$backup/$fpr.secret.asc"
+
+umask 022
+gpg --batch --armor --export "$fpr" > "$pubkey"
+
+cat <<MSG
+
+Created signing key $fpr ($uid).
+
+- Secret key stored as $secret in the $environment environment of $repo,
+  which only workflow runs on main can use.
+- Public key written to ${pubkey#"$root"/}; commit and push it.
+- Backups of the secret key and revocation certificate are in $backup.
+  Move them to offline storage and delete them from this machine.
+MSG

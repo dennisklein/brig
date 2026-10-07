@@ -3,3 +3,7 @@
 go = "1.27.1"
 golangci-lint = "2.14.0"
 goreleaser = "2.18.2"
+
+[tasks.signing-key]
+description = "Create the key that signs brig's RPM repository (run once, see scripts/signing-key.sh)"
+run = "scripts/signing-key.sh"
