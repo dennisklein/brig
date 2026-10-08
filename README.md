@@ -105,6 +105,10 @@ openshell sandbox create --driver-config-json \
 Container images built on the host get into a VM with
 `brig image push dev localhost/my-agent:latest`.
 
+[docs/openshell.md](docs/openshell.md) explains OpenShell's concepts and
+walks through GitHub and GitLab providers, a Pi sandbox, a daily workflow,
+and keeping images up to date without losing agent state.
+
 ## Commands
 
 | Command | Purpose |
