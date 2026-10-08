@@ -108,6 +108,7 @@ func TestRunEnvironment(t *testing.T) {
 	t.Setenv("OPENSHELL_GATEWAY", "other")
 	t.Setenv("OPENSHELL_GATEWAY_ENDPOINT", "https://example.com")
 	t.Setenv("OPENSHELL_GATEWAY_INSECURE", "1")
+	t.Setenv("OPENSHELL_WORKSPACE", "team")
 	t.Setenv("OPENSHELL_COLOR", "never")
 	out, err := c.run(context.Background())
 	if err != nil {

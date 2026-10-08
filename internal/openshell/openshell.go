@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package openshell drives the host's openshell CLI for brig VMs: it
-// registers each VM's OpenShell gateway and keeps the gateway's mTLS client
-// bundle in the CLI's configuration directory up to date.
+// registers each VM's OpenShell gateway, keeps the gateway's mTLS client
+// bundle in the CLI's configuration directory up to date, and manages the
+// gateway's provider profiles and providers.
 //
 // The layout of that directory follows OpenShell v0.1.2:
 // <ConfigHome>/active_gateway names the selected gateway and
@@ -253,23 +254,36 @@ func (c *CLI) keepActive() (restore func() error, err error) {
 }
 
 // gatewayEnv lists variables that could point the CLI at another gateway than
-// the one brig names, or make it skip verifying the gateway's certificate.
-var gatewayEnv = []string{"OPENSHELL_GATEWAY", "OPENSHELL_GATEWAY_ENDPOINT", "OPENSHELL_GATEWAY_INSECURE"}
+// the one brig names, make it skip verifying the gateway's certificate, or
+// select another workspace than the gateway's default one.
+var gatewayEnv = []string{"OPENSHELL_GATEWAY", "OPENSHELL_GATEWAY_ENDPOINT", "OPENSHELL_GATEWAY_INSECURE", "OPENSHELL_WORKSPACE"}
 
 // run runs the CLI and returns its standard output. Errors include what the
 // CLI reported.
 func (c *CLI) run(ctx context.Context, args ...string) ([]byte, error) {
+	return c.runEnv(ctx, nil, args...)
+}
+
+// runEnv is run with the additional environment variables env, each
+// KEY=VALUE, which replace inherited variables of the same name.
+func (c *CLI) runEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	if !filepath.IsAbs(c.ConfigHome) || filepath.Base(c.ConfigHome) != "openshell" {
 		return nil, fmt.Errorf("openshell config home %q is not an absolute path ending in /openshell", c.ConfigHome)
+	}
+	extra := map[string]bool{}
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		extra[name] = true
 	}
 	cmd := exec.CommandContext(ctx, c.Path, args...)
 	cmd.Env = []string{"XDG_CONFIG_HOME=" + filepath.Dir(c.ConfigHome)}
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if name != "XDG_CONFIG_HOME" && !slices.Contains(gatewayEnv, name) {
+		if name != "XDG_CONFIG_HOME" && !slices.Contains(gatewayEnv, name) && !extra[name] {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
+	cmd.Env = append(cmd.Env, env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
