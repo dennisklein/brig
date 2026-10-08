@@ -102,6 +102,7 @@ func Run(ctx context.Context, h Host) []Result {
 		checkBinary(h, "virsh", "libvirt client, used by brig console", Warn),
 		checkBinary(h, "virtiofsd", "needed only for --mount", Warn, "/usr/libexec/virtiofsd"),
 		checkBinary(h, "podman", "needed only for brig image push", Warn),
+		checkBinary(h, "secret-tool", "needed only for providers in OpenShell config directories", Warn),
 		checkBinary(h, "ukify", "unified kernel image builder, used by mkosi", Fail, "/usr/lib/systemd/ukify"),
 		checkFirmware(h),
 		checkMkosi(ctx, h),
@@ -191,6 +192,8 @@ func checkBinary(h Host, name, purpose string, missing Status, fallbacks ...stri
 		r.Hint = "sudo dnf install $(brig print-fedora-deps --with mounts)"
 	case "podman":
 		r.Hint = "sudo dnf install $(brig print-fedora-deps --with push)"
+	case "secret-tool":
+		r.Hint = "sudo dnf install $(brig print-fedora-deps --with secrets)"
 	default:
 		r.Hint = depsHint
 	}

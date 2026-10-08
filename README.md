@@ -54,8 +54,10 @@ sudo dnf install $(brig print-fedora-deps)
 brig doctor
 ```
 
-Add `--with mounts` to `print-fedora-deps` for `--mount` (virtiofsd), and
-`--with push` for `brig image push` (Podman), or `--with all` for both.
+Add `--with mounts` to `print-fedora-deps` for `--mount` (virtiofsd),
+`--with push` for `brig image push` (Podman), `--with secrets` for providers
+in [OpenShell config directories](#openshell-config-directories)
+(secret-tool), or `--with all` for all of them.
 
 The host also needs the `openshell` CLI, matching the VMs' OpenShell version:
 
@@ -70,7 +72,7 @@ sudo dnf install --setopt=install_weak_deps=False openshell
 ```sh
 brig create dev                     # builds a base image first if needed
 brig list
-eval $(brig env dev)                # point the openshell CLI at the VM's gateway
+eval "$(brig env dev)"              # point the openshell CLI at the VM's gateway
 
 # Credentials go from your shell straight to the VM's gateway. A gateway needs
 # the provider profile (a type definition, no secrets) first.
@@ -107,14 +109,15 @@ Container images built on the host get into a VM with
 
 | Command | Purpose |
 |---|---|
-| `create NAME` | create and start a VM (`--cpus`, `--memory`, `--root-disk`, `--data-disk`, `--profile`, `--mount`, `--image`) |
+| `create NAME` | create and start a VM (`--cpus`, `--memory`, `--root-disk`, `--data-disk`, `--profile`, `--mount`, `--image`, `--openshell-config`) |
 | `list`, `show NAME` | list VMs, show one (`-o json`) |
 | `start NAME`, `stop NAME` | boot (and re-register the gateway), shut down (`--force` powers off) |
-| `update NAME` | change CPUs, memory, profile and mounts, grow disks (all at the next boot) |
+| `update NAME` | change CPUs, memory, profile and mounts, grow disks (all at the next boot), add or remove OpenShell config directories |
+| `sync NAME` | apply the VM's OpenShell config directories to its gateway (`--dry-run`, `--prune`, `--refresh-secrets`) |
 | `upgrade NAME` | move onto the newest base image, rolling back on failure |
 | `delete NAME` | delete the VM, its disks and its gateway registration |
 | `ssh NAME`, `console NAME` | shell (`--root` for root), serial console |
-| `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` |
+| `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the default sandbox policy as `OPENSHELL_SANDBOX_POLICY`; use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
 | `doctor`, `print-fedora-deps` | check host prerequisites, list the Fedora packages they need |
@@ -149,6 +152,10 @@ network_profiles:
   ollama:               # internet plus a model server on the host
     internet: true
     host_ports: [11434]
+
+openshell:
+  secret_tool: secret-tool   # looks up provider secrets; a name or an absolute path
+  configs: []                # OpenShell config directories of new VMs, e.g. [~/src/team-openshell]
 ```
 
 The host is reachable from a VM at the VM's default gateway address; with
@@ -166,6 +173,65 @@ without internet access. Profiles that allow none of these, such as
 A VM's gateway pulls OpenShell's container images from ghcr.io and nvcr.io
 and refreshes provider tokens itself, so profiles without `internet` need
 images pushed into the VM.
+
+## OpenShell config directories
+
+An OpenShell config directory holds what you would otherwise set up in each
+VM's gateway by hand. brig applies a VM's config directories to its gateway
+at every `brig start`, and on demand with `brig sync NAME`:
+
+```
+~/src/team-openshell/            # shared: profiles and policies, no secrets
+  profiles/gitlab-corp.yaml      # OpenShell provider profiles, as they are
+  policies/default.yaml          # default policy for new sandboxes
+~/.config/brig/openshell/        # personal: providers
+  providers/github.yaml
+```
+
+```yaml
+# providers/github.yaml
+name: github
+type: github                     # a profile ID
+credentials:
+  GH_TOKEN:
+    secret_tool:                 # the arguments of `secret-tool lookup`
+      lookup: [service, github.com, user, alice]
+```
+
+Store the secret in your keyring once:
+
+```sh
+secret-tool store --label='GitHub token' service github.com user alice
+```
+
+- **Profiles** are imported into the gateway's default workspace, or updated
+  there when their file changed.
+- **Providers** are created, or updated when one of their secrets changed.
+  brig runs `secret-tool lookup ATTRIBUTE VALUE...` and hands the value to
+  the `openshell` CLI in its environment, never on a command line, and never
+  writes it to disk. Provider files cannot hold values. To notice changes,
+  brig keeps keyed fingerprints of the secrets, with their key, in the VM's
+  private directory; `--refresh-secrets` updates all providers anyway.
+- **The default policy** is exported by `eval "$(brig env NAME)"` as
+  `OPENSHELL_SANDBOX_POLICY`, so `openshell sandbox create` uses it; for a
+  VM without one, `brig env` unsets the variable.
+
+Give a VM its directories with `brig create --openshell-config DIR`
+(repeatable; `openshell.configs` in `config.yaml` sets the default) or
+`brig update --add-openshell-config DIR`. A profile or provider defined in
+two directories is an error. `brig sync --dry-run` shows what would change,
+including where each provider's credentials may be sent: the endpoints of
+its profile. Check a shared profile's endpoints before you pair it with your
+own secrets. `brig start` keeps back profile changes that would add
+endpoints for credentials the gateway holds already, until you apply them
+with `brig sync`, which names the new endpoints. Without `--prune`, brig
+never deletes anything; with it, brig deletes the profiles and providers it
+created that no directory defines any more. What you created by hand is
+only touched when a directory defines it, and never deleted.
+
+`openshell.secret_tool` in `config.yaml` (or `brig sync --secret-tool`)
+selects another program with the same `lookup` arguments. Config directories
+cannot set it, so a shared one cannot run programs on your host.
 
 ## OpenShell packages
 

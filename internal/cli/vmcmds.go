@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/image"
 	"github.com/dennisklein/brig/internal/libvirt"
+	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/qemuimg"
@@ -35,8 +37,9 @@ func newCreateCmd() *cobra.Command {
 		rootDisk         bytesize.Size
 		dataDisk         bytesize.Size
 		profile, imageID string
-		mounts           []string
+		mounts, configs  []string
 		noStart          bool
+		noConfigs        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create NAME",
@@ -49,7 +52,13 @@ Mounts share host directories with the VM via virtiofs:
 TARGET defaults to /mnt/<basename of SOURCE>. OPTIONS is a comma-separated
 list of ro (default), rw and sandbox; sandbox also offers the directory to
 OpenShell sandboxes, read-only, as a Podman volume named after the mount's
-tag (see brig show).`,
+tag (see brig show).
+
+OpenShell config directories hold provider profiles and providers, which
+brig applies to the VM's gateway at every start, and a default sandbox
+policy, which eval "$(brig env NAME)" exports (see brig sync --help).
+Without --openshell-config, the VM gets the directories listed as
+openshell.configs in config.yaml.`,
 		Example: `  brig create dev
   brig create dev --memory 16GiB --mount ~/src/project:/work/project:rw
   brig create offline --profile isolated`,
@@ -102,6 +111,18 @@ tag (see brig show).`,
 			if err := checkVM(v); err != nil {
 				return err
 			}
+			if !noConfigs {
+				dirs := a.cfg.OpenShell.Configs
+				if f.Changed("openshell-config") {
+					dirs = configs
+				}
+				if v.OpenShellConfigs, err = configDirs(dirs); err != nil {
+					return err
+				}
+				if _, err := ocsync.Load(v.OpenShellConfigs); err != nil {
+					return err
+				}
+			}
 			if v.RootDisk < config.MinRootDisk || v.DataDisk < config.MinDataDisk {
 				return fmt.Errorf("a VM needs a root disk of at least %s and a data disk of at least %s", config.MinRootDisk, config.MinDataDisk)
 			}
@@ -117,9 +138,13 @@ tag (see brig show).`,
 	f.StringVar(&imageID, "image", "", "base image ID (default: newest)")
 	f.StringArrayVar(&mounts, "mount", nil, "share a host directory: SOURCE[:TARGET][:OPTIONS], OPTIONS a comma-separated list of ro (default), rw and sandbox (repeatable)")
 	f.BoolVar(&noStart, "no-start", false, "create the VM without starting it")
+	f.StringArrayVar(&configs, "openshell-config", nil, "OpenShell config directory to apply to the VM's gateway (repeatable; default: openshell.configs from config.yaml)")
+	f.BoolVar(&noConfigs, "no-openshell-config", false, "apply no OpenShell config directories")
+	cmd.MarkFlagsMutuallyExclusive("openshell-config", "no-openshell-config")
 	hideDefaults(cmd, "memory", "root-disk", "data-disk")
 	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
 	_ = cmd.RegisterFlagCompletionFunc("image", completeImages)
+	_ = cmd.RegisterFlagCompletionFunc("openshell-config", completeDirs)
 	return cmd
 }
 
@@ -343,6 +368,9 @@ type vmStatus struct {
 	*vm.VM
 	State   string `json:"state"`
 	Gateway string `json:"gateway"`
+	// OpenShellSync is the outcome of the last sync of the VM's OpenShell
+	// config directories; only show reports it.
+	OpenShellSync *ocsync.Record `json:"openshell_sync,omitempty"`
 }
 
 // status returns the VMs it can read with their states, and an error about
@@ -405,7 +433,7 @@ func newListCmd() *cobra.Command {
 func newShowCmd() *cobra.Command {
 	var format outputFormat
 	cmd := vmCommand("show NAME", "Show a VM's settings and state", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		st := vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName()}
+		st := vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName(), OpenShellSync: a.lastSync(v)}
 		if conn, err := a.connect(ctx); err == nil {
 			defer func() { _ = conn.Close() }()
 			if s, err := conn.State(v.DomainName()); err == nil {
@@ -433,6 +461,16 @@ func newShowCmd() *cobra.Command {
 				row("Mount", m)
 			}
 		}
+		for _, dir := range v.OpenShellConfigs {
+			row("OpenShell config", dir)
+		}
+		if r := st.OpenShellSync; r != nil {
+			result := "ok"
+			if r.Error != "" {
+				result = "failed: " + r.Error
+			}
+			row("Last sync", fmt.Sprintf("%s, %s", r.Time.Local().Format(time.DateTime), result))
+		}
 		row("SSH", fmt.Sprintf("brig ssh %s (127.0.0.1:%d)", v.Name, v.Ports.SSH))
 		row("Gateway", fmt.Sprintf("%s (https://127.0.0.1:%d)", v.GatewayName(), v.Ports.Gateway))
 		row("Directory", a.vms.Dir(v.Name))
@@ -448,8 +486,9 @@ func newUpdateCmd() *cobra.Command {
 		memory, rootDisk, dataDk bytesize.Size
 		profile                  string
 		addMounts, removeMounts  []string
+		addConfigs, rmConfigs    []string
 	)
-	cmd := vmCommand("update NAME", "Change a VM's resources, mounts or network profile", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("update NAME", "Change a VM's resources, mounts, network profile or OpenShell config directories", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockVM(v.Name)
 		if err != nil {
 			return err
@@ -489,6 +528,32 @@ func newUpdateCmd() *cobra.Command {
 		v.AssignMountTags()
 		if err := checkVM(v); err != nil {
 			return err
+		}
+		rmDirs, err := configDirs(rmConfigs)
+		if err != nil {
+			return err
+		}
+		v.OpenShellConfigs = slices.Clone(v.OpenShellConfigs)
+		for _, dir := range rmDirs {
+			i := slices.Index(v.OpenShellConfigs, dir)
+			if i < 0 {
+				return fmt.Errorf("VM %s has no OpenShell config directory %s", v.Name, dir)
+			}
+			v.OpenShellConfigs = slices.Delete(v.OpenShellConfigs, i, i+1)
+		}
+		addDirs, err := configDirs(addConfigs)
+		if err != nil {
+			return err
+		}
+		for _, dir := range addDirs {
+			if !slices.Contains(v.OpenShellConfigs, dir) {
+				v.OpenShellConfigs = append(v.OpenShellConfigs, dir)
+			}
+		}
+		if len(addConfigs)+len(rmConfigs) > 0 {
+			if _, err := ocsync.Load(v.OpenShellConfigs); err != nil {
+				return err
+			}
 		}
 
 		conn, err := a.connect(ctx)
@@ -541,9 +606,18 @@ func newUpdateCmd() *cobra.Command {
 		}
 		w := cmd.OutOrStdout()
 		fmt.Fprintf(w, "Updated VM %s.\n", v.Name)
-		if running {
+		configFlags := 0
+		for _, name := range []string{"add-openshell-config", "remove-openshell-config"} {
+			if f.Changed(name) {
+				configFlags++
+			}
+		}
+		if running && (f.NFlag() == 0 || f.NFlag() > configFlags) {
 			// The guest grows its file systems at boot.
 			fmt.Fprintf(w, "The changes, including the space on grown disks, apply when %s next starts: brig stop %[1]s && brig start %[1]s\n", v.Name)
+		}
+		if running && !slices.Equal(old.OpenShellConfigs, v.OpenShellConfigs) {
+			fmt.Fprintf(w, "Apply the OpenShell config directories now with `brig sync %s`; brig start applies them too.\n", v.Name)
 		}
 		return nil
 	})
@@ -555,9 +629,13 @@ func newUpdateCmd() *cobra.Command {
 	f.StringVar(&profile, "profile", "", "network profile")
 	f.StringArrayVar(&addMounts, "add-mount", nil, "add a mount: SOURCE[:TARGET][:OPTIONS] as for brig create --mount (repeatable)")
 	f.StringArrayVar(&removeMounts, "remove-mount", nil, "remove the mount at this target directory (repeatable)")
+	f.StringArrayVar(&addConfigs, "add-openshell-config", nil, "add an OpenShell config directory (repeatable)")
+	f.StringArrayVar(&rmConfigs, "remove-openshell-config", nil, "remove an OpenShell config directory (repeatable)")
 	hideDefaults(cmd, "memory", "root-disk", "data-disk")
 	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
 	_ = cmd.RegisterFlagCompletionFunc("remove-mount", completeMountTargets)
+	_ = cmd.RegisterFlagCompletionFunc("add-openshell-config", completeDirs)
+	_ = cmd.RegisterFlagCompletionFunc("remove-openshell-config", completeConfigDirs)
 	return cmd
 }
 
@@ -628,10 +706,33 @@ func newConsoleCmd() *cobra.Command {
 }
 
 func newEnvCmd() *cobra.Command {
-	return vmCommand("env NAME", "Print shell commands that point the openshell CLI at a VM", func(_ context.Context, cmd *cobra.Command, _ *app, v *vm.VM) error {
-		fmt.Fprintf(cmd.OutOrStdout(), "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
+	cmd := vmCommand("env NAME", "Print shell commands that point the openshell CLI at a VM", func(_ context.Context, cmd *cobra.Command, _ *app, v *vm.VM) error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
+		policy := ""
+		if len(v.OpenShellConfigs) > 0 {
+			set, err := ocsync.Load(v.OpenShellConfigs)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", err)
+			} else {
+				policy = set.DefaultPolicy
+			}
+		}
+		// Unset a default policy that another VM's environment exported.
+		if policy == "" {
+			fmt.Fprintln(out, "unset OPENSHELL_SANDBOX_POLICY")
+		} else {
+			fmt.Fprintf(out, "export OPENSHELL_SANDBOX_POLICY=%s\n", shellQuote(policy))
+		}
 		return nil
 	})
+	cmd.Long = `Print shell commands that point the openshell CLI at a VM's gateway:
+OPENSHELL_GATEWAY, and OPENSHELL_SANDBOX_POLICY when one of the VM's
+OpenShell config directories has a policies/default.yaml (else it is
+unset, so that no other VM's default policy applies). Use it as
+eval "$(brig env NAME)"; without the quotes, the shell splits paths
+that contain spaces.`
+	return cmd
 }
 
 // execve replaces brig with the named program, which gets the arguments argv

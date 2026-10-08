@@ -12,7 +12,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -24,6 +26,19 @@ import (
 type Config struct {
 	Defaults        Defaults                  `yaml:"defaults"`
 	NetworkProfiles map[string]NetworkProfile `yaml:"network_profiles"`
+	OpenShell       OpenShell                 `yaml:"openshell"`
+}
+
+// OpenShell configures how brig applies OpenShell config directories to the
+// VMs' gateways.
+type OpenShell struct {
+	// SecretTool is the program brig runs as `SECRET_TOOL lookup ATTRIBUTE
+	// VALUE...` to read provider secrets: a name to look up in PATH or an
+	// absolute path. Config directories cannot set it, so that one shared
+	// with others cannot run programs on the user's host.
+	SecretTool string `yaml:"secret_tool"`
+	// Configs are the config directories of new VMs.
+	Configs []string `yaml:"configs"`
 }
 
 // Defaults are used for settings a command does not set explicitly.
@@ -72,6 +87,7 @@ func Builtin() *Config {
 			"open":     {Internet: true, Host: true, LAN: true, IPv6: true},
 			"isolated": {},
 		},
+		OpenShell: OpenShell{SecretTool: "secret-tool"},
 	}
 }
 
@@ -93,6 +109,9 @@ func Load(path string) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&file); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := file.OpenShell.expandHome(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.overlay(&file)
@@ -125,6 +144,37 @@ func (c *Config) overlay(o *Config) {
 	for name, p := range o.NetworkProfiles {
 		c.NetworkProfiles[name] = p
 	}
+	if o.OpenShell.SecretTool != "" {
+		c.OpenShell.SecretTool = o.OpenShell.SecretTool
+	}
+	if o.OpenShell.Configs != nil {
+		c.OpenShell.Configs = o.OpenShell.Configs
+	}
+}
+
+// expandHome replaces a leading "~/" in the paths with the home directory.
+func (o *OpenShell) expandHome() error {
+	expand := func(p *string) error {
+		rest, ok := strings.CutPrefix(*p, "~/")
+		if !ok {
+			return nil
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		*p = filepath.Join(home, rest)
+		return nil
+	}
+	if err := expand(&o.SecretTool); err != nil {
+		return err
+	}
+	for i := range o.Configs {
+		if err := expand(&o.Configs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // The least resources of a VM, for the defaults and for each VM.
@@ -156,6 +206,14 @@ func (c *Config) Validate() error {
 	for _, name := range c.ProfileNames() {
 		if err := c.NetworkProfiles[name].validate(); err != nil {
 			return fmt.Errorf("network_profiles.%s: %w", name, err)
+		}
+	}
+	if t := c.OpenShell.SecretTool; t == "" || (strings.Contains(t, "/") && !filepath.IsAbs(t)) {
+		return errors.New("openshell.secret_tool must be a program name or an absolute path")
+	}
+	for _, dir := range c.OpenShell.Configs {
+		if !filepath.IsAbs(dir) {
+			return fmt.Errorf("openshell.configs: %q is not an absolute path", dir)
 		}
 	}
 	return nil

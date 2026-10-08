@@ -39,6 +39,9 @@ type VM struct {
 	// AssignMountTags.
 	NextMountTag int   `json:"next_mount_tag,omitempty"`
 	Ports        Ports `json:"ports"`
+	// OpenShellConfigs are the absolute paths of the OpenShell config
+	// directories that brig applies to the VM's gateway.
+	OpenShellConfigs []string `json:"openshell_configs,omitempty"`
 }
 
 // Ports are the host loopback ports forwarded into the VM.
@@ -123,6 +126,11 @@ func (s Store) Load(name string) (*VM, error) {
 	for _, m := range v.Mounts {
 		if m.Sandbox && !m.ReadOnly {
 			return nil, fmt.Errorf("%s: sandbox mount %s must be read-only", s.recordPath(name), m.Target)
+		}
+	}
+	for _, dir := range v.OpenShellConfigs {
+		if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
+			return nil, fmt.Errorf("%s: OpenShell config directory %q is not a clean absolute path", s.recordPath(name), dir)
 		}
 	}
 	return &v, nil

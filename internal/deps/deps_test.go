@@ -24,7 +24,7 @@ func TestPackages(t *testing.T) {
 		t.Fatalf("Packages(mounts) = %v", withMounts)
 	}
 	all, err := Packages("all")
-	if err != nil || !slices.Contains(all, "podman") || len(all) != len(withMounts)+1 {
+	if err != nil || !slices.Contains(all, "podman") || !slices.Contains(all, "libsecret") || len(all) != len(withMounts)+2 {
 		t.Fatalf("Packages(all) = %v, %v", all, err)
 	}
 	if _, err := Packages("bogus"); err == nil {
@@ -46,7 +46,7 @@ func TestGroupsAreWellFormed(t *testing.T) {
 			seen[p.Name] = true
 		}
 	}
-	if got := OptionalGroupNames(); !slices.Equal(got, []string{"mounts", "push"}) {
+	if got := OptionalGroupNames(); !slices.Equal(got, []string{"mounts", "push", "secrets"}) {
 		t.Errorf("OptionalGroupNames() = %v", got)
 	}
 }

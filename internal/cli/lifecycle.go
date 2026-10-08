@@ -16,6 +16,7 @@ import (
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/libvirt"
+	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/ports"
 	"github.com/dennisklein/brig/internal/sshx"
@@ -282,21 +283,39 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer) error {
 	if err := cli.Register(ctx, v.GatewayName(), v.Ports.Gateway); err != nil {
 		return fmt.Errorf("registering the gateway: %w", err)
 	}
-	a.checkVersions(ctx, cli, v, sync, w)
-	fmt.Fprintf(w, "OpenShell gateway registered as %[1]s. Use it with `openshell -g %[1]s ...` or `eval $(brig env %[2]s)`.\n", v.GatewayName(), v.Name)
+	answers := a.checkVersions(ctx, cli, v, sync, w)
+	fmt.Fprintf(w, "OpenShell gateway registered as %[1]s. Use it with `eval \"$(brig env %[2]s)\"`, which also sets the default sandbox policy, or `openshell -g %[1]s ...`.\n", v.GatewayName(), v.Name)
+	if len(v.OpenShellConfigs) > 0 {
+		if !answers {
+			fmt.Fprintf(w, "Run `brig sync %s` to apply its OpenShell config directories once the gateway answers.\n", v.Name)
+			return nil
+		}
+		// A keyring that waits for an unlock must not hold up the start
+		// for long.
+		ctx, cancel := context.WithTimeout(ctx, startSyncTimeout)
+		defer cancel()
+		if err := a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true}, ""); err != nil {
+			fmt.Fprintf(w, "Warning: applying the OpenShell config directories failed; fix it and run `brig sync %s`: %v\n", v.Name, err)
+		}
+	}
 	return nil
 }
+
+// startSyncTimeout bounds the sync of a VM's OpenShell config directories
+// when it starts.
+const startSyncTimeout = 3 * time.Minute
 
 // checkVersions waits until the gateway answers and warns when the host CLI
 // and the gateway differ in their minor version, which OpenShell does not
 // support. While the gateway does not answer, it copies the client
 // certificates again with sync: a gateway regenerates its whole PKI on start
 // when its certificates lack a name its version requires, e.g. after an
-// upgrade, and an earlier copy may then be stale.
-func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, sync func(context.Context) error, w io.Writer) {
+// upgrade, and an earlier copy may then be stale. It reports whether the
+// gateway answers.
+func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, sync func(context.Context) error, w io.Writer) bool {
 	host, err := cli.Version(ctx)
 	if err != nil {
-		return
+		return false
 	}
 	var gw string
 	_ = waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
@@ -307,11 +326,12 @@ func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, s
 	})
 	if gw == "" {
 		fmt.Fprintf(w, "Warning: the gateway %s does not answer yet; check `openshell -g %s status` later.\n", v.GatewayName(), v.GatewayName())
-		return
+		return false
 	}
 	if !openshell.CompatibleVersions(host, gw) {
 		fmt.Fprintf(w, "Warning: the openshell CLI is version %s but the gateway in %s runs %s; install the matching CLI version.\n", host, v.Name, gw)
 	}
+	return true
 }
 
 // waitFor retries fn with a growing pause until it succeeds or timeout.

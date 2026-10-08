@@ -67,6 +67,13 @@ func Groups() []Group {
 				{"podman", "exports the container images built on the host"},
 			},
 		},
+		{
+			Name:        "secrets",
+			Description: "read provider secrets from your keyring (OpenShell config directories)",
+			Packages: []Package{
+				{"libsecret", "secret-tool, which brig sync runs to look up provider secrets"},
+			},
+		},
 	}
 }
 

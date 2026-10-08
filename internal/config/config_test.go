@@ -79,6 +79,8 @@ func TestLoadErrors(t *testing.T) {
 		"unknown profile": {"defaults:\n  network_profile: nope\n", `unknown network profile "nope"`},
 		"tiny memory":     {"defaults:\n  memory: 1MiB\n", "at least 512MiB"},
 		"port zero":       {"network_profiles:\n  x:\n    host_ports: [0]\n", "must not contain 0"},
+		"relative tool":   {"openshell:\n  secret_tool: bin/secret-tool\n", "absolute path"},
+		"relative config": {"openshell:\n  configs: [team]\n", "not an absolute path"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, tc.yaml))
@@ -94,5 +96,24 @@ func TestProfileNamesSorted(t *testing.T) {
 	want := []string{"default", "isolated", "open"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ProfileNames() = %v, want %v", got, want)
+	}
+}
+
+func TestLoadOpenShell(t *testing.T) {
+	if b := Builtin().OpenShell; b.SecretTool != "secret-tool" || b.Configs != nil {
+		t.Errorf("built-in openshell section: %+v", b)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg, err := Load(write(t, "openshell:\n  secret_tool: ~/bin/my-secret-tool\n  configs: [~/team, /etc/brig/openshell]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := OpenShell{
+		SecretTool: filepath.Join(home, "bin", "my-secret-tool"),
+		Configs:    []string{filepath.Join(home, "team"), "/etc/brig/openshell"},
+	}
+	if !reflect.DeepEqual(cfg.OpenShell, want) {
+		t.Errorf("openshell section = %+v, want %+v", cfg.OpenShell, want)
 	}
 }
