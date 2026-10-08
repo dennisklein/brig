@@ -34,6 +34,10 @@ jobs:
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Release the tag that triggered this run. GoReleaser would pick
+          # the highest tag on the commit by git's version sort, which ranks
+          # v1.0.0-rc.1 above v1.0.0.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ./dist/checksums.txt
