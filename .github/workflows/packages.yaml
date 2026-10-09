@@ -180,6 +180,10 @@ jobs:
 
   deploy:
     needs: publish
+    # A publish without a build skips srpm and rpm, and the default
+    # condition would skip this job with them.
+    if: >-
+      !cancelled() && needs.publish.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
