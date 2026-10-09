@@ -238,7 +238,8 @@ jobs:
   smoke-test:
     needs: [plan, deploy, dry-run]
     if: >-
-      !cancelled() && !failure() && needs.plan.outputs.build == 'true'
+      !cancelled() && !failure() &&
+      (needs.plan.outputs.build == 'true' || needs.plan.outputs.publish == 'real')
     runs-on: ubuntu-latest
     permissions:
       contents: read

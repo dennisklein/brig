@@ -8,6 +8,8 @@
 #       INPUT_TAG      OpenShell release tag; empty means the latest release
 #       REBUILD        "true" rebuilds even if the packages are published
 #       GITHUB_REF     only refs/heads/main may publish
+#       GITHUB_EVENT_NAME  "push" republishes the site even if nothing needs
+#                      building, so that changes to it go live
 # Writes tag, version, fedora (JSON list), build (true|false) and
 # publish (real|dry-run|none) to $GITHUB_OUTPUT (stdout when unset).
 set -euo pipefail
@@ -47,7 +49,7 @@ if [ "${REBUILD:-false}" = true ]; then
 fi
 
 publish=none
-if [ "$build" = true ] || [ "$release_missing" = true ]; then
+if [ "$build" = true ] || [ "$release_missing" = true ] || [ "${GITHUB_EVENT_NAME:-}" = push ]; then
   if [ "${GITHUB_REF:-}" = refs/heads/main ] && [ -s "$here/brig-release/RPM-GPG-KEY-brig" ]; then
     publish=real
   else
