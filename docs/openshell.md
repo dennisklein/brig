@@ -262,15 +262,17 @@ pi-image/
 
 ```dockerfile
 # Containerfile
-FROM docker.io/library/node:24-bookworm-slim
+FROM registry.fedoraproject.org/fedora-minimal:44
 
 ARG PI_VERSION=1.1.0
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      bash ca-certificates curl fd-find gh git jq ripgrep \
- && ln -s /usr/bin/fdfind /usr/local/bin/fd \
- && rm -rf /var/lib/apt/lists/*
-# glab: install the .deb from its releases page here, at /usr/bin/glab
+RUN dnf -y install --setopt=install_weak_deps=False \
+      fd-find gh git-core jq nodejs24 nodejs24-bin nodejs24-npm-bin ripgrep \
+ && dnf clean all \
+ && useradd --create-home --uid 1000 pi
+# glab: add it to the list if your Fedora release packages it, or install the
+# .rpm from its releases page, at /usr/bin/glab
+# npm's global installs go to /usr/local, where the paths below expect them.
+ENV NPM_CONFIG_PREFIX=/usr/local
 
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
 # Third-party Pi packages, pinned. --legacy-peer-deps keeps npm from
@@ -286,7 +288,7 @@ COPY --chmod=755 pi-sandbox /usr/local/bin/pi-sandbox
 RUN git config --system credential.https://github.com.helper \
       '!/usr/bin/gh auth git-credential'
 
-USER node
+USER pi
 WORKDIR /sandbox
 ENV PI_CODING_AGENT_DIR=/sandbox/.pi/agent \
     GH_CONFIG_DIR=/sandbox/.config/gh \
@@ -294,8 +296,10 @@ ENV PI_CODING_AGENT_DIR=/sandbox/.pi/agent \
     PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
 ```
 
-`fd` and `ripgrep` are in the image because Pi otherwise downloads them on
-first use, which the sandbox blocks. The `PI_*` switches stop Pi's own update
+The image builds on Fedora minimal, like the VMs: glibc, so whatever an agent
+installs or downloads runs, and current packages, such as Node 24. `fd` and
+`ripgrep` are in the image because Pi otherwise downloads them on first use,
+which the sandbox blocks. The `PI_*` switches stop Pi's own update
 checks and telemetry, which would only show up as denials. Do not put files
 under `/sandbox` in the image: Podman copies them into a sandbox's workspace
 once, at creation, and image updates never reach them again.
@@ -367,7 +371,7 @@ endpoints:
     protocol: rest
     access: read-write
     enforcement: enforce
-binaries: [/usr/local/bin/node]
+binaries: [/usr/bin/node, /usr/bin/node-*]   # node by its real path, whichever it is
 ```
 
 The provider file looks up `LLM_API_KEY` as `service llm.example.com`, like
@@ -474,13 +478,11 @@ claude-image/
 
 ```dockerfile
 # Containerfile
-FROM docker.io/library/debian:trixie-slim
+FROM registry.fedoraproject.org/fedora-minimal:44
 
 ARG CLAUDE_VERSION=2.1.295
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      bash ca-certificates curl gh git jq ripgrep \
- && rm -rf /var/lib/apt/lists/*
+RUN dnf -y install --setopt=install_weak_deps=False gh git-core jq ripgrep \
+ && dnf clean all
 # The native installer installs into $HOME; keep only its single binary.
 RUN curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude bash -s "$CLAUDE_VERSION" \
  && install -m 755 "$(readlink -f /tmp/claude/.local/bin/claude)" /usr/local/bin/claude \
@@ -955,7 +957,7 @@ Podman refuses to remove an image a container still uses.
 | Sandbox stays in `Provisioning` | Invalid policy or provider; condition `ConfigurationInvalid` | `openshell sandbox get N -o json`, fix, then wait; after 300 s it turns to `Error` and needs `sandbox start` |
 | Claude Code says it cannot connect to Anthropic services | `api.anthropic.com` is denied: the provider is not attached, or the profile's `binaries` lacks `/usr/local/bin/claude` | `openshell logs N --since 10m --source sandbox`, fix `profiles/claude-code.yaml`, `brig sync dev` |
 | Claude Code asks you to log in, or bills an API key | The token expired, or an `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the sandbox wins over it | Renew with `claude setup-token` and `brig sync dev`; detach the provider that sets the key |
-| Pi gets `policy_denied` from its model endpoint | The profile's `binaries` lacks `/usr/local/bin/node`, or its `host` is not the host in `baseUrl` | Fix `profiles/llm.yaml`, `brig sync dev`, restart Pi |
+| Pi gets `policy_denied` from its model endpoint | The profile's `binaries` lacks node's real path (`readlink -f /usr/bin/node` in the sandbox), or its `host` is not the host in `baseUrl` | Fix `profiles/llm.yaml`, `brig sync dev`, restart Pi |
 | Any tool denied although a rule exists | Binary path differs, for example `/usr/local/bin` vs `/usr/bin` | `openshell sandbox exec -n N -- sh -c 'readlink -f "$(command -v TOOL)"'` and list that path |
 | `git push` denied, clone works | Profiles allow fetch only | Add the project's push rule ([GitHub](#grant-push-and-pull-requests-for-one-repository), [GitLab](#grant-push-and-merge-requests-for-one-project)) |
 | Every `glab` project call denied | `%2F` in the API path | `allow_encoded_slash: true` on the GitLab endpoint |
