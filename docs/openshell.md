@@ -7,7 +7,8 @@ start](../README.md#quick-start). Examples use the sandbox `webapp` for the
 repository `alice/webapp` and the shared config directory
 `~/src/agent-openshell`.
 
-- [Run your first agent sandbox](#your-first-agent-sandbox-pi)
+- [Run your first agent sandbox](#your-first-agent-sandbox-pi), or [Claude
+  Code on your subscription](#claude-code-with-a-subscription)
 - Let an agent push to
   [GitHub](#grant-push-and-pull-requests-for-one-repository) or
   [GitLab](#grant-push-and-merge-requests-for-one-project)
@@ -146,7 +147,7 @@ one that only points into your keyring.
 ~/src/agent-openshell/              # shared, in git
   profiles/
     llm.yaml                        # your own, see the Pi section
-    claude-code.yaml                # copy of OpenShell's, see the Claude Code section
+    claude-code.yaml                # OpenShell's, edited, see the Claude Code section
     github.yaml                     # copy of OpenShell's, binaries checked
     gitlab-work.yaml                # your own, see the GitLab section
   policies/
@@ -444,6 +445,171 @@ Repository-level `.pi/extensions`, `.pi/skills` and `.pi/prompts` also work,
 after Pi asks you to trust the project. Package declarations in a repository's
 `.pi/settings.json` do not, because Pi would have to fetch them from npm.
 
+## Claude Code with a subscription
+
+[Claude Code](https://code.claude.com) can run on your Claude Pro or Max
+subscription. `claude setup-token` makes a token for it that is valid for a
+year; the sandbox gets a placeholder, and the proxy adds the real token only
+on Claude Code's requests to `api.anthropic.com`. As with Pi, the image holds
+the program, your instructions and your skills, and `/sandbox` holds what
+Claude Code writes.
+
+| What | Where | Why |
+| --- | --- | --- |
+| Claude Code, git, gh, ripgrep | image, `/usr/local/bin` and `/usr/bin` | pinned at build time; Claude Code's own updates are off |
+| No updates, telemetry or error reports | image, `/etc/claude-code/managed-settings.json` | managed settings win over user and project settings |
+| Your standing instructions and skills | image, `/usr/local/etc/claude` and `/usr/local/share/claude-kit/skills` | linked into the config dir, so a new image brings new versions |
+| Claude Code's config dir: `.claude.json`, `settings.json`, sessions under `projects/` | `/sandbox/.claude` via `CLAUDE_CONFIG_DIR` | writable and persistent |
+
+### The image
+
+```text
+claude-image/
+  Containerfile
+  claude-sandbox              # start script, below
+  managed-settings.json
+  etc/CLAUDE.md               # your standing instructions
+  skills/                     # your skills, one directory each
+```
+
+```dockerfile
+# Containerfile
+FROM docker.io/library/debian:trixie-slim
+
+ARG CLAUDE_VERSION=2.1.295
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl gh git jq ripgrep \
+ && rm -rf /var/lib/apt/lists/*
+# The native installer installs into $HOME; keep only its single binary.
+RUN curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude bash -s "$CLAUDE_VERSION" \
+ && install -m 755 "$(readlink -f /tmp/claude/.local/bin/claude)" /usr/local/bin/claude \
+ && rm -rf /tmp/claude
+
+COPY --chmod=644 managed-settings.json /etc/claude-code/managed-settings.json
+COPY etc/ /usr/local/etc/claude/
+COPY skills/ /usr/local/share/claude-kit/skills/
+COPY --chmod=755 claude-sandbox /usr/local/bin/claude-sandbox
+
+RUN git config --system credential.https://github.com.helper \
+      '!/usr/bin/gh auth git-credential' \
+ && useradd --create-home --uid 1000 claude
+
+USER claude
+WORKDIR /sandbox
+ENV CLAUDE_CONFIG_DIR=/sandbox/.claude \
+    GH_CONFIG_DIR=/sandbox/.config/gh \
+    GIT_CONFIG_GLOBAL=/sandbox/.gitconfig
+```
+
+The managed settings turn off what would only show up as denials: updates,
+telemetry, error reports (on by default for subscriptions) and Claude Code's
+bundled ripgrep, in favour of the image's. The file must be readable by every
+user, or Claude Code silently ignores it:
+
+```json
+{
+  "env": {
+    "DISABLE_UPDATES": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "USE_BUILTIN_RIPGREP": "0"
+  }
+}
+```
+
+The start script links what the image keeps managing into the config dir:
+
+```sh
+#!/bin/sh
+# claude-sandbox: start Claude Code with this image's instructions and skills
+set -e
+mkdir -p "$CLAUDE_CONFIG_DIR"
+ln -sf /usr/local/etc/claude/CLAUDE.md "$CLAUDE_CONFIG_DIR/CLAUDE.md"
+ln -sfn /usr/local/share/claude-kit/skills "$CLAUDE_CONFIG_DIR/skills"
+exec claude "$@"
+```
+
+```sh
+podman build -t localhost/claude-agent:2026-10-09 claude-image/
+brig image push dev localhost/claude-agent:2026-10-09
+```
+
+### Subscription token
+
+On the host, `claude setup-token` signs you in through the browser and prints
+the token without saving it. Store it in the keyring:
+
+```sh
+claude setup-token
+secret-tool store --label='Claude Code token (agents)' service claude.ai user alice
+```
+
+Copy OpenShell's
+[`providers/claude-code.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/providers/claude-code.yaml)
+into `profiles/` and replace its API key with the subscription token. Keep only
+`api.anthropic.com`: with the image's settings, Claude Code itself needs nothing
+else.
+
+```yaml
+# profiles/claude-code.yaml: credentials, endpoints and binaries changed
+credentials:
+  - name: oauth_token
+    description: Claude subscription token from claude setup-token
+    env_vars: [CLAUDE_CODE_OAUTH_TOKEN]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+discovery:
+  credentials: [oauth_token]
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries: [/usr/local/bin/claude]
+```
+
+```yaml
+# ~/.config/brig/openshell/providers/claude-code.yaml
+name: claude-code
+type: claude-code
+credentials:
+  CLAUDE_CODE_OAUTH_TOKEN:
+    secret_tool:
+      lookup: [service, claude.ai, user, alice]
+```
+
+Claude Code sends the placeholder in `CLAUDE_CODE_OAUTH_TOKEN` as a bearer
+token, and the proxy swaps in your token. Three things to know:
+
+- An `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the sandbox wins over
+  the subscription, so do not attach a provider that sets one, such as
+  OpenShell's unchanged `claude-code` or `anthropic` profile.
+- The token only makes model requests: claude.ai connectors and Remote Control
+  do not work with it. Do not run `/login` in a sandbox: it would store a real
+  token in `/sandbox/.claude`.
+- After a year, run `claude setup-token` again, store the new token under the
+  same attributes, `brig sync dev`, and restart Claude Code.
+
+### Start it
+
+```sh
+eval "$(brig env dev)"
+openshell sandbox create --name webapp-claude \
+  --from localhost/claude-agent:2026-10-09 \
+  --provider claude-code --provider github
+# now in a login shell inside the sandbox
+git clone https://github.com/alice/webapp && cd webapp
+claude-sandbox
+```
+
+The first start walks through Claude Code's setup screens once; the answers
+stay in `/sandbox/.claude`. `claude-sandbox --continue` resumes the last
+conversation in the current directory. Detaching, templates and the GitHub
+setup below work as for Pi.
+
 ## Giving agents GitHub and GitLab access
 
 A GitHub or GitLab provider gives an agent read access: clone, fetch and API
@@ -453,7 +619,7 @@ default.
 
 ### GitHub with gh
 
-The image above installs `git` and `gh` at `/usr/bin`, the paths in
+Both images above install `git` and `gh` at `/usr/bin`, the paths in
 OpenShell's
 [`providers/github.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/providers/github.yaml),
 and makes `gh` git's credential helper, so git sends the placeholder in Basic
@@ -617,13 +783,13 @@ endpoint, and OpenShell rejects that.
 sandbox to a new image. `brig delete` loses it too, and so does a `--no-keep`
 sandbox when its main process exits; never use `--no-keep` for interactive
 work. Everything else, from detaching to `brig upgrade`, keeps `/sandbox`. So
-treat a sandbox as long-lived, push code continuously, and copy Pi's sessions
-out before you delete.
+treat a sandbox as long-lived, push code continuously, and copy the agent's
+sessions out before you delete.
 
-| Event | Running Pi | `/sandbox`: checkouts, Pi settings and sessions | Gateway: providers, profiles, templates | Images in the VM |
+| Event | Running agent | `/sandbox`: checkouts, agent settings and sessions | Gateway: providers, profiles, templates | Images in the VM |
 | --- | --- | --- | --- | --- |
 | `Ctrl-P`, `Ctrl-Q`; laptop sleep; network drop | keeps running | kept | kept | kept |
-| Pi exits or crashes | gone; `pi-sandbox --continue` resumes | kept, sessions are written as you go | kept | kept |
+| The agent exits or crashes | gone; `--continue` resumes | kept, sessions are written as you go | kept | kept |
 | `openshell sandbox stop` / `start` | gone | kept | kept | kept |
 | `brig stop` / `brig start` | gone | kept | kept, then re-synced | kept |
 | `brig upgrade` | gone | kept: data disk | kept: data disk | kept |
@@ -636,7 +802,7 @@ out before you delete.
    repository, on [GitHub](#grant-push-and-pull-requests-for-one-repository)
    or [GitLab](#grant-push-and-merge-requests-for-one-project), and have the
    agent commit and push a work branch often.
-2. **Copy Pi's sessions out before a delete.** Sessions are JSONL files under
+2. **Copy sessions out before a delete.** Pi's sessions are JSONL files under
    `/sandbox/.pi/agent/sessions`, grouped by working directory; `download`
    paths are relative to `/sandbox`:
 
@@ -652,6 +818,8 @@ out before you delete.
    ```
 
    For a single conversation, Pi's `/export` writes HTML or JSONL instead.
+   Claude Code keeps its sessions under `/sandbox/.claude/projects`; copy
+   that directory out and back the same way.
 3. **Keep what you would miss in `/sandbox`.** `/tmp` and the rest of the
    container layer may not survive a restart.
 4. **Rebuild the VM from files, not memory.** Profiles, providers and the
@@ -717,7 +885,7 @@ The VM's base image and the sandbox image move independently:
 | Image | Contains | Rebuild | Roll out | Existing sandboxes |
 | --- | --- | --- | --- | --- |
 | VM base image | Fedora, OpenShell gateway, Podman | `brig image build` | `brig upgrade dev` | kept, with their workspaces |
-| Sandbox image | Node, Pi, your kit, gh, glab, git | `podman build --pull` | `brig image push dev IMAGE` | keep their old image until recreated |
+| Sandbox image | Pi and your kit, or Claude Code and your skills; gh, glab, git | `podman build --pull` | `brig image push dev IMAGE` | keep their old image until recreated |
 | OpenShell CLI on the host | `openshell` | `sudo dnf upgrade openshell` | immediate | unaffected |
 
 ### VM and OpenShell
@@ -740,8 +908,9 @@ Upgrade in this order:
 ### Sandbox image
 
 Rebuild on a schedule, say weekly, with `--pull` for the base image's security
-fixes. Change versions on purpose: bump `PI_VERSION` and each pinned package
-in the Containerfile, so a rebuild without edits only refreshes the OS layer.
+fixes. Change versions on purpose: bump `PI_VERSION` or `CLAUDE_VERSION` and
+each pinned package in the Containerfile, so a rebuild without edits only
+refreshes the OS layer.
 
 ```sh
 tag=$(date +%F)
@@ -784,6 +953,8 @@ Podman refuses to remove an image a container still uses.
 | --- | --- | --- |
 | `create` cannot find the image | It is only in the host's Podman | `brig image push dev localhost/IMAGE:TAG`, and use the `localhost/` name |
 | Sandbox stays in `Provisioning` | Invalid policy or provider; condition `ConfigurationInvalid` | `openshell sandbox get N -o json`, fix, then wait; after 300 s it turns to `Error` and needs `sandbox start` |
+| Claude Code says it cannot connect to Anthropic services | `api.anthropic.com` is denied: the provider is not attached, or the profile's `binaries` lacks `/usr/local/bin/claude` | `openshell logs N --since 10m --source sandbox`, fix `profiles/claude-code.yaml`, `brig sync dev` |
+| Claude Code asks you to log in, or bills an API key | The token expired, or an `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the sandbox wins over it | Renew with `claude setup-token` and `brig sync dev`; detach the provider that sets the key |
 | Pi gets `policy_denied` from its model endpoint | The profile's `binaries` lacks `/usr/local/bin/node`, or its `host` is not the host in `baseUrl` | Fix `profiles/llm.yaml`, `brig sync dev`, restart Pi |
 | Any tool denied although a rule exists | Binary path differs, for example `/usr/local/bin` vs `/usr/bin` | `openshell sandbox exec -n N -- sh -c 'readlink -f "$(command -v TOOL)"'` and list that path |
 | `git push` denied, clone works | Profiles allow fetch only | Add the project's push rule ([GitHub](#grant-push-and-pull-requests-for-one-repository), [GitLab](#grant-push-and-merge-requests-for-one-project)) |
@@ -805,6 +976,8 @@ Podman refuses to remove an image a container still uses.
   its [provider
   profiles](https://github.com/NVIDIA/OpenShell/tree/v0.1.2/providers), and
   its Podman driver source.
+- Claude Code's documentation at <https://code.claude.com/docs>: setup,
+  authentication, environment variables, settings and network configuration.
 - Pi 1.1.0's documentation, shipped in the
   [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
   npm package.
