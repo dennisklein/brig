@@ -66,6 +66,6 @@ for ((i = count - 1; i >= 0; i--)); do
   fi
   body+=".
 
-The [packages workflow](https://github.com/$repo/actions/workflows/packages.yaml) builds and publishes the latest release by itself. Check that it did, compare upstream's packaging with \`packaging/openshell/openshell.spec\`, which mirrors its subpackages and file lists, and check whether brig needs changes for this release."
+The [packages workflow](https://github.com/$repo/actions/workflows/packages.yaml) builds and publishes the latest release by itself. Check that it did and whether the packaging or brig need changes for this release; [\`.claude/skills/openshell-release/SKILL.md\`](https://github.com/$repo/blob/main/.claude/skills/openshell-release/SKILL.md) lists what to check. A maintainer can have Claude Code work through it with \`/openshell-release $tag\`."
   gh issue create --repo "$repo" --label "$label" --title "OpenShell $tag released" --body "$body"
 done
