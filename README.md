@@ -183,7 +183,8 @@ brig's VM images, and your host, get OpenShell from
 [packages workflow](.github/workflows/packages.yaml) fills daily: it builds
 each new OpenShell release from source for the Fedora releases listed in
 [`packaging/fedora-releases`](packaging/fedora-releases). See
-[`packaging/`](packaging/).
+[`packaging/`](packaging/) and [OpenShell package
+updates](#openshell-package-updates).
 
 ## Development
 
@@ -205,6 +206,27 @@ notes:
 git tag -a v0.1.0      # write the release notes in the editor
 git push origin v0.1.0
 ```
+
+### OpenShell package updates
+
+Two workflows keep the [package repository](#package-repository) current:
+
+- [`packages`](.github/workflows/packages.yaml) runs daily, on pushes to
+  `main` that change `packaging/`, and on demand. If upstream's latest
+  OpenShell release is not published yet, it builds `openshell`,
+  `openshell-gateway`, `openshell-prover` and `python3-openshell` from the
+  release's source, signs and publishes them, keeps the previous version and
+  smoke-tests the result. The version, the gateway's systemd unit and the
+  SDK's protobuf modules follow upstream by themselves; the rest of
+  [`openshell.spec`](packaging/openshell/openshell.spec), such as file lists
+  and dependencies, does not. To republish a version after changing the spec,
+  bump its `baserelease`.
+- [`openshell-releases`](.github/workflows/openshell-releases.yaml) runs
+  weekly and opens an `openshell-release` issue for each new release, so that
+  a maintainer checks the spec and brig against it. Running
+  `/openshell-release <issue>` in Claude Code works through [the
+  checklist](.claude/skills/openshell-release/SKILL.md); it never starts on
+  its own.
 
 ### Package repository setup
 
