@@ -32,12 +32,12 @@ flowchart TB
     gateway["OpenShell gateway<br/>profiles, providers (hold the secrets),<br/>policies, templates, on /home/agent"]
     vmpodman["Podman, rootless<br/>images, sandbox containers,<br/>workspace volumes"]
     subgraph sandbox["Sandbox webapp"]
-      agent["Agent container<br/>Pi, git and gh from your image<br/>writes only /sandbox and /tmp<br/>GH_TOKEN holds a placeholder"]
+      agent["Agent container<br/>Pi or Claude Code, git and gh from your image<br/>writes only /sandbox and /tmp<br/>GH_TOKEN holds a placeholder"]
       proxy["Supervisor and proxy<br/>fence 1: the OpenShell policy<br/>per host, binary, method, path<br/>swaps the placeholder for the token"]
     end
   end
   fence["fence 2: brig network profile,<br/>enforced on the host, outside the VM"]
-  anthropic["api.anthropic.com"]
+  models["Model APIs<br/>your endpoint, api.anthropic.com"]
   github["github.com"]
   gitlab["gitlab.example.org"]
   cli -- "mTLS gRPC" --> gateway
@@ -46,7 +46,7 @@ flowchart TB
   gateway -- "policy, secrets" --> proxy
   agent -- requests --> proxy
   proxy -- "allowed requests only" --> fence
-  fence --> anthropic & github & gitlab
+  fence --> models & github & gitlab
   style proxy stroke-width:3px
   style fence stroke-dasharray: 5 5
 ```
@@ -81,13 +81,14 @@ Six objects do all the work:
 
 A gateway starts with no profiles. OpenShell's
 [`providers/`](https://github.com/NVIDIA/OpenShell/tree/v0.1.2/providers)
-directory has examples, such as `github.yaml` and `anthropic.yaml`, to copy
-and adapt: their `binaries` must name the executables in your image.
+directory has examples, such as `github.yaml`, `openai.yaml` and
+`claude-code.yaml`, to copy and adapt: their `binaries` must name the
+executables in your image.
 
 ### Providers and sandboxes are many-to-many
 
-A sandbox can carry several providers (`--provider anthropic --provider
-github`), and one provider can serve many sandboxes. Attach or detach later
+A sandbox can carry several providers (`--provider llm --provider github`),
+and one provider can serve many sandboxes. Attach or detach later
 with `openshell sandbox provider attach SANDBOX PROVIDER`; only processes
 started afterwards see the new variables. Each attached provider also adds a
 network rule named `_provider_<name>` to the sandbox's effective policy, so
@@ -144,7 +145,8 @@ one that only points into your keyring.
 ```text
 ~/src/agent-openshell/              # shared, in git
   profiles/
-    anthropic.yaml                  # copy of OpenShell's, binaries + node
+    llm.yaml                        # your own, see the Pi section
+    claude-code.yaml                # copy of OpenShell's, see the Claude Code section
     github.yaml                     # copy of OpenShell's, binaries checked
     gitlab-work.yaml                # your own, see the GitLab section
   policies/
@@ -152,7 +154,8 @@ one that only points into your keyring.
     webapp.yaml                     # a project's policy, see the GitHub section
 ~/.config/brig/openshell/           # personal, never in git
   providers/
-    anthropic.yaml
+    llm.yaml
+    claude-code.yaml
     github.yaml
     gitlab-work.yaml
 ```
@@ -174,7 +177,7 @@ Store each secret once, then attach both directories to the VM and preview:
 
 ```sh
 secret-tool store --label='GitHub token (agents)' service github.com user alice
-secret-tool store --label='Anthropic key (agents)' service api.anthropic.com
+secret-tool store --label='LLM key (agents)' service llm.example.com
 
 brig update dev --add-openshell-config ~/src/agent-openshell \
                 --add-openshell-config ~/.config/brig/openshell
@@ -237,6 +240,7 @@ The default policy lets a sandbox read `/usr` and write only `/sandbox` and
 | Node, Pi, git, gh, glab, ripgrep, fd | image, `/usr/local` and `/usr/bin` | readable by default; updated by rebuilding the image |
 | Your extensions, skills, prompts, themes | image, `/usr/local/share/pi-kit` (a Pi package) | loaded by path, so a new image brings new versions |
 | Third-party Pi packages | image, `npm install -g` at build time | the sandbox cannot reach npm or GitHub at run time |
+| Your model endpoint and its models | image, `/usr/local/etc/pi/models.json` | linked into Pi's agent dir, so a new image brings a new model list |
 | Pi's agent dir: `settings.json`, `sessions/` | `/sandbox/.pi/agent` via `PI_CODING_AGENT_DIR` | writable and persistent; `~` is not writable |
 | Project checkouts | `/sandbox/<repo>` | same workspace volume |
 | Plugins under development | host directory, mounted read-only | edit on the host, `/reload` in Pi |
@@ -248,6 +252,7 @@ pi-image/
   Containerfile
   pi-sandbox                  # start script, below
   etc/settings.json           # Pi settings for a fresh sandbox
+  etc/models.json             # your model endpoint, see Model endpoint
   etc/AGENTS.md               # your standing instructions
   pi-kit/                     # your Pi package
     package.json
@@ -305,6 +310,7 @@ mkdir -p "$PI_CODING_AGENT_DIR"
 [ -e "$PI_CODING_AGENT_DIR/settings.json" ] ||
   cp /usr/local/etc/pi/settings.json "$PI_CODING_AGENT_DIR/settings.json"
 ln -sf /usr/local/etc/pi/AGENTS.md "$PI_CODING_AGENT_DIR/AGENTS.md"
+ln -sf /usr/local/etc/pi/models.json "$PI_CODING_AGENT_DIR/models.json"
 exec pi "$@"
 ```
 
@@ -317,7 +323,8 @@ a newer image brings new code:
     "/usr/local/share/pi-kit",
     "/usr/local/lib/node_modules/@example/pi-tools"
   ],
-  "defaultProvider": "anthropic"
+  "defaultProvider": "llm",
+  "defaultModel": "your-model-id"
 }
 ```
 
@@ -329,16 +336,65 @@ podman build -t localhost/pi-agent:2026-10-08 pi-image/
 brig image push dev localhost/pi-agent:2026-10-08
 ```
 
-### Model credentials
+### Model endpoint
 
-Pi reads `ANTHROPIC_API_KEY`, so an Anthropic provider gives it a placeholder
-and the proxy adds the real key. OpenShell's `anthropic.yaml` allows only
-`curl`: copy it into your shared `profiles/`, set `binaries:
-[/usr/local/bin/node, /usr/bin/curl]`, and add `providers/anthropic.yaml` as
-for GitHub. OpenRouter works the same with `openrouter.yaml` and
-`OPENROUTER_API_KEY`, but its `binaries` name `opencode`, so replace them with
-`node` too. Do not run Pi's `/login` in a sandbox: it would store a real token
-in `auth.json` there.
+Pi talks to any endpoint that speaks OpenAI's chat completions API: most
+hosted services, such as OpenRouter, OpenAI, NVIDIA NIM, DeepInfra, Together
+and Groq, and self-hosted servers such as vLLM, LiteLLM and Ollama. One profile,
+one provider and one `models.json` entry connect it. The profile is your own,
+in the shared directory:
+
+```yaml
+# profiles/llm.yaml
+id: llm
+display_name: LLM endpoint
+description: An OpenAI-compatible inference endpoint
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: The endpoint's API key
+    env_vars: [LLM_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+discovery:
+  credentials: [api_key]
+endpoints:
+  - host: llm.example.com         # the host in baseUrl below
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries: [/usr/local/bin/node]
+```
+
+The provider file looks up `LLM_API_KEY` as `service llm.example.com`, like
+the GitHub one above. `etc/models.json` tells Pi where the endpoint is and
+which models it serves:
+
+```json
+{
+  "providers": {
+    "llm": {
+      "baseUrl": "https://llm.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$LLM_API_KEY",
+      "models": [{ "id": "your-model-id" }]
+    }
+  }
+}
+```
+
+Pi sends the placeholder in `LLM_API_KEY` as a bearer token, and the proxy
+swaps in your key only on `node`'s requests to the profile's host. To change
+endpoints, change the host in both files. A server on your LAN or on the host
+also needs its port in the profile and a [network
+profile](../README.md#configuration) for the VM that allows it, such as
+`ollama`. For a service that Pi knows by name, such as OpenRouter, you can
+drop `models.json` and use the service's own variable (`OPENROUTER_API_KEY`)
+in the profile, so that Pi offers its built-in model list. Do not run Pi's
+`/login` in a sandbox: it would store a real token in `auth.json` there.
 
 ### Start it
 
@@ -346,7 +402,7 @@ in `auth.json` there.
 eval "$(brig env dev)"
 openshell sandbox create --name webapp \
   --from localhost/pi-agent:2026-10-08 \
-  --provider anthropic --provider github
+  --provider llm --provider github
 # now in a login shell inside the sandbox
 git clone https://github.com/alice/webapp && cd webapp
 pi-sandbox
@@ -373,7 +429,7 @@ volume (`brig show dev` names it, here `brig0`), and attach it to a sandbox:
 brig update dev --add-mount ~/src/pi-kit:/pi-kit:ro,sandbox
 brig stop dev && brig start dev     # mounts change at boot
 openshell sandbox create --name kit-dev --from localhost/pi-agent:2026-10-08 \
-  --provider anthropic --driver-config-json \
+  --provider llm --driver-config-json \
   '{"podman":{"mounts":[{"type":"volume","source":"brig0","target":"/usr/local/share/pi-kit-dev"}]}}'
 # in the sandbox
 pi-sandbox -e /usr/local/share/pi-kit-dev
@@ -646,7 +702,7 @@ Keep one VM, and one long-lived sandbox per project.
 
 ```sh
 openshell sandbox create --name tools --template pi \
-  --provider anthropic --provider gitlab-work \
+  --provider llm --provider gitlab-work \
   --policy ~/src/agent-openshell/policies/tools.yaml
 ```
 
@@ -728,7 +784,7 @@ Podman refuses to remove an image a container still uses.
 | --- | --- | --- |
 | `create` cannot find the image | It is only in the host's Podman | `brig image push dev localhost/IMAGE:TAG`, and use the `localhost/` name |
 | Sandbox stays in `Provisioning` | Invalid policy or provider; condition `ConfigurationInvalid` | `openshell sandbox get N -o json`, fix, then wait; after 300 s it turns to `Error` and needs `sandbox start` |
-| Pi gets `policy_denied` from Anthropic | The profile's `binaries` lacks `/usr/local/bin/node` | Add it in your `profiles/anthropic.yaml`, `brig sync dev`, restart Pi |
+| Pi gets `policy_denied` from its model endpoint | The profile's `binaries` lacks `/usr/local/bin/node`, or its `host` is not the host in `baseUrl` | Fix `profiles/llm.yaml`, `brig sync dev`, restart Pi |
 | Any tool denied although a rule exists | Binary path differs, for example `/usr/local/bin` vs `/usr/bin` | `openshell sandbox exec -n N -- sh -c 'readlink -f "$(command -v TOOL)"'` and list that path |
 | `git push` denied, clone works | Profiles allow fetch only | Add the project's push rule ([GitHub](#grant-push-and-pull-requests-for-one-repository), [GitLab](#grant-push-and-merge-requests-for-one-project)) |
 | Every `glab` project call denied | `%2F` in the API path | `allow_encoded_slash: true` on the GitLab endpoint |
