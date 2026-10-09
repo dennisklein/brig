@@ -10,7 +10,7 @@
 # SHA-256 in packages.sha256), signs and files the new packages from
 # <incoming-dir>, prunes old versions, verifies every package signature,
 # regenerates and signs the repository metadata, and writes the static site
-# into <site-dir>.
+# into <site-dir> with a listing of every directory.
 #
 # Env:  PAGES_URL        published repository site
 #       KEEP_VERSIONS    versions to keep per package (default 2)
@@ -56,6 +56,16 @@ elif curl -fsSL "$PAGES_URL/packages.sha256" -o "$work/packages.sha256"; then
     curl -fsSL --retry 3 "$PAGES_URL/$path" -o "$site/$path"
   done < "$work/packages.sha256"
   (cd "$site" && sha256sum --check --quiet --strict "$work/packages.sha256")
+  # The listings show when each package was first published.
+  if curl -fsSL "$PAGES_URL/packages.mtime" -o "$work/packages.mtime"; then
+    while read -r mtime path; do
+      if [[ ! $mtime =~ ^[0-9]+$ || ! $path =~ ^rpm/fedora/([0-9]+/x86_64|source)/[A-Za-z0-9._+~^-]+\.rpm$ ]]; then
+        echo "::error::unexpected line in packages.mtime: $mtime $path"
+        exit 1
+      fi
+      touch -c -m -d "@$mtime" "$site/$path"
+    done < "$work/packages.mtime"
+  fi
 else
   echo "no packages.sha256 at $PAGES_URL; starting an empty repository"
 fi
@@ -93,9 +103,9 @@ if [ -z "$newest" ]; then
 fi
 for f in "${releases[@]}"; do
   mkdir -p "$site/rpm/fedora/$f/x86_64"
-  cp -n "$newest" "$site/rpm/fedora/$f/x86_64/"
+  cp -np "$newest" "$site/rpm/fedora/$f/x86_64/"
 done
-cp "$newest" "$site/brig-release.noarch.rpm"
+cp -p "$newest" "$site/brig-release.noarch.rpm"
 
 # Prune, verify every signature, regenerate and sign the metadata.
 mkdir "$work/rpmdb"
@@ -118,4 +128,6 @@ cp "$pubkey" "$site/RPM-GPG-KEY-brig"
 grouped=$(sed -E 's/(.{4})/\1 /g; s/ $//' <<<"$fpr")
 sed -e "s/@FINGERPRINT@/$grouped/g" "$here/site/index.html" > "$site/index.html"
 (cd "$site" && find rpm -name '*.rpm' | LC_ALL=C sort | xargs -r sha256sum) > "$site/packages.sha256"
+(cd "$site" && find rpm -name '*.rpm' | LC_ALL=C sort | xargs -r stat -c '%Y %n') > "$site/packages.mtime"
+python3 "$here/site-index.py" "$PAGES_URL" "$site"
 echo "assembled $(wc -l < "$site/packages.sha256") packages signed by $fpr"

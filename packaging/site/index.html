@@ -9,6 +9,10 @@
   body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
   pre { padding: .75rem 1rem; overflow-x: auto; border: 1px solid #8884; border-radius: 6px; }
   code { font-family: ui-monospace, monospace; }
+  table.listing { border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 14px; }
+  .listing th, .listing td { text-align: left; padding: .15rem 1.5rem .15rem 0; white-space: nowrap; }
+  .listing th { border-bottom: 1px solid #8884; }
+  .listing .size { text-align: right; }
 </style>
 </head>
 <body>
@@ -27,5 +31,8 @@ Source RPMs are in the <code>brig-source</code> repository (disabled by default)
 <p>Packages and repository metadata are signed with
 <a href="RPM-GPG-KEY-brig">RPM-GPG-KEY-brig</a>, fingerprint:</p>
 <pre><code>@FINGERPRINT@</code></pre>
+
+<h2>Files</h2>
+<!-- listing -->
 </body>
 </html>
