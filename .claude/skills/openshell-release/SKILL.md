@@ -85,7 +85,9 @@ builds x86_64 only. Keep everything else in step with upstream. In the clone:
   when a module the SDK imports is missing, and the smoke test imports the
   SDK. Keep `Requires-Python`, the `Requires-Dist` lines in `METADATA` and the
   `Recommends` in step with `pyproject.toml`, and check its `package-data`
-  for new data files.
+  for new data files. The grpcio and protobuf minimums come from the
+  generated modules instead, which refuse older versions; `make-srpm.sh` sets
+  them.
 - **`baserelease`**: if the packages of `TAG` are already published and the
   spec changes, bump `%global baserelease`, or merging will not republish.
 

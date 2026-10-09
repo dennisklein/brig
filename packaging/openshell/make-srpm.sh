@@ -46,6 +46,15 @@ tar -C "$work/src" -cJf "$work/sources/openshell-$version-vendor.tar.xz" vendor
 # for its Python package; any Python that upstream supports will do.
 (cd "$work/src" && uv run --frozen --only-group dev --python python3 python tasks/scripts/generate_python_proto.py)
 (cd "$work/src" && tar -czf "$work/sources/openshell-$version-proto.tar.gz" python/openshell/_proto/*_pb2*)
+# The generated modules refuse protobuf and grpcio older than those they were
+# generated for, whatever upstream's pyproject.toml asks for.
+proto=$work/src/python/openshell/_proto
+protobuf_min=$(sed -n 's/^# Protobuf Python Version: \([0-9.]*\)$/\1/p' "$proto"/*_pb2.py | sort -V | tail -n 1)
+grpcio_min=$(sed -n "s/^GRPC_GENERATED_VERSION = '\([0-9.]*\)'$/\1/p" "$proto"/*_pb2_grpc.py | sort -V | tail -n 1)
+if [ -z "$protobuf_min" ] || [ -z "$grpcio_min" ]; then
+  echo "cannot find the protobuf and grpcio versions that the generated modules need" >&2
+  exit 1
+fi
 
 # The gateway's systemd user unit, as upstream's spec writes it in a heredoc.
 if ! awk '
@@ -60,6 +69,8 @@ fi
 
 sed -e "s/^%global openshell_version .*/%global openshell_version $version/" \
     -e "s/^%global openshell_commit .*/%global openshell_commit $commit/" \
+    -e "s/^%global sdk_protobuf_min .*/%global sdk_protobuf_min $protobuf_min/" \
+    -e "s/^%global sdk_grpcio_min .*/%global sdk_grpcio_min $grpcio_min/" \
     "$here/openshell.spec" |
   awk -v unit="$work/gateway.service" '
     $0 == "@GATEWAY_UNIT@" { while ((getline line < unit) > 0) print line; n++; next }

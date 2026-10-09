@@ -11,6 +11,10 @@
 # Replaced by packaging/openshell/make-srpm.sh with the packaged release.
 %global openshell_version 0.0.0
 %global openshell_commit unknown
+# Replaced by make-srpm.sh with the oldest protobuf and grpcio that the SDK's
+# generated protobuf modules accept.
+%global sdk_protobuf_min 0
+%global sdk_grpcio_min 0
 # Bump when the packaging changes without a new OpenShell version.
 %global baserelease 2
 
@@ -93,14 +97,15 @@ within an operator-supplied maximum without connecting to a gateway.
 %package -n python3-%{name}
 Summary:        OpenShell Python SDK for agent execution and management
 BuildArch:      noarch
-# The dependencies in upstream's pyproject.toml. Recommends instead of
-# Requires: Fedora may ship older grpcio and protobuf than the SDK needs;
-# those can be installed via pip/uv instead.
+# The dependencies in upstream's pyproject.toml, but grpcio and protobuf as new
+# as the generated modules need. Recommends instead of Requires: Fedora may
+# ship older grpcio and protobuf than the SDK needs; those can be installed
+# via pip/uv instead.
 Recommends:     python3-cloudpickle >= 3.0
-Recommends:     python3-grpcio >= 1.60
+Recommends:     python3-grpcio >= %{sdk_grpcio_min}
 Recommends:     python3-googleapis-common-protos >= 1.63
 Recommends:     python3-httpx >= 0.27
-Recommends:     python3-protobuf >= 4.25
+Recommends:     python3-protobuf >= %{sdk_protobuf_min}
 Recommends:     %{name}
 
 %description -n python3-%{name}
@@ -178,10 +183,10 @@ Summary: OpenShell Python SDK for agent execution and management
 License: Apache-2.0
 Requires-Python: >=3.11
 Requires-Dist: cloudpickle>=3.0
-Requires-Dist: grpcio>=1.60
+Requires-Dist: grpcio>=%{sdk_grpcio_min}
 Requires-Dist: googleapis-common-protos>=1.63
 Requires-Dist: httpx>=0.27
-Requires-Dist: protobuf>=4.25
+Requires-Dist: protobuf>=%{sdk_protobuf_min}
 META
 echo rpm > %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info/INSTALLER
 touch %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info/RECORD
