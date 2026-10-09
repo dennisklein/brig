@@ -7,12 +7,13 @@
 # Usage: make-srpm.sh <tag> <outdir>
 #
 # Fetches the tag from github.com/NVIDIA/OpenShell, archives it, vendors its
-# crates, copies the gateway's systemd user unit from upstream's openshell.spec
-# into ours and runs `rpmbuild -bs` without a dist tag, so one SRPM serves
-# every Fedora release. Vendoring uses cargo-vendor-filterer to drop crates and
-# prebuilt protoc binaries that an x86_64 Linux build never uses, which
-# shrinks the vendor tarball by more than half. Needs git, cargo,
-# cargo-vendor-filterer, xz and rpmbuild.
+# crates, generates the Python SDK's protobuf modules, copies the gateway's
+# systemd user unit from upstream's openshell.spec into ours and runs
+# `rpmbuild -bs` without a dist tag, so one SRPM serves every Fedora release.
+# Vendoring uses cargo-vendor-filterer to drop crates and prebuilt protoc
+# binaries that an x86_64 Linux build never uses, which shrinks the vendor
+# tarball by more than half. Needs git, cargo, cargo-vendor-filterer, xz, uv,
+# python3 and rpmbuild.
 set -euo pipefail
 
 tag=${1:?usage: make-srpm.sh <tag> <outdir>}
@@ -39,6 +40,12 @@ done
 # The vendored crates must match the release's lock file exactly.
 git -C "$work/src" diff --exit-code -- Cargo.lock
 tar -C "$work/src" -cJf "$work/sources/openshell-$version-vendor.tar.xz" vendor
+
+# The SDK's protobuf modules are not in git. Generate them with upstream's
+# script and the grpcio-tools that upstream's uv.lock pins, as upstream does
+# for its Python package; any Python that upstream supports will do.
+(cd "$work/src" && uv run --frozen --only-group dev --python python3 python tasks/scripts/generate_python_proto.py)
+(cd "$work/src" && tar -czf "$work/sources/openshell-$version-proto.tar.gz" python/openshell/_proto/*_pb2*)
 
 # The gateway's systemd user unit, as upstream's spec writes it in a heredoc.
 if ! awk '

@@ -78,11 +78,14 @@ builds x86_64 only. Keep everything else in step with upstream. In the clone:
   platforms; check that its list still matches the vendored crates.
 - **Version stamping**: `%prep` relies on `version = "0.0.0"` in the
   workspace `Cargo.toml`.
-- **Python SDK** (`python3-openshell`): every module that `__init__.py` and
-  the modules it imports need must be installed, including the generated
-  `_proto/*_pb2*.py` modules, and `METADATA` and the `Recommends` must match
-  the dependencies in upstream's `pyproject.toml`. Report what is missing even
-  when upstream's own spec misses it too.
+- **Python SDK** (`python3-openshell`): `make-srpm.sh` generates the
+  `_proto` modules with upstream's `tasks/scripts/generate_python_proto.py`
+  and the `dev` dependency group of upstream's `uv.lock`; fix it if upstream
+  moves either. The spec installs every module except tests, `%check` fails
+  when a module the SDK imports is missing, and the smoke test imports the
+  SDK. Keep `Requires-Python`, the `Requires-Dist` lines in `METADATA` and the
+  `Recommends` in step with `pyproject.toml`, and check its `package-data`
+  for new data files.
 - **`baserelease`**: if the packages of `TAG` are already published and the
   spec changes, bump `%global baserelease`, or merging will not republish.
 

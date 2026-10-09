@@ -23,3 +23,14 @@ openshell-gateway --version
 openshell-prover --version
 rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}: %{SIGPGP:pgpsig}\n' \
   brig-release openshell openshell-gateway openshell-prover python3-openshell
+
+# The SDK's Python dependencies are only recommended, as Fedora may ship older
+# ones than it needs. Install those its metadata names from PyPI into a virtual
+# environment that also sees the package, and import it.
+python3 -m venv --system-site-packages /tmp/sdk
+/tmp/sdk/bin/python -c 'from importlib.metadata import requires; print(*requires("openshell"), sep="\n")' \
+  > /tmp/sdk/requirements.txt
+/tmp/sdk/bin/pip install --quiet -r /tmp/sdk/requirements.txt
+sdk=$(/tmp/sdk/bin/python -c 'import openshell; print(openshell.__version__)')
+echo "openshell SDK $sdk"
+[ "$sdk" = "$(rpm -q --qf '%{VERSION}' python3-openshell)" ]

@@ -75,7 +75,7 @@ jobs:
     steps:
       - name: Install tools
         run: |
-          dnf -y install cargo gcc git-core rpm-build xz
+          dnf -y install cargo gcc git-core python3 rpm-build uv xz
           cargo install --locked cargo-vendor-filterer@0.5.18
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
