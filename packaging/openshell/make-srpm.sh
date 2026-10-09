@@ -7,8 +7,9 @@
 # Usage: make-srpm.sh <tag> <outdir>
 #
 # Fetches the tag from github.com/NVIDIA/OpenShell, archives it, vendors its
-# crates and runs `rpmbuild -bs` without a dist tag, so one SRPM serves every
-# Fedora release. Vendoring uses cargo-vendor-filterer to drop crates and
+# crates, copies the gateway's systemd user unit from upstream's openshell.spec
+# into ours and runs `rpmbuild -bs` without a dist tag, so one SRPM serves
+# every Fedora release. Vendoring uses cargo-vendor-filterer to drop crates and
 # prebuilt protoc binaries that an x86_64 Linux build never uses, which
 # shrinks the vendor tarball by more than half. Needs git, cargo,
 # cargo-vendor-filterer, xz and rpmbuild.
@@ -39,9 +40,24 @@ done
 git -C "$work/src" diff --exit-code -- Cargo.lock
 tar -C "$work/src" -cJf "$work/sources/openshell-$version-vendor.tar.xz" vendor
 
+# The gateway's systemd user unit, as upstream's spec writes it in a heredoc.
+if ! awk '
+    !unit && /^cat > .*-gateway\.service << / { end = $NF; gsub(/[\047"]/, "", end); unit = 1; next }
+    unit && $0 == end { found = 1; exit }
+    unit { print }
+    END { exit !found }' "$work/src/openshell.spec" > "$work/gateway.service" ||
+  ! grep -q '^ExecStart=' "$work/gateway.service"; then
+  echo "cannot find the gateway unit in upstream's openshell.spec" >&2
+  exit 1
+fi
+
 sed -e "s/^%global openshell_version .*/%global openshell_version $version/" \
     -e "s/^%global openshell_commit .*/%global openshell_commit $commit/" \
-    "$here/openshell.spec" > "$work/sources/openshell.spec"
+    "$here/openshell.spec" |
+  awk -v unit="$work/gateway.service" '
+    $0 == "@GATEWAY_UNIT@" { while ((getline line < unit) > 0) print line; n++; next }
+    { print }
+    END { exit n != 1 }' > "$work/sources/openshell.spec"
 
 mkdir -p "$outdir"
 rpmbuild -bs --nodeps \

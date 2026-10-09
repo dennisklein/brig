@@ -4,9 +4,9 @@
 #
 # Builds NVIDIA OpenShell from source: an offline cargo build against a
 # vendored crate tarball. Derived from upstream's openshell.spec, which
-# repackages prebuilt binaries instead. Subpackages, the systemd user unit and
-# the file lists deliberately match upstream so the packages are drop-in
-# replacements.
+# repackages prebuilt binaries instead. Subpackages and file lists deliberately
+# match upstream so the packages are drop-in replacements; make-srpm.sh copies
+# the systemd user unit from upstream's spec.
 
 # Replaced by packaging/openshell/make-srpm.sh with the packaged release.
 %global openshell_version 0.0.0
@@ -141,54 +141,11 @@ install -Dpm 0644 deploy/rpm/gateway.toml.default %{buildroot}%{_datadir}/%{name
 install -Dpm 0644 deploy/rpm/gateway.toml.default.v1 %{buildroot}%{_datadir}/%{name}-gateway/gateway.toml.default.v1
 install -Dpm 0755 deploy/rpm/migrate-gateway-config.sh %{buildroot}%{_libexecdir}/%{name}-gateway-migrate-config
 
-# Gateway systemd user unit, identical to upstream's.
+# Gateway systemd user unit: make-srpm.sh replaces the placeholder below with
+# the unit that upstream's openshell.spec writes.
 install -d %{buildroot}%{_userunitdir}
 cat > %{buildroot}%{_userunitdir}/%{name}-gateway.service << 'UNIT'
-[Unit]
-Description=OpenShell Gateway (user)
-Documentation=https://github.com/NVIDIA/OpenShell
-After=podman.socket
-Wants=podman.socket
-
-[Service]
-Type=exec
-# On first start the unit seeds a default TOML config and generates PKI.
-# Client certs are placed in ~/.config/openshell/gateways/openshell/mtls/ so
-# the CLI discovers them automatically.
-# See /usr/share/doc/openshell-gateway/ for details.
-
-# Seed a default TOML config on first start. On upgrade, replace only the exact
-# schema-v1 config previously seeded by this package; preserve edited files.
-# %%E expands to $XDG_CONFIG_HOME (~/.config) in user units.
-ExecStartPre=%{_libexecdir}/%{name}-gateway-migrate-config %%E/openshell/gateway.toml /usr/share/openshell-gateway/gateway.toml.default /usr/share/openshell-gateway/gateway.toml.default.v1
-
-# Reject an invalid selected configuration before generating certificates or
-# starting the gateway. The environment file below applies to every command.
-ExecStartPre=/usr/bin/openshell-gateway config preflight
-
-# Auto-generate PKI on first start if not present.
-# The default local TLS dir uses %%h because %%S resolves differently across
-# systemd user-manager versions. gateway.env may override this path.
-Environment=OPENSHELL_LOCAL_TLS_DIR=%%h/.local/state/openshell/tls
-ExecStartPre=/usr/bin/openshell-gateway generate-certs --output-dir ${OPENSHELL_LOCAL_TLS_DIR} --server-san host.openshell.internal
-
-# gateway.env is honored for backward compatibility with pre-1415 installs.
-# New installs use runtime defaults; create gateway.toml to override.
-# See TROUBLESHOOTING.md for the env-to-TOML migration guide.
-EnvironmentFile=-%%E/openshell/gateway.env
-ExecStart=/usr/bin/openshell-gateway
-StateDirectory=openshell
-Restart=on-failure
-RestartSec=5
-
-# Security hardening
-NoNewPrivileges=yes
-ProtectSystem=strict
-PrivateTmp=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-
-[Install]
-WantedBy=default.target
+@GATEWAY_UNIT@
 UNIT
 
 install -d %{buildroot}%{_docdir}/%{name}-gateway
@@ -228,6 +185,9 @@ touch %{buildroot}%{python3_sitelib}/%{name}-%{version}.dist-info/RECORD
 %{buildroot}%{_bindir}/openshell-gateway --version | grep -F ' %{version}'
 PYTHONPATH=%{buildroot}%{python3_sitelib} %{python3} -c "from importlib.metadata import version; assert version('openshell') == '%{version}'"
 grep -q '%{name}-gateway-migrate-config' %{buildroot}%{_userunitdir}/%{name}-gateway.service
+grep -q '^ExecStart=' %{buildroot}%{_userunitdir}/%{name}-gateway.service
+# Upstream's unit may use a macro that only upstream's spec defines.
+if grep -F '%%{' %{buildroot}%{_userunitdir}/%{name}-gateway.service; then exit 1; fi
 
 %post gateway
 %systemd_user_post %{name}-gateway.service
