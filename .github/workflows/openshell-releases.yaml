@@ -1,0 +1,32 @@
+name: openshell-releases
+
+# Opens an issue for each new NVIDIA OpenShell release, so that the packaging
+# and brig get checked against it. See packaging/openshell/track-releases.sh.
+
+on:
+  schedule:
+    # Weekly, on Mondays.
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+# Overlapping runs could open the same issue twice.
+concurrency:
+  group: openshell-releases
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Open issues for new releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: packaging/openshell/track-releases.sh
