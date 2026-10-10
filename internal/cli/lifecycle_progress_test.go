@@ -270,3 +270,29 @@ func TestStartVMGatewayAnswerProgress(t *testing.T) {
 		})
 	}
 }
+
+func TestStartVMConfigApplyProgress(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	// A directory that is not there fails the apply, which only warns.
+	v.OpenShellConfigs = []string{filepath.Join(t.TempDir(), "missing")}
+	fakeOpenShell(t, fakeGuest(t, ""), `{"status":"connected","version":"0.1.2"}`)
+	ctx, w := progresstest.Watch(t.Context(), t)
+	var out bytes.Buffer
+	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, true); err != nil {
+		t.Fatalf("startVM: %v\n%s", err, &out)
+	}
+	t.Log(w.Tree())
+	got := w.Finish()
+	for _, want := range []string{
+		"wait wait for the gateway to answer: ok",
+		"step apply the OpenShell config directories: skipped",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("progress lacks %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(out.String(), "Warning: applying the OpenShell config directories failed") {
+		t.Errorf("output = %q", &out)
+	}
+}
