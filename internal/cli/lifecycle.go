@@ -33,6 +33,9 @@ const (
 	shutdownTimeout = 2 * time.Minute
 )
 
+// startNetwork starts a VM's network; tests replace it, as they have no pasta.
+var startNetwork = vmnet.Start
+
 // gatewayReadyTimeout bounds the waits for the gateway; tests shorten it.
 var gatewayReadyTimeout = 3 * time.Minute
 
@@ -280,7 +283,7 @@ func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, 
 			if err != nil {
 				return err
 			}
-			if err := vmnet.Start(ctx, net); err != nil {
+			if err := startNetwork(ctx, net); err != nil {
 				return fmt.Errorf("starting the network of %s: %w", v.Name, err)
 			}
 			if err := conn.Start(v.DomainName()); err != nil {
@@ -524,7 +527,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 				// A domain saved at logout restores, and then shuts down cleanly,
 				// only while its network listens; otherwise Shutdown powers it off.
 				if net, nerr := a.netConfig(v); nerr == nil {
-					_ = vmnet.Start(ctx, net)
+					_ = startNetwork(ctx, net)
 				}
 			}
 			return conn.Shutdown(ctx, v.DomainName(), shutdownTimeout)

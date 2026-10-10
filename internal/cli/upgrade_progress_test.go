@@ -5,6 +5,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/GSI-HPC/go-clikit/progress/progresstest"
 
 	"github.com/dennisklein/brig/internal/libvirt"
+	"github.com/dennisklein/brig/internal/vmnet"
 )
 
 // TestUpgradeRollbackProgress upgrades a running VM whose network cannot
@@ -58,5 +60,60 @@ step switch to the new image: ok
 	}
 	if v.Image != "f44-openshell0.1.2-20261007T120000Z" {
 		t.Errorf("image = %s after the rollback", v.Image)
+	}
+}
+
+// TestUpgradeProgress upgrades a running VM successfully: it boots on the
+// new image, is stopped to delete the data disk snapshot and then starts
+// again.
+func TestUpgradeProgress(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	for _, f := range []string{rootDiskFile, dataDiskFile, clientKeyFile + ".pub"} {
+		if err := os.WriteFile(a.vmFile(v, f), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started := 0
+	orig := startNetwork
+	startNetwork = func(context.Context, vmnet.Config) error { started++; return nil }
+	t.Cleanup(func() { startNetwork = orig })
+
+	dir := fakeGuest(t, "")
+	if err := os.WriteFile(filepath.Join(dir, "qemu-img"), []byte("#!/bin/sh\n"+qemuImgInfo+"\n"), 0o700); err != nil { //nolint:gosec // G306: scripts must be executable
+		t.Fatal(err)
+	}
+
+	ctx, w := progresstest.Watch(t.Context(), t)
+	conn := &fakeDomains{state: libvirt.StateShutoff}
+	var out bytes.Buffer
+	if err := a.upgrade(ctx, conn, v, "f44-openshell0.1.3-20261008T120000Z", true, &out); err != nil {
+		t.Fatalf("upgrade: %v\n%s", err, &out)
+	}
+	t.Log(w.Tree())
+	got := w.Finish()
+	for _, want := range []string{
+		"step back up the data disk: ok",
+		"step switch to the new image: ok",
+		"step boot the VM: ok",
+		"step shut down the VM: ok",
+		"step delete the data disk snapshot: ok",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("progress lacks %q:\n%s", want, got)
+		}
+	}
+	// The check boot and the start afterwards each start the VM.
+	if got := strings.Count(got, "step start the VM: ok"); got != 2 {
+		t.Errorf("progress has %d starts of the VM, want 2", got)
+	}
+	if started != 2 {
+		t.Errorf("network started %d times, want 2", started)
+	}
+	if v.Image != "f44-openshell0.1.3-20261008T120000Z" || conn.state != libvirt.StateRunning {
+		t.Errorf("image = %s, state = %s after the upgrade", v.Image, conn.state)
+	}
+	if !strings.HasSuffix(out.String(), "Upgraded dev to image f44-openshell0.1.3-20261008T120000Z.\n") {
+		t.Errorf("output = %q", &out)
 	}
 }

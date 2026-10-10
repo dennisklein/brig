@@ -32,7 +32,11 @@ func (f *fakeDomains) State(string) (libvirt.State, error) { return f.state, nil
 
 func (f *fakeDomains) Define(string) error { f.calls = append(f.calls, "define"); return nil }
 
-func (f *fakeDomains) Start(string) error { f.calls = append(f.calls, "start"); return nil }
+func (f *fakeDomains) Start(string) error {
+	f.calls = append(f.calls, "start")
+	f.state = libvirt.StateRunning
+	return nil
+}
 
 func (f *fakeDomains) Shutdown(context.Context, string, time.Duration) error {
 	f.calls = append(f.calls, "shutdown")
