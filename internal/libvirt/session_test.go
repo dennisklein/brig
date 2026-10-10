@@ -225,12 +225,12 @@ func TestConnectStaleSocket(t *testing.T) {
 }
 
 func TestSystemdRunArgs(t *testing.T) {
-	got := systemdRunArgs("/usr/sbin/virtqemud", env(map[string]string{
+	got := systemdRunArgs("/usr/sbin/virtqemud", "brig-virtqemud-1", env(map[string]string{
 		"XDG_RUNTIME_DIR": "/run/user/1000",
 		"XDG_CONFIG_HOME": "/home/u/.config",
 	}))
 	want := []string{
-		"--user", "--collect", "--quiet", "--unit=brig-virtqemud",
+		"--user", "--collect", "--quiet", "--unit=brig-virtqemud-1",
 		"--description=libvirt QEMU session daemon started by brig",
 		"--property=KillMode=process",
 		"--setenv=XDG_CONFIG_HOME=/home/u/.config",
@@ -239,6 +239,16 @@ func TestSystemdRunArgs(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("systemdRunArgs() = %q\nwant %q", got, want)
+	}
+}
+
+func TestVirtqemudUnit(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	if got, want := virtqemudUnit(start), "brig-virtqemud-1700000000"; got != want {
+		t.Errorf("virtqemudUnit() = %q, want %q", got, want)
+	}
+	if virtqemudUnit(start) == virtqemudUnit(start.Add(time.Second)) {
+		t.Error("starts a second apart share a unit name")
 	}
 }
 
@@ -276,7 +286,17 @@ func TestSpawnVirtqemudSystemdRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Split(strings.TrimSuffix(string(args), "\n"), "\n"), systemdRunArgs(daemon, getenv); !slices.Equal(got, want) {
+	got := strings.Split(strings.TrimSuffix(string(args), "\n"), "\n")
+	unit := ""
+	for _, a := range got {
+		if u, ok := strings.CutPrefix(a, "--unit="); ok {
+			unit = u
+		}
+	}
+	if !strings.HasPrefix(unit, "brig-virtqemud-") {
+		t.Errorf("systemd-run unit %q, want brig-virtqemud-<time>", unit)
+	}
+	if want := systemdRunArgs(daemon, unit, getenv); !slices.Equal(got, want) {
 		t.Errorf("systemd-run %q, want %q", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "virtqemud.out")); !errors.Is(err, os.ErrNotExist) {

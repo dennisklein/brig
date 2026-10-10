@@ -149,11 +149,14 @@ func lock(ctx context.Context, path string) (unlock func(), err error) {
 // prefers a transient systemd user service: a daemon started directly would
 // stay in the cgroup of brig's terminal and die with it, taking the VMs
 // along. KillMode=process, as in libvirt's own units, keeps the VMs running
-// when the daemon's unit stops.
+// when the daemon's unit stops. In session mode libvirt leaves QEMU in the
+// daemon's cgroup, so after the daemon dies with VMs running, systemd keeps
+// its unit loaded and refuses to reuse the name. Each start therefore gets a
+// unit name of its own.
 func spawnVirtqemud(ctx context.Context, daemon string, getenv func(string) string) error {
 	var runErr error
 	if run, err := exec.LookPath("systemd-run"); err == nil {
-		out, err := exec.CommandContext(ctx, run, systemdRunArgs(daemon, getenv)...).CombinedOutput()
+		out, err := exec.CommandContext(ctx, run, systemdRunArgs(daemon, virtqemudUnit(time.Now()), getenv)...).CombinedOutput()
 		if err == nil {
 			return nil
 		}
@@ -177,13 +180,20 @@ func findVirtqemud() (string, error) {
 	return "", errors.New("virtqemud not found in /usr/sbin or $PATH: install libvirt-daemon-driver-qemu")
 }
 
-// systemdRunArgs returns the systemd-run arguments that start daemon. The
-// service gets the XDG directories that libvirt passes to the daemons it
-// spawns, since the user manager's environment may differ from brig's.
-func systemdRunArgs(daemon string, getenv func(string) string) []string {
+// virtqemudUnit returns the name of the transient unit that runs a daemon
+// started at now.
+func virtqemudUnit(now time.Time) string {
+	return fmt.Sprintf("brig-virtqemud-%d", now.Unix())
+}
+
+// systemdRunArgs returns the systemd-run arguments that start daemon as the
+// transient unit unit. The service gets the XDG directories that libvirt
+// passes to the daemons it spawns, since the user manager's environment may
+// differ from brig's.
+func systemdRunArgs(daemon, unit string, getenv func(string) string) []string {
 	args := []string{
 		"--user", "--collect", "--quiet",
-		"--unit=brig-virtqemud",
+		"--unit=" + unit,
 		"--description=libvirt QEMU session daemon started by brig",
 		"--property=KillMode=process",
 	}
