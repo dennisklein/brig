@@ -339,7 +339,8 @@ func newDeleteCmd() *cobra.Command {
 		if socket, err := netSocket(v); err == nil {
 			_ = os.RemoveAll(filepath.Dir(socket))
 		}
-		if err := a.forgetGateway(ctx, v); err != nil {
+		// By now the VM is gone, so Ctrl-C must not leave its gateway behind.
+		if err := a.forgetGateway(context.WithoutCancel(ctx), v); err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", err)
 		}
 		if err := a.vms.Remove(v.Name); err != nil {
@@ -359,12 +360,16 @@ func (a *app) forgetGateway(ctx context.Context, v *vm.VM) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	if cli, err := openshell.Find(); err == nil {
 		if err := cli.Unregister(ctx, v.GatewayName()); err != nil {
-			return fmt.Errorf("unregistering gateway %s: %w", v.GatewayName(), err)
+			errs = append(errs, fmt.Errorf("unregistering gateway %s: %w", v.GatewayName(), err))
 		}
 	}
-	return openshell.RemoveBundle(cfgHome, v.GatewayName())
+	// The client key goes even when unregistering failed: delete drops the VM
+	// record next, so nothing could retry.
+	errs = append(errs, openshell.RemoveBundle(cfgHome, v.GatewayName()))
+	return errors.Join(errs...)
 }
 
 // vmStatus is a VM record plus its live state, as printed by list and show.

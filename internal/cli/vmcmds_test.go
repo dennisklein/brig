@@ -298,3 +298,29 @@ func TestUpgradeChecksBootInputsBeforeStoppingTheVM(t *testing.T) {
 		}
 	}
 }
+
+func TestForgetGatewayRemovesTheBundleWhenUnregisteringFails(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	fakeCommands(t, map[string]string{"openshell": "echo boom >&2\nexit 1"})
+	cfgHome, err := openshellConfigHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfgHome, "gateways", v.GatewayName())
+	key := filepath.Join(dir, "mtls", "tls.key")
+	if err := os.MkdirAll(filepath.Dir(key), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(dir, "metadata.json"), key} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.forgetGateway(t.Context(), v); err == nil {
+		t.Error("forgetGateway() did not report the failed unregistration")
+	}
+	if _, err := os.Stat(key); !os.IsNotExist(err) {
+		t.Errorf("client key still there after forgetGateway(): %v", err)
+	}
+}
