@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Delete all but the newest N versions of each package in an RPM directory.
 
+Only the newest release of each of the N newest versions is kept, so a
+release bump does not push the previous version out.
+
 Usage: prune-repo.py --keep N DIR
 """
 
@@ -52,7 +55,12 @@ def main():
     cmp = functools.cmp_to_key(lambda a, b: rpm.labelCompare(a[0], b[0]))
     for versions in by_name.values():
         versions.sort(key=cmp, reverse=True)
-        for _, path in versions[args.keep:]:
+        newest = []
+        for (epoch, version, _), path in versions:
+            # Sorted newest first: the first build of a version is its newest.
+            if (epoch, version) not in newest and len(newest) < args.keep:
+                newest.append((epoch, version))
+                continue
             print(f"pruning {path}", file=sys.stderr)
             os.remove(path)
 

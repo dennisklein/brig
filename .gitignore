@@ -6,3 +6,6 @@
 *.test
 *.out
 coverage.*
+
+# Python bytecode
+__pycache__/
