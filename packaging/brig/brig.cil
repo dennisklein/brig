@@ -1,0 +1,13 @@
+; SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+; SPDX-License-Identifier: Apache-2.0
+;
+; brig runs passt as root inside pasta's user namespace. With the SELinux
+; policy of passt 0^20261002, passt_t may not use the setfcap capability in
+; that namespace, which passt needs to sandbox itself, so no VM can start
+; ("Couldn't write to /proc/N/uid_map: Operation not permitted").
+;
+; The rule sits in an optional block, so that the module still loads, and
+; takes effect once passt's module is present, if passt-selinux is not
+; installed yet or is removed later: passt_t is defined by that module.
+(optional brig_passt
+    (allow passt_t self (cap_userns (setfcap))))
