@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/dennisklein/brig/internal/openshell"
 )
 
@@ -71,6 +73,40 @@ func TestLoad(t *testing.T) {
 	}
 	if set, err := Load([]string{t.TempDir()}); err != nil || len(set.Profiles)+len(set.Providers) != 0 || set.DefaultPolicy != "" {
 		t.Errorf("empty directory: %+v, %v", set, err)
+	}
+}
+
+// JSON files may use escapes that YAML does not know: \/ and surrogate pairs,
+// which Python's json.dump writes for characters outside the BMP.
+func TestLoadJSONEscapes(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "bot.json"),
+		`{"id": "bot", "display_name": "Bot \ud83e\udd16 a\/b", "endpoints": [{"host": "api.example.com", "port": 443}]}`)
+	writeFile(t, filepath.Join(dir, "providers", "bot.json"),
+		`{"name": "bot", "type": "bot", "credentials": {"BOT_TOKEN": {"secret_tool": {"lookup": ["service", "api.example.com\/x"]}}}}`)
+	set, err := Load([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []openshell.Endpoint{{Host: "api.example.com", Port: 443}}; !reflect.DeepEqual(set.Profiles[0].Endpoints, want) {
+		t.Errorf("endpoints = %+v", set.Profiles[0].Endpoints)
+	}
+	if got := set.Providers[0].Credentials["BOT_TOKEN"].SecretTool.Lookup; !reflect.DeepEqual(got, []string{"service", "api.example.com/x"}) {
+		t.Errorf("lookup = %q", got)
+	}
+	file, err := writeProfile(t.TempDir(), set.Profiles[0], 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		DisplayName string `yaml:"display_name"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil || doc.DisplayName != "Bot \U0001F916 a/b" {
+		t.Errorf("written profile: display_name %q, %v", doc.DisplayName, err)
 	}
 }
 

@@ -240,8 +240,12 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 // it: without a resource_version for an import, and with the gateway's
 // current one, version, for an update.
 func writeProfile(dir string, p ProfileFile, version uint64) (string, error) {
+	src, err := yamlSource(p.Path, p.Data)
+	if err != nil {
+		return "", err
+	}
 	var doc yaml.Node
-	if err := yaml.Unmarshal(p.Data, &doc); err != nil {
+	if err := yaml.Unmarshal(src, &doc); err != nil {
 		return "", fmt.Errorf("%s: %w", p.Path, err)
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {

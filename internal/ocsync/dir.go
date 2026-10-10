@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -246,6 +247,31 @@ func readConfigFile(path string) ([]byte, error) {
 	return data, nil
 }
 
+// yamlSource returns the content of a config file in a form the YAML decoder
+// reads as the file's author meant. The decoder's escape set is YAML's, not
+// JSON's: it rejects \/ and the surrogate pairs that tools such as Python's
+// json.dump write for characters outside the Basic Multilingual Plane. A
+// .json file is therefore decoded as JSON and written out again, which
+// leaves no escape the YAML decoder cannot read.
+func yamlSource(path string, data []byte) ([]byte, error) {
+	if filepath.Ext(path) != ".json" {
+		return data, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return out.Bytes(), nil
+}
+
 // yaml.v3 puts a scalar into its error messages in several ways: in
 // backticks, bare as a tag ("cannot unmarshal !tag `value` into T"), and
 // in single quotes as an alias or anchor name.
@@ -275,7 +301,11 @@ func loadProfile(path string) (ProfileFile, error) {
 		ID        string               `yaml:"id"`
 		Endpoints []openshell.Endpoint `yaml:"endpoints"`
 	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	src, err := yamlSource(path, data)
+	if err != nil {
+		return ProfileFile{}, err
+	}
+	if err := yaml.Unmarshal(src, &doc); err != nil {
 		return ProfileFile{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if !nameRE.MatchString(doc.ID) {
@@ -337,8 +367,12 @@ func loadProvider(path string) (Provider, error) {
 	if err != nil {
 		return Provider{}, err
 	}
+	src, err := yamlSource(path, data)
+	if err != nil {
+		return Provider{}, err
+	}
 	var p Provider
-	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec := yaml.NewDecoder(bytes.NewReader(src))
 	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
 		return Provider{}, fmt.Errorf("%s: %s (credentials take only secret_tool references, never values)", path, redactYAMLError(err))
