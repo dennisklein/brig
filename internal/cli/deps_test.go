@@ -11,7 +11,7 @@ import (
 
 func run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
-	cmd := newRootCmd()
+	cmd := newRootCmd(&progressRun{})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)

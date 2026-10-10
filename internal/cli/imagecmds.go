@@ -14,6 +14,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
+	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/image"
@@ -37,9 +39,23 @@ func (a *app) buildImage(ctx context.Context, cmd *cobra.Command, o image.BuildO
 	if o.RepoFile, o.RepoKey, err = packaging.Repo(); err != nil {
 		return image.Image{}, err
 	}
-	o.Log = cmd.ErrOrStderr()
+	// The mkosi log can hold any text. A live display shows mkosi's newest
+	// line, so the log is kept for a failure instead of scrolling past it.
+	var tail *tailWriter
+	switch progressMode(ctx) {
+	case cliprogress.ModeTTY, cliprogress.ModeCounter:
+		tail = newTailWriter(40)
+		o.Log = tail
+	default:
+		esc := newEscWriter(cmd.ErrOrStderr())
+		defer func() { _ = esc.Close() }()
+		o.Log = esc
+	}
 	img, built, err := a.images.Build(ctx, a.dirs.MkosiCacheDir(), o)
 	if err != nil {
+		if tail != nil && tail.String() != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "mkosi's last lines:\n%s\n", termtext.EscapeLines(tail.String()))
+		}
 		return image.Image{}, fmt.Errorf("building base image: %w", err)
 	}
 	// With o.IfNone, Build may return an image that another build added
