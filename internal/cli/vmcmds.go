@@ -16,6 +16,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/bytesize"
@@ -430,7 +431,8 @@ func newListCmd() *cobra.Command {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tSTATE\tCPUS\tMEMORY\tPROFILE\tIMAGE")
 			for _, v := range vms {
-				fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\n", v.Name, v.State, v.CPUs, v.Memory, v.NetworkProfile, v.Image)
+				fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\n", termtext.Escape(v.Name), termtext.Escape(v.State), v.CPUs, v.Memory,
+					termtext.Escape(v.NetworkProfile), termtext.Escape(v.Image))
 			}
 			return tw.Flush()
 		},
@@ -453,7 +455,7 @@ func newShowCmd() *cobra.Command {
 			return writeJSON(cmd.OutOrStdout(), st)
 		}
 		tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		row := func(k, v any) { fmt.Fprintf(tw, "%v:\t%v\n", k, v) }
+		row := func(k, v any) { fmt.Fprintf(tw, "%v:\t%s\n", k, termtext.Escape(fmt.Sprint(v))) }
 		row("Name", v.Name)
 		row("State", st.State)
 		row("Created", v.CreatedAt.Local().Format(time.DateTime))
