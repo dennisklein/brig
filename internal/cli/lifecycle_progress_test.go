@@ -58,7 +58,7 @@ func (f *fakeDomains) Undefine(string) error {
 // VM whose gateway has created its certificates. A command in the guest
 // that matches the shell case pattern in cases gets the answer of its arm
 // instead.
-func fakeGuest(t *testing.T, cases string) {
+func fakeGuest(t *testing.T, cases string) string {
 	t.Helper()
 	pem := func(typ string) string {
 		return base64.StdEncoding.EncodeToString([]byte("-----BEGIN " + typ + "-----\nAAAA\n-----END " + typ + "-----\n"))
@@ -71,6 +71,18 @@ func fakeGuest(t *testing.T, cases string) {
 	}
 	// Without openshell on PATH, brig leaves the gateway unregistered.
 	t.Setenv("PATH", dir)
+	return dir
+}
+
+// fakeOpenShell puts a fake openshell in dir, which fakeGuest returned. It
+// registers any gateway and answers a status request with status, a JSON
+// object.
+func fakeOpenShell(t *testing.T, dir, status string) {
+	t.Helper()
+	body := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n--version) echo 'openshell 0.1.2' ;;\n*status*) echo '%s' ;;\nesac\n", status)
+	if err := os.WriteFile(filepath.Join(dir, "openshell"), []byte(body), 0o700); err != nil { //nolint:gosec // G306: scripts must be executable
+		t.Fatal(err)
+	}
 }
 
 func TestStartVMProgress(t *testing.T) {
@@ -217,5 +229,44 @@ func TestProvisionProgress(t *testing.T) {
 	}
 	if got := w.Finish(); !strings.HasPrefix(got, "step create the VM: failed (target): qemu-img create: no space left") || a.vms.Exists("other") {
 		t.Errorf("progress\n%s\nVM exists: %v", got, a.vms.Exists("other"))
+	}
+}
+
+func TestStartVMGatewayAnswerProgress(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		check   bool
+		want    string
+		wantErr bool
+	}{
+		// brig start goes on with a warning.
+		{"warn", false, "step connect the gateway: ok\n  wait wait for the gateway to answer: skipped", false},
+		// brig create and upgrade need the gateway.
+		{"check", true, "step connect the gateway: failed", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func(d time.Duration) { gatewayReadyTimeout = d }(gatewayReadyTimeout)
+			gatewayReadyTimeout = 200 * time.Millisecond
+			a := testApp(t)
+			v := testVM(t, a, "dev")
+			fakeOpenShell(t, fakeGuest(t, ""), `{"status":"not_configured"}`)
+			ctx, w := progresstest.Watch(t.Context(), t)
+			var out bytes.Buffer
+			err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, tc.check)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("startVM: %v\n%s", err, &out)
+			}
+			t.Log(w.Tree())
+			got := w.Finish()
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("progress lacks %q:\n%s", tc.want, got)
+			}
+			if !tc.check && !strings.Contains(out.String(), "does not answer yet") {
+				t.Errorf("output = %q", &out)
+			}
+			if tc.check && !strings.Contains(got, "wait wait for the gateway to answer: failed") {
+				t.Errorf("a gateway that must answer did not fail its wait:\n%s", got)
+			}
+		})
 	}
 }

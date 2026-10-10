@@ -115,6 +115,21 @@ func inSpan(ctx context.Context, k progress.Kind, name string, fn func(context.C
 	return err
 }
 
+// inOptionalSpan is inSpan for work whose failure the command goes on from,
+// with a warning: the span then ends skipped, with the error as its reason.
+// An error that comes with the end of ctx, such as an interrupt, still ends
+// it as it is.
+func inOptionalSpan(ctx context.Context, k progress.Kind, name string, fn func(context.Context) error) error {
+	ctx2, span := progress.Start(ctx, k, name)
+	err := fn(ctx2)
+	if err != nil && ctx.Err() == nil {
+		span.Skip(err.Error())
+		return err
+	}
+	span.End(err)
+	return err
+}
+
 // start runs as the root's PersistentPreRunE.
 func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags) error {
 	if skipsProgress(cmd) {
