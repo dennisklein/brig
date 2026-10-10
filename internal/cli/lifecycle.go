@@ -505,16 +505,20 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 		vmnet.Stop(ctx, v.Name)
 		return nil
 	case force:
-		err = conn.Destroy(v.DomainName())
+		err = inSpan(ctx, progress.KindStep, "power off the VM", func(context.Context) error {
+			return conn.Destroy(v.DomainName())
+		})
 	default:
-		if state == libvirt.StatePaused {
-			// A domain saved at logout restores, and then shuts down cleanly,
-			// only while its network listens; otherwise Shutdown powers it off.
-			if net, nerr := a.netConfig(v); nerr == nil {
-				_ = vmnet.Start(ctx, net)
+		err = inSpan(ctx, progress.KindStep, "shut down the VM", func(ctx context.Context) error {
+			if state == libvirt.StatePaused {
+				// A domain saved at logout restores, and then shuts down cleanly,
+				// only while its network listens; otherwise Shutdown powers it off.
+				if net, nerr := a.netConfig(v); nerr == nil {
+					_ = vmnet.Start(ctx, net)
+				}
 			}
-		}
-		err = conn.Shutdown(ctx, v.DomainName(), shutdownTimeout)
+			return conn.Shutdown(ctx, v.DomainName(), shutdownTimeout)
+		})
 	}
 	if err == nil {
 		vmnet.Stop(ctx, v.Name)

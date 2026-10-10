@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/fanout"
+	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -188,11 +190,28 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	if err := a.provision(ctx, conn, v); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "Created VM %s from image %s.\n", v.Name, v.Image)
+	if !start {
+		return nil
+	}
+	if err := a.start(ctx, conn, v, w); err != nil {
+		// Keep the VM for inspection; it was created successfully.
+		return fmt.Errorf("VM %s was created but did not start cleanly: %w", v.Name, err)
+	}
+	return nil
+}
 
-	// Remove the VM's files if creation fails before its domain is defined.
-	// A domain of that name that already exists is none of this command's
-	// business, and a VM whose domain is defined is kept, even if it does
-	// not start.
+// provision creates the VM's directory with its keys and disks, saves its
+// record and defines its domain. It removes the VM's files again if it fails
+// before the domain is defined: a domain of that name that already exists is
+// none of this command's business, and a VM whose domain is defined is kept,
+// even if it does not start.
+func (a *app) provision(ctx context.Context, conn domains, v *vm.VM) (err error) {
+	ctx, step := progress.Start(ctx, progress.KindStep, "create the VM")
+	defer func() { step.End(err) }()
 	defined := false
 	defer func() {
 		if err != nil && !defined {
@@ -215,14 +234,6 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 		return err
 	}
 	defined = true
-	fmt.Fprintf(w, "Created VM %s from image %s.\n", v.Name, v.Image)
-	if !start {
-		return nil
-	}
-	if err := a.start(ctx, conn, v, w); err != nil {
-		// Keep the VM for inspection; it was created successfully.
-		return fmt.Errorf("VM %s was created but did not start cleanly: %w", v.Name, err)
-	}
 	return nil
 }
 
@@ -325,16 +336,27 @@ func newDeleteCmd() *cobra.Command {
 			return err
 		}
 		defer func() { _ = conn.Close() }()
-		state, err := conn.State(v.DomainName())
-		if err != nil {
-			return err
-		}
-		if state != libvirt.StateShutoff && state != libvirt.StateMissing && !force {
-			return fmt.Errorf("VM %s is %s; stop it first or use --force", v.Name, state)
-		}
-		if err := a.stop(ctx, conn, v, true); err != nil {
-			return err
-		}
+		return a.remove(ctx, conn, v, force, cmd.OutOrStdout(), cmd.ErrOrStderr())
+	})
+	cmd.Aliases = []string{"rm"}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "delete a running VM")
+	return cmd
+}
+
+// remove deletes the VM, which must be shut off or missing unless force is
+// set, with its domain, files and gateway.
+func (a *app) remove(ctx context.Context, conn domains, v *vm.VM, force bool, stdout, stderr io.Writer) error {
+	state, err := conn.State(v.DomainName())
+	if err != nil {
+		return err
+	}
+	if state != libvirt.StateShutoff && state != libvirt.StateMissing && !force {
+		return fmt.Errorf("VM %s is %s; stop it first or use --force", v.Name, state)
+	}
+	if err := a.stop(ctx, conn, v, true); err != nil {
+		return err
+	}
+	err = inSpan(ctx, progress.KindStep, "remove the VM", func(ctx context.Context) error {
 		if err := conn.Undefine(v.DomainName()); err != nil {
 			return err
 		}
@@ -343,17 +365,15 @@ func newDeleteCmd() *cobra.Command {
 		}
 		// By now the VM is gone, so Ctrl-C must not leave its gateway behind.
 		if err := a.forgetGateway(context.WithoutCancel(ctx), v); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", termtext.Escape(err.Error()))
+			fmt.Fprintf(stderr, "Warning: %s\n", termtext.Escape(err.Error()))
 		}
-		if err := a.vms.Remove(v.Name); err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Deleted VM %s.\n", v.Name)
-		return nil
+		return a.vms.Remove(v.Name)
 	})
-	cmd.Aliases = []string{"rm"}
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "delete a running VM")
-	return cmd
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Deleted VM %s.\n", v.Name)
+	return nil
 }
 
 // forgetGateway removes the VM's gateway from the host's openshell CLI.
