@@ -45,6 +45,8 @@ func (g *fakeGateway) call(format string, args ...any) error {
 	return nil
 }
 
+func (g *fakeGateway) Name() string { return "brig-dev" }
+
 func (g *fakeGateway) Profiles(context.Context) ([]openshell.Profile, error) {
 	return slices.Collect(maps.Values(g.profiles)), nil
 }
@@ -278,7 +280,7 @@ func TestSyncCarriesOnAfterFailures(t *testing.T) {
 	if err == nil {
 		t.Fatal("no error")
 	}
-	for _, want := range []string{"unknown provider type nosuch", "no such secret", "with type anthropic, not github"} {
+	for _, want := range []string{"unknown provider type nosuch", "no such secret", "with type anthropic, not github", "openshell -g brig-dev provider delete d"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q: %v", want, err)
 		}

@@ -89,6 +89,9 @@ func (c *CLI) Gateway(name string) (*Gateway, error) {
 	return &Gateway{cli: c, name: name}, nil
 }
 
+// Name returns the name of the registered gateway.
+func (g *Gateway) Name() string { return g.name }
+
 func (g *Gateway) run(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	return g.cli.runEnv(ctx, env, append([]string{"-g", g.name}, args...)...)
 }

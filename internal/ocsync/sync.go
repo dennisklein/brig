@@ -22,6 +22,8 @@ import (
 // Gateway is what a sync needs from an OpenShell gateway;
 // *openshell.Gateway implements it.
 type Gateway interface {
+	// Name is the registered gateway's name, which the CLI takes as -g.
+	Name() string
 	Profiles(ctx context.Context) ([]openshell.Profile, error)
 	LintProfile(ctx context.Context, file string) error
 	ImportProfile(ctx context.Context, file string) error
@@ -285,7 +287,8 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 	for _, p := range s.set.Providers {
 		cur, exists := byName[p.Name]
 		if exists && cur.Type != p.Type {
-			s.fail("provider", p.Name, fmt.Errorf("the gateway has a provider of this name with type %s, not %s; delete it first with `openshell provider delete %s`", cur.Type, p.Type, p.Name))
+			// Name the gateway: the CLI's active or exported gateway may be another VM's.
+			s.fail("provider", p.Name, fmt.Errorf("the gateway has a provider of this name with type %s, not %s; delete it first with `openshell -g %s provider delete %s`", cur.Type, p.Type, s.gw.Name(), p.Name))
 			continue
 		}
 		// The gateway binds credentials to the profile it holds, so new
