@@ -225,9 +225,10 @@ Two workflows keep the [package repository](#package-repository) current:
   OpenShell release is not published yet, it builds `openshell`,
   `openshell-gateway`, `openshell-prover` and `python3-openshell` from the
   release's source, signs them, smoke-tests the repository and only then
-  publishes it, keeping the previous version. A push republishes the site even when nothing needs
-  building. The version, the gateway's systemd unit and the SDK's protobuf
-  modules follow upstream by themselves; the rest of
+  publishes it, keeping the previous version and the newest one of the previous
+  minor line, so `--openshell` can still pin it. A push republishes the site
+  even when nothing needs building. The version, the gateway's systemd unit and
+  the SDK's protobuf modules follow upstream by themselves; the rest of
   [`openshell.spec`](packaging/openshell/openshell.spec), such as file lists
   and dependencies, does not. To republish a version after changing the spec,
   bump its `baserelease`.

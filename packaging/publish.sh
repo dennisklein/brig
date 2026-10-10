@@ -13,7 +13,9 @@
 # into <site-dir> with a listing of every directory.
 #
 # Env:  PAGES_URL        published repository site
-#       KEEP_VERSIONS    versions to keep per package, newest release each (default 2)
+#       KEEP_VERSIONS    versions to keep per package, newest release each
+#                        (default 2), plus the newest of the previous
+#                        major.minor line
 #       RESTORE          "false" starts from an empty repository instead of
 #                        the published packages, which a dry run with
 #                        another key could not verify (default true)
