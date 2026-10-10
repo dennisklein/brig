@@ -227,7 +227,8 @@ of existing sandboxes.
 Two safety rules matter when you share a directory. A provider's secret may be
 sent to every endpoint in its profile, so read a shared profile's `endpoints`
 before pairing it with your token; `--dry-run` prints them. And `brig start`
-holds back a profile change that adds endpoints to a credential the gateway
+holds back a profile change that adds endpoints, changes an endpoint's path or
+removes all endpoints (so sandbox policies decide) for a credential the gateway
 already holds; only an explicit `brig sync` applies it, and it names the new
 endpoints.
 

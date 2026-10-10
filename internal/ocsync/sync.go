@@ -152,8 +152,14 @@ func effectiveProfile(profiles []openshell.Profile, id string) (openshell.Profil
 	return profiles[i], true
 }
 
-// addedEndpoints returns the endpoints of next that cur lacks.
+// addedEndpoints returns the endpoints of next that cur lacks. An endpoint
+// whose path differs counts as another endpoint, since a broader path sends
+// the credentials to more requests. A profile that loses all its endpoints
+// counts too: sandbox policies can then bind its credentials to any host.
 func addedEndpoints(cur, next []openshell.Endpoint) []string {
+	if len(cur) > 0 && len(next) == 0 {
+		return []string{"any endpoint that sandbox policies bind to it"}
+	}
 	have := map[string]bool{}
 	for _, e := range cur {
 		have[e.String()] = true

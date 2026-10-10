@@ -37,10 +37,18 @@ type Endpoint struct {
 	Host  string   `json:"host" yaml:"host"`
 	Port  uint32   `json:"port" yaml:"port"`
 	Ports []uint32 `json:"ports" yaml:"ports"`
+	// Path limits the credentials to request paths that match it; empty
+	// means every path.
+	Path string `json:"path" yaml:"path"`
 }
 
-// String formats the endpoint as host:port or host:{port,...}.
+// String formats the endpoint as host:port or host:{port,...}, followed by
+// its path if it has one.
 func (e Endpoint) String() string {
+	return e.hostPorts() + e.Path
+}
+
+func (e Endpoint) hostPorts() string {
 	ports := e.Ports
 	if len(ports) == 0 && e.Port != 0 {
 		ports = []uint32{e.Port}

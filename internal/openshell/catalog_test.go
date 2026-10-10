@@ -54,6 +54,9 @@ EOF`)
 	if s := got[0].Endpoints[1].String(); s != "github.com:{443,22}" {
 		t.Errorf("Endpoint.String() = %q", s)
 	}
+	if s := (Endpoint{Host: "api.github.com", Port: 443, Path: "/v1/**"}).String(); s != "api.github.com:443/v1/**" {
+		t.Errorf("Endpoint.String() with path = %q", s)
+	}
 }
 
 // TestJSONValue checks that log lines before or after a JSON value on

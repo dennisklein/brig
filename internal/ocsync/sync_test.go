@@ -425,6 +425,26 @@ func TestSyncHoldsBackNewEndpointsForExistingCredentials(t *testing.T) {
 	}
 }
 
+func TestAddedEndpoints(t *testing.T) {
+	scoped := openshell.Endpoint{Host: "api.github.com", Port: 443, Path: "/repos/myorg/**"}
+	wide := openshell.Endpoint{Host: "api.github.com", Port: 443, Path: "/**"}
+	for _, tc := range []struct {
+		name      string
+		cur, next []openshell.Endpoint
+		want      []string
+	}{
+		{"same", []openshell.Endpoint{scoped}, []openshell.Endpoint{scoped}, nil},
+		{"new host", []openshell.Endpoint{scoped}, []openshell.Endpoint{scoped, {Host: "x.example", Port: 443}}, []string{"x.example:443"}},
+		{"wider path", []openshell.Endpoint{scoped}, []openshell.Endpoint{wide}, []string{"api.github.com:443/**"}},
+		{"no endpoints left", []openshell.Endpoint{scoped}, nil, []string{"any endpoint that sandbox policies bind to it"}},
+		{"none before", nil, nil, nil},
+	} {
+		if got := addedEndpoints(tc.cur, tc.next); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: addedEndpoints = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // slowSecrets times out on the first lookup and records all lookups.
 type slowSecrets struct{ lookups []string }
 
