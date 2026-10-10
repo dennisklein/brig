@@ -76,3 +76,25 @@ func TestSecretToolLookupFailures(t *testing.T) {
 		t.Errorf("missing tool: %v", err)
 	}
 }
+
+func TestSecretToolStoreHint(t *testing.T) {
+	// Attributes that are not plain words are quoted, so pasting the hint
+	// stores the secret under the same attributes.
+	path, _ := fakeSecretTool(t, "exit 1")
+	_, err := SecretTool{Path: path}.Lookup(context.Background(), []string{"service", "GitHub token", "user", "alice's", "x", "$(echo hi)"})
+	want := `store it with: secret-tool store --label=LABEL service 'GitHub token' user 'alice'\''s' x '$(echo hi)'`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Lookup() error = %v, want %q", err, want)
+	}
+
+	// Another program does not store into libsecret, so the hint names it.
+	path, _ = fakeSecretTool(t, "exit 1")
+	other := filepath.Join(t.TempDir(), "pass-lookup")
+	if err := os.Rename(path, other); err != nil {
+		t.Fatal(err)
+	}
+	_, err = SecretTool{Path: other}.Lookup(context.Background(), []string{"service", "x"})
+	if err == nil || !strings.Contains(err.Error(), "store it where "+other+" looks") || strings.Contains(err.Error(), "secret-tool") {
+		t.Errorf("Lookup() error = %v", err)
+	}
+}

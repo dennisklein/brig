@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -74,13 +75,36 @@ func (s SecretTool) Lookup(ctx context.Context, attrs []string) (string, error) 
 		return secret, nil
 	case err == nil || (errors.As(err, &exit) && exit.ExitCode() == 1 && msg == ""):
 		// secret-tool exits 1 without a message when nothing matches.
-		return "", fmt.Errorf("%s lookup %s: %w; store it with: secret-tool store --label=LABEL %s",
-			path, strings.Join(attrs, " "), ErrSecretNotFound, strings.Join(attrs, " "))
+		return "", fmt.Errorf("%s lookup %s: %w; %s",
+			path, strings.Join(attrs, " "), ErrSecretNotFound, storeHint(path, attrs))
 	case msg != "":
 		return "", fmt.Errorf("%s lookup %s: %w: %s", path, strings.Join(attrs, " "), err, msg)
 	default:
 		return "", fmt.Errorf("%s lookup %s: %w", path, strings.Join(attrs, " "), err)
 	}
+}
+
+// storeHint says how to store a secret that lookup did not find. Only
+// secret-tool stores into libsecret, so another program gets no such hint.
+func storeHint(path string, attrs []string) string {
+	if filepath.Base(path) != "secret-tool" {
+		return "store it where " + path + " looks"
+	}
+	words := make([]string, len(attrs))
+	for i, a := range attrs {
+		words[i] = shellWord(a)
+	}
+	return "store it with: secret-tool store --label=LABEL " + strings.Join(words, " ")
+}
+
+// shellWord quotes s for a POSIX shell. Words of plain characters stay as
+// they are.
+func shellWord(s string) string {
+	plain := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._/:@%+=,"
+	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !strings.ContainsRune(plain, r) }) < 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // limitedBuffer keeps at most max bytes and notes whether more came.
