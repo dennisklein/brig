@@ -44,9 +44,20 @@ fi
 mkdir -p "$site"
 
 # Restore the published packages; the site is the repository's only state.
+# Only a 404 means that nothing is published yet: any other failure would
+# otherwise deploy a repository without the packages it had.
+status=
+if [ "${RESTORE:-true}" != false ]; then
+  status=$(curl -sSL --retry 3 -o "$work/packages.sha256" -w '%{http_code}' "$PAGES_URL/packages.sha256") || status=failed
+fi
 if [ "${RESTORE:-true}" = false ]; then
   echo "not restoring the packages published at $PAGES_URL"
-elif curl -fsSL "$PAGES_URL/packages.sha256" -o "$work/packages.sha256"; then
+elif [ "$status" = 404 ]; then
+  echo "no packages.sha256 at $PAGES_URL; starting an empty repository"
+elif [ "$status" != 200 ]; then
+  echo "::error::fetching $PAGES_URL/packages.sha256 failed ($status); not publishing a repository without its packages"
+  exit 1
+else
   while read -r _ path; do
     if [[ ! $path =~ ^rpm/fedora/([0-9]+/x86_64|source)/[A-Za-z0-9._+~^-]+\.rpm$ ]]; then
       echo "::error::unexpected path in packages.sha256: $path"
@@ -66,8 +77,6 @@ elif curl -fsSL "$PAGES_URL/packages.sha256" -o "$work/packages.sha256"; then
       touch -c -m -d "@$mtime" "$site/$path"
     done < "$work/packages.mtime"
   fi
-else
-  echo "no packages.sha256 at $PAGES_URL; starting an empty repository"
 fi
 
 # Sign and file the new packages.

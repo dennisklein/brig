@@ -35,7 +35,18 @@ baserelease=$(sed -n 's/^%global baserelease //p' "$here/openshell/openshell.spe
 rel_version=$(sed -n 's/^Version: *//p' "$here/brig-release/brig-release.spec")
 rel_release=$(sed -n 's/^Release: *//p' "$here/brig-release/brig-release.spec")
 
-published() { curl -fsSI -o /dev/null "$PAGES_URL/$1"; }
+# published reports whether a file is on the site. Only a 404 means it is
+# not: on any other failure, guessing could rebuild and republish.
+published() {
+  local status
+  status=$(curl -sSI --retry 3 -o /dev/null -w '%{http_code}' "$PAGES_URL/$1") || status=failed
+  case $status in
+    200) return 0 ;;
+    404) return 1 ;;
+  esac
+  echo "::error::checking $PAGES_URL/$1 failed ($status)" >&2
+  exit 1
+}
 
 build=false
 release_missing=false
