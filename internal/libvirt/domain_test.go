@@ -81,6 +81,9 @@ func TestDomainXML(t *testing.T) {
 	if c := d.Devices.Controllers; len(c) != 1 || c[0].Type != "usb" || c[0].Model != "none" {
 		t.Errorf("controllers %+v", c)
 	}
+	if d.PM == nil || d.PM.SuspendToMem == nil || d.PM.SuspendToMem.Enabled != "no" || d.PM.SuspendToDisk == nil || d.PM.SuspendToDisk.Enabled != "no" {
+		t.Errorf("pm = %+v", d.PM)
+	}
 	if d.OnPoweroff != "destroy" || d.OnReboot != "restart" || d.OnCrash != "destroy" {
 		t.Errorf("lifecycle = %s %s %s", d.OnPoweroff, d.OnReboot, d.OnCrash)
 	}

@@ -198,9 +198,11 @@ func (a *app) startVM(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Wr
 	if err != nil {
 		return err
 	}
-	if state == libvirt.StatePaused {
+	if state == libvirt.StatePaused || state == libvirt.StateOther {
 		// Saved at logout or paused: shut it down and boot afresh with this
-		// boot's settings rather than resume stale memory.
+		// boot's settings rather than resume stale memory. A domain in
+		// another state, such as one the guest suspended to RAM, is still
+		// alive and cannot be created again; stop destroys it.
 		if err := a.stop(ctx, conn, v, false); err != nil {
 			return err
 		}

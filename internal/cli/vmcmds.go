@@ -568,6 +568,9 @@ func newUpdateCmd() *cobra.Command {
 		if state == libvirt.StatePaused {
 			return fmt.Errorf("VM %s is paused or was saved at logout; start or stop it first", v.Name)
 		}
+		if state == libvirt.StateOther {
+			return fmt.Errorf("VM %s is in an unexpected state (for instance suspended by the guest); stop it first", v.Name)
+		}
 		running := state == libvirt.StateRunning
 		disks := []struct {
 			flag, file, dev string

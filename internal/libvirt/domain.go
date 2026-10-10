@@ -124,6 +124,12 @@ func DomainXML(s DomainSpec) (string, error) {
 				{Policy: "disable", Name: "svm"},
 			},
 		},
+		// A guest that suspends to RAM would keep QEMU alive with its
+		// network socket unserved.
+		PM: &libvirtxml.DomainPM{
+			SuspendToMem:  &libvirtxml.DomainPMPolicy{Enabled: "no"},
+			SuspendToDisk: &libvirtxml.DomainPMPolicy{Enabled: "no"},
+		},
 		OnPoweroff: "destroy",
 		OnReboot:   "restart",
 		OnCrash:    "destroy",
