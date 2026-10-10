@@ -71,6 +71,10 @@ func TestDomainXML(t *testing.T) {
 	if d.Features.ACPI == nil || d.Features.APIC == nil || d.CPU.Mode != "host-passthrough" {
 		t.Errorf("features %+v, cpu %+v", d.Features, d.CPU)
 	}
+	if f := d.CPU.Features; len(f) != 2 || f[0] != (libvirtxml.DomainCPUFeature{Policy: "disable", Name: "vmx"}) ||
+		f[1] != (libvirtxml.DomainCPUFeature{Policy: "disable", Name: "svm"}) {
+		t.Errorf("cpu features = %+v, want vmx and svm disabled", f)
+	}
 	if d.OnPoweroff != "destroy" || d.OnReboot != "restart" || d.OnCrash != "destroy" {
 		t.Errorf("lifecycle = %s %s %s", d.OnPoweroff, d.OnReboot, d.OnCrash)
 	}

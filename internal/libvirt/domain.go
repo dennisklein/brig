@@ -110,7 +110,15 @@ func DomainXML(s DomainSpec) (string, error) {
 			ACPI: &libvirtxml.DomainFeature{},
 			APIC: &libvirtxml.DomainFeatureAPIC{},
 		},
-		CPU:        &libvirtxml.DomainCPU{Mode: "host-passthrough"},
+		// Nested virtualization is off: nothing in the guest needs it, and it
+		// would expose the host kernel's VMX/SVM emulation to root in the VM.
+		CPU: &libvirtxml.DomainCPU{
+			Mode: "host-passthrough",
+			Features: []libvirtxml.DomainCPUFeature{
+				{Policy: "disable", Name: "vmx"},
+				{Policy: "disable", Name: "svm"},
+			},
+		},
 		OnPoweroff: "destroy",
 		OnReboot:   "restart",
 		OnCrash:    "destroy",
