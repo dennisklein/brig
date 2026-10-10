@@ -94,10 +94,13 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 	oldImage := v.Image
 
 	if err := qemuimg.Snapshot(ctx, data, snapshot); err != nil {
-		return err
+		return a.restartAfter(ctx, conn, v, keepRunning, w, err)
 	}
 	if err := os.Rename(root, prev); err != nil {
-		return err
+		if derr := qemuimg.DeleteSnapshot(ctx, data, snapshot); derr != nil {
+			err = fmt.Errorf("%w (the data disk keeps the snapshot %s: %w)", err, snapshot, derr)
+		}
+		return a.restartAfter(ctx, conn, v, keepRunning, w, err)
 	}
 	v.Image = id
 	err = qemuimg.CreateOverlay(ctx, root, a.images.Path(id), v.RootDisk)
@@ -119,13 +122,7 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 		if rerr := a.rollback(context.WithoutCancel(ctx), conn, v, oldImage, snapshot); rerr != nil {
 			return fmt.Errorf("upgrade failed: %w; rolling back failed too: %w", err, rerr)
 		}
-		if keepRunning && ctx.Err() == nil {
-			fmt.Fprintf(w, "Upgrade failed; starting %s again on image %s...\n", v.Name, oldImage)
-			if serr := a.start(ctx, conn, v, w); serr != nil {
-				return fmt.Errorf("upgrade failed and was rolled back: %w; starting %s again failed: %w", err, v.Name, serr)
-			}
-		}
-		return fmt.Errorf("upgrade failed and was rolled back: %w", err)
+		return a.restartAfter(ctx, conn, v, keepRunning, w, fmt.Errorf("upgrade failed and was rolled back: %w", err))
 	}
 
 	if err := os.Remove(prev); err != nil {
@@ -146,6 +143,18 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 	}
 	fmt.Fprintf(w, "Upgraded %s to image %s.\n", v.Name, id)
 	return nil
+}
+
+// restartAfter returns cause after a failed upgrade, starting the VM again
+// first when it was running and ctx was not cancelled.
+func (a *app) restartAfter(ctx context.Context, conn *libvirt.Conn, v *vm.VM, keepRunning bool, w io.Writer, cause error) error {
+	if keepRunning && ctx.Err() == nil {
+		fmt.Fprintf(w, "Upgrade failed; starting %s again on image %s...\n", v.Name, v.Image)
+		if serr := a.start(ctx, conn, v, w); serr != nil {
+			return fmt.Errorf("%w; starting %s again failed: %w", cause, v.Name, serr)
+		}
+	}
+	return cause
 }
 
 // rollback puts the VM back onto oldImage, with its old root disk and its
