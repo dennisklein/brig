@@ -24,6 +24,12 @@ on:
         description: Rebuild even if the packages are already published
         type: boolean
         default: false
+      discard-published:
+        description: >-
+          Publish only what this run builds, dropping the published packages
+          (after a signing key compromise; implies rebuild)
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -55,7 +61,7 @@ jobs:
       - id: plan
         env:
           INPUT_TAG: ${{ inputs.openshell-tag }}
-          REBUILD: ${{ inputs.rebuild }}
+          REBUILD: ${{ inputs.rebuild || inputs.discard-published }}
         run: packaging/plan.sh
       - name: Summary
         env:
@@ -202,6 +208,7 @@ jobs:
       - name: Assemble signed repository
         env:
           RPM_SIGNING_KEY: ${{ secrets.RPM_SIGNING_KEY }}
+          RESTORE: ${{ inputs.discard-published && 'false' || 'true' }}
         run: packaging/publish.sh incoming site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

@@ -174,3 +174,115 @@ func hasCall(calls []string, prefix string) bool {
 	}
 	return false
 }
+
+// TestSigningKeyRotation runs scripts/signing-key.sh --next, --switch and
+// --retire with the real gpg against a fake gh and git.
+func TestSigningKeyRotation(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not found")
+	}
+	if _, err := exec.LookPath("gpg"); err != nil {
+		t.Skip("gpg not found")
+	}
+	script, err := filepath.Abs("../scripts/signing-key.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	bin, root, data := filepath.Join(dir, "bin"), filepath.Join(dir, "repo"), filepath.Join(dir, "data")
+	pubkey := filepath.Join(root, "packaging/brig-release/RPM-GPG-KEY-brig")
+	for _, d := range []string{bin, filepath.Dir(pubkey)} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, body := range map[string]string{
+		"gh":  fakeGH,
+		"git": "#!/bin/sh\necho '" + root + "'\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o700); err != nil { //nolint:gosec // G306: the scripts must be executable
+			t.Fatal(err)
+		}
+	}
+	log := filepath.Join(dir, "log")
+	env := append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HOME="+dir,
+		"XDG_DATA_HOME="+data,
+		"FAKE_LOG="+log,
+		"FAKE_POLICIES=/dev/null",
+		"BRIG_SIGNING_UID=test <test@invalid>",
+	)
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command(bash, append([]string{script}, args...)...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	keys := func() []string {
+		cmd := exec.Command("gpg", "--batch", "--with-colons", "--show-keys", pubkey)
+		cmd.Env = append(os.Environ(), "GNUPGHOME="+t.TempDir())
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fprs []string
+		pub := false
+		for line := range strings.SplitSeq(string(out), "\n") {
+			f := strings.Split(line, ":")
+			switch {
+			case f[0] == "pub":
+				pub = true
+			case f[0] == "fpr" && pub:
+				fprs, pub = append(fprs, f[9]), false
+			}
+		}
+		return fprs
+	}
+
+	if out, err := run("--next"); err == nil {
+		t.Fatalf("--next without a key succeeded:\n%s", out)
+	}
+	if out, err := run(); err != nil {
+		t.Fatalf("create: %v\n%s", err, out)
+	}
+	first := keys()
+	if out, err := run("--next"); err != nil {
+		t.Fatalf("--next: %v\n%s", err, out)
+	}
+	both := keys()
+	if len(first) != 1 || len(both) != 2 || both[0] != first[0] {
+		t.Fatalf("keys after create %q, after --next %q", first, both)
+	}
+	next := both[1]
+
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("--switch", filepath.Join(data, "brig/signing-key", first[0]+".secret.asc")); err != nil {
+		t.Fatalf("--switch to a listed key: %v\n%s", err, out)
+	}
+	if out, err := run("--switch", filepath.Join(data, "brig/signing-key", next+".secret.asc")); err != nil {
+		t.Fatalf("--switch: %v\n%s", err, out)
+	}
+	if data, _ := os.ReadFile(log); strings.Count(string(data), "secret set RPM_SIGNING_KEY") != 2 {
+		t.Errorf("gh calls:\n%s", data)
+	}
+
+	if out, err := run("--retire", first[0]); err != nil {
+		t.Fatalf("--retire: %v\n%s", err, out)
+	} else if !strings.Contains(out, "rpmkeys --delete "+strings.ToLower(first[0][32:])) {
+		t.Errorf("--retire output:\n%s", out)
+	}
+	if got := keys(); len(got) != 1 || got[0] != next {
+		t.Fatalf("keys after --retire %q, want %q", got, next)
+	}
+	if out, err := run("--retire", next); err == nil || !strings.Contains(out, "only key") {
+		t.Errorf("retiring the last key: %v\n%s", err, out)
+	}
+	// The retired key is no longer one to switch to.
+	if out, err := run("--switch", filepath.Join(data, "brig/signing-key", first[0]+".secret.asc")); err == nil || !strings.Contains(out, "no key that") {
+		t.Errorf("--switch to a retired key: %v\n%s", err, out)
+	}
+}

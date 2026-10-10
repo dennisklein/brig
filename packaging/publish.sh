@@ -17,10 +17,17 @@
 #                        (default 2), plus the newest of the previous
 #                        major.minor line
 #       RESTORE          "false" starts from an empty repository instead of
-#                        the published packages, which a dry run with
-#                        another key could not verify (default true)
+#                        the published packages: for a dry run with another
+#                        key, which could not verify them, and after a key
+#                        compromise, when no listed key may (default true)
 #       RPM_SIGNING_KEY  armored OpenPGP secret key without passphrase; it
-#                        must match packaging/brig-release/RPM-GPG-KEY-brig
+#                        must be one of the keys that
+#                        packaging/brig-release/RPM-GPG-KEY-brig lists
+#
+# Restored packages that another key listed there signed are re-signed with
+# RPM_SIGNING_KEY, so that a rotation (see scripts/signing-key.sh) moves the
+# whole repository to the new key. Packages that no listed key signed are an
+# error.
 set -euo pipefail
 
 incoming=${1:?usage: publish.sh <incoming-dir> <site-dir>}
@@ -37,11 +44,20 @@ mkdir -m 0700 "$GNUPGHOME"
 
 gpg --batch --quiet --import <<<"$RPM_SIGNING_KEY"
 fpr=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
-expected=$(gpg --batch --with-colons --show-keys "$pubkey" | awk -F: '$1 == "fpr" { print $10; exit }')
-if [ -z "$fpr" ] || [ "$fpr" != "$expected" ]; then
-  echo "::error::signing key '$fpr' does not match $pubkey ('$expected')"
+listed=$(gpg --batch --with-colons --show-keys "$pubkey" |
+  awk -F: '$1 == "pub" { p = 1; next } $1 == "fpr" && p { print $10; p = 0 }')
+if [ -z "$fpr" ] || ! grep -qx "$fpr" <<<"$listed"; then
+  echo "::error::signing key '$fpr' is not one of the keys in $pubkey: ${listed//$'\n'/ }"
   exit 1
 fi
+# rpmdb trusts the signing key only, trusted every key that $pubkey lists.
+mkdir "$work/rpmdb" "$work/trusted"
+gpg --batch --armor --export "$fpr" > "$work/signing-key.asc"
+rpmkeys --dbpath "$work/rpmdb" --import "$work/signing-key.asc"
+rpmkeys --dbpath "$work/trusted" --import "$pubkey"
+signed() {
+  rpmkeys --dbpath "$work/$1" --checksig "$2" | grep -q 'signatures OK$'
+}
 
 mkdir -p "$site"
 
@@ -79,6 +95,21 @@ else
       touch -c -m -d "@$mtime" "$site/$path"
     done < "$work/packages.mtime"
   fi
+  # Move packages that another listed key signed onto the signing key,
+  # keeping their dates.
+  while read -r _ path; do
+    pkg=$site/$path
+    signed rpmdb "$pkg" && continue
+    if ! signed trusted "$pkg"; then
+      echo "::error::$path is not signed by a key that $pubkey lists; after a key compromise, publish with discard-published"
+      rpmkeys --dbpath "$work/trusted" --checksig --verbose "$pkg"
+      exit 1
+    fi
+    mtime=$(stat -c %Y "$pkg")
+    rpmsign --define "_gpg_name $fpr" --resign "$pkg" > /dev/null
+    touch -m -d "@$mtime" "$pkg"
+    echo "re-signed $path"
+  done < "$work/packages.sha256"
 fi
 
 # Sign and file the new packages.
@@ -122,14 +153,13 @@ for f in "${releases[@]}"; do
 done
 cp -p "$newest" "$site/brig-release.noarch.rpm"
 
-# Prune, verify every signature, regenerate and sign the metadata.
-mkdir "$work/rpmdb"
-rpmkeys --dbpath "$work/rpmdb" --import "$pubkey"
+# Prune, verify that the signing key signed every package, regenerate and
+# sign the metadata.
 for dir in "$site"/rpm/fedora/*/x86_64 "$site"/rpm/fedora/source; do
   [ -d "$dir" ] || continue
   python3 "$here/prune-repo.py" --keep "${KEEP_VERSIONS:-2}" "$dir"
   for pkg in "$dir"/*.rpm; do
-    if ! rpmkeys --dbpath "$work/rpmdb" --checksig "$pkg" | grep -q 'signatures OK$'; then
+    if ! signed rpmdb "$pkg"; then
       echo "::error::bad or missing signature: $pkg"
       rpmkeys --dbpath "$work/rpmdb" --checksig --verbose "$pkg"
       exit 1

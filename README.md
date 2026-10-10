@@ -259,6 +259,24 @@ One-time setup for maintainers:
    `~/.local/share/brig/signing-key/`; move them to offline storage.
 2. In the repository settings, set *Pages → Source* to *GitHub Actions*.
 
+`RPM-GPG-KEY-brig` lists every key that clients trust; the packages workflow
+signs with one of them and re-signs the published packages that another
+listed key signed. To replace the key, run `scripts/signing-key.sh` with
+each of these options in turn, and bump brig-release's `Version` with the
+`--next` and `--retire` commits, so that clients get the new keys from a
+package that a key they trust signed:
+
+1. `--next` adds a new key beside the current one and backs it up.
+2. Once clients have updated brig-release, `--switch FILE` with that
+   backup makes the next publish sign everything with the new key.
+3. After that publish, `--retire FINGERPRINT` drops the old key.
+
+After a key compromise, instead run `--next`, `--switch` and `--retire` at
+once, then the packages workflow with *discard-published*, which publishes
+only what it rebuilds. Clients then need the new key by hand: `sudo rpm
+--import https://dennisklein.github.io/brig/RPM-GPG-KEY-brig`, and `sudo
+rpmkeys --delete` with the old key's ID.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
