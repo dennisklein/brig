@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -89,12 +90,15 @@ func newUpgradeCmd() *cobra.Command {
 // data disk is snapshotted first, because the new OpenShell gateway may
 // migrate its database. After the check boot, the VM is stopped to delete
 // the snapshot and then, with keepRunning, started again.
-func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id string, keepRunning bool, w io.Writer) (err error) {
+func (a *app) upgrade(ctx context.Context, conn domains, v *vm.VM, id string, keepRunning bool, w io.Writer) (err error) {
 	root, prev, data := a.vmFile(v, rootDiskFile), a.vmFile(v, rootDiskFile+".prev"), a.vmFile(v, dataDiskFile)
 	snapshot := "brig-upgrade-" + time.Now().UTC().Format("20060102T150405Z")
 	oldImage := v.Image
 
-	if err := qemuimg.Snapshot(ctx, data, snapshot); err != nil {
+	err = inSpan(ctx, progress.KindStep, "back up the data disk", func(ctx context.Context) error {
+		return qemuimg.Snapshot(ctx, data, snapshot)
+	})
+	if err != nil {
 		return a.restartAfter(ctx, conn, v, keepRunning, w, err)
 	}
 	if err := os.Rename(root, prev); err != nil {
@@ -104,15 +108,17 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 		return a.restartAfter(ctx, conn, v, keepRunning, w, err)
 	}
 	v.Image = id
-	err = qemuimg.CreateOverlay(ctx, root, a.images.Path(id), v.RootDisk)
-	if err == nil {
-		err = a.vms.Save(v)
-	}
-	if err == nil {
+	err = inSpan(ctx, progress.KindStep, "switch to the new image", func(ctx context.Context) error {
+		if err := qemuimg.CreateOverlay(ctx, root, a.images.Path(id), v.RootDisk); err != nil {
+			return err
+		}
+		if err := a.vms.Save(v); err != nil {
+			return err
+		}
 		// Start over with a fresh UEFI variable store, whose boot entries
 		// may point into the old image; start defines the domain again.
-		err = conn.Undefine(v.DomainName())
-	}
+		return conn.Undefine(v.DomainName())
+	})
 	if err == nil {
 		fmt.Fprintf(w, "Booting %s on image %s...\n", v.Name, id)
 		err = a.startVM(ctx, conn, v, w, true)
@@ -120,7 +126,10 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 	if err != nil {
 		// Roll back even when ctx was cancelled, e.g. by Ctrl-C during the
 		// boot: a rollback cut short leaves the VM's record and disks at odds.
-		if rerr := a.rollback(context.WithoutCancel(ctx), conn, v, oldImage, snapshot); rerr != nil {
+		rerr := inSpan(context.WithoutCancel(ctx), progress.KindStep, "roll back the upgrade", func(ctx context.Context) error {
+			return a.rollback(ctx, conn, v, oldImage, snapshot)
+		})
+		if rerr != nil {
 			return fmt.Errorf("upgrade failed: %w; rolling back failed too: %w", err, rerr)
 		}
 		return a.restartAfter(ctx, conn, v, keepRunning, w, fmt.Errorf("upgrade failed and was rolled back: %w", err))
@@ -133,7 +142,10 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 	if err := a.stop(ctx, conn, v, false); err != nil {
 		return fmt.Errorf("upgraded %s to image %s, but stopping it to delete the data disk snapshot %s failed: %w", v.Name, id, snapshot, err)
 	}
-	if err := qemuimg.DeleteSnapshot(ctx, data, snapshot); err != nil {
+	err = inSpan(ctx, progress.KindStep, "delete the data disk snapshot", func(ctx context.Context) error {
+		return qemuimg.DeleteSnapshot(ctx, data, snapshot)
+	})
+	if err != nil {
 		fmt.Fprintf(w, "Warning: could not delete data disk snapshot %s: %s\n", snapshot, termtext.Escape(err.Error()))
 	}
 	if keepRunning {
@@ -148,7 +160,7 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 
 // restartAfter returns cause after a failed upgrade, starting the VM again
 // first when it was running and ctx was not cancelled.
-func (a *app) restartAfter(ctx context.Context, conn *libvirt.Conn, v *vm.VM, keepRunning bool, w io.Writer, cause error) error {
+func (a *app) restartAfter(ctx context.Context, conn domains, v *vm.VM, keepRunning bool, w io.Writer, cause error) error {
 	if keepRunning && ctx.Err() == nil {
 		fmt.Fprintf(w, "Upgrade failed; starting %s again on image %s...\n", v.Name, v.Image)
 		if serr := a.start(ctx, conn, v, w); serr != nil {
@@ -160,7 +172,7 @@ func (a *app) restartAfter(ctx context.Context, conn *libvirt.Conn, v *vm.VM, ke
 
 // rollback puts the VM back onto oldImage, with its old root disk and its
 // data disk as of snapshot. Its errors say what is left to restore by hand.
-func (a *app) rollback(ctx context.Context, conn *libvirt.Conn, v *vm.VM, oldImage, snapshot string) error {
+func (a *app) rollback(ctx context.Context, conn domains, v *vm.VM, oldImage, snapshot string) error {
 	root, prev, data := a.vmFile(v, rootDiskFile), a.vmFile(v, rootDiskFile+".prev"), a.vmFile(v, dataDiskFile)
 	// The record names the new image until the rollback saves it again, and
 	// the domain backs the root disk with the image the record names.
