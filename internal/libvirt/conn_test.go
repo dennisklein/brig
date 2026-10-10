@@ -30,6 +30,8 @@ type fakeDomain struct {
 	// restoresPaused makes restoring the managed-save image leave the
 	// domain paused, as when it was paused when it was saved.
 	restoresPaused bool
+	// xml is the definition the domain was last defined from.
+	xml string
 	// disks maps target names to capacities in bytes.
 	disks map[string]uint64
 	// offAfter is the number of state queries after a shutdown request
@@ -158,6 +160,19 @@ func (f *fakeClient) DomainGetMetadata(d golibvirt.Domain, typ int32, uri golibv
 	return metadataXML, nil
 }
 
+func (f *fakeClient) DomainGetXMLDesc(d golibvirt.Domain, flags golibvirt.DomainXMLFlags) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fd, err := f.dom(d)
+	if err != nil {
+		return "", err
+	}
+	if flags != golibvirt.DomainXMLInactive {
+		return "", fmt.Errorf("unexpected flags %d", flags)
+	}
+	return fd.xml, nil
+}
+
 func (f *fakeClient) DomainDefineXMLFlags(x string, flags golibvirt.DomainDefineFlags) (golibvirt.Domain, error) {
 	var d libvirtxml.Domain
 	if err := d.Unmarshal(x); err != nil {
@@ -168,8 +183,9 @@ func (f *fakeClient) DomainDefineXMLFlags(x string, flags golibvirt.DomainDefine
 	f.record("define %s %d", d.Name, flags)
 	if fd, ok := f.doms[d.Name]; ok {
 		fd.owned = strings.Contains(x, MetadataNamespace)
+		fd.xml = x
 	} else {
-		f.doms[d.Name] = &fakeDomain{state: golibvirt.DomainShutoff, owned: strings.Contains(x, MetadataNamespace)}
+		f.doms[d.Name] = &fakeDomain{state: golibvirt.DomainShutoff, owned: strings.Contains(x, MetadataNamespace), xml: x}
 	}
 	return golibvirt.Domain{Name: d.Name}, nil
 }
@@ -350,11 +366,28 @@ func TestDefine(t *testing.T) {
 		checkCalls(t, f, define)
 	})
 	t.Run("redefine", func(t *testing.T) {
-		c, f := newFake(map[string]*fakeDomain{"brig-dev": running(0)})
+		dom := running(0)
+		dom.xml = x
+		c, f := newFake(map[string]*fakeDomain{"brig-dev": dom})
 		if err := c.Define(x); err != nil {
 			t.Fatal(err)
 		}
 		checkCalls(t, f, define)
+	})
+	t.Run("snapshot", func(t *testing.T) {
+		spec := testSpec()
+		spec.DataDisk += ".snap"
+		moved, err := DomainXML(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dom := running(0)
+		dom.xml = moved
+		c, f := newFake(map[string]*fakeDomain{"brig-dev": dom})
+		if err := c.Define(x); err == nil || !strings.Contains(err.Error(), "disk vdb is "+spec.DataDisk) {
+			t.Errorf("Define() = %v, want refusal", err)
+		}
+		checkCalls(t, f)
 	})
 	t.Run("foreign", func(t *testing.T) {
 		c, f := newFake(map[string]*fakeDomain{"brig-dev": {state: golibvirt.DomainShutoff}})

@@ -24,6 +24,7 @@ type client interface {
 	DomainGetState(dom golibvirt.Domain, flags uint32) (state, reason int32, err error)
 	DomainHasManagedSaveImage(dom golibvirt.Domain, flags uint32) (int32, error)
 	DomainGetMetadata(dom golibvirt.Domain, typ int32, uri golibvirt.OptString, flags golibvirt.DomainModificationImpact) (string, error)
+	DomainGetXMLDesc(dom golibvirt.Domain, flags golibvirt.DomainXMLFlags) (string, error)
 	DomainDefineXMLFlags(xml string, flags golibvirt.DomainDefineFlags) (golibvirt.Domain, error)
 	DomainCreateWithFlags(dom golibvirt.Domain, flags uint32) (golibvirt.Domain, error)
 	DomainResume(dom golibvirt.Domain) error
@@ -153,17 +154,66 @@ func (c *Conn) state(dom golibvirt.Domain) (State, error) {
 // Define defines a persistent domain from domainXML or replaces the
 // definition of the existing domain of the same name and UUID. Changes to a
 // running or suspended domain take effect when it next boots. Define
-// refuses to replace a domain that brig did not create.
+// refuses to replace a domain that brig did not create, and one whose disks
+// no longer are the files domainXML names, as after an external snapshot.
 func (c *Conn) Define(domainXML string) error {
 	var d libvirtxml.Domain
 	if err := d.Unmarshal(domainXML); err != nil {
 		return fmt.Errorf("parse domain XML: %w", err)
 	}
-	if _, err := c.lookupOwned(d.Name); err != nil && !golibvirt.IsNotFound(err) {
+	dom, err := c.lookupOwned(d.Name)
+	if err != nil && !golibvirt.IsNotFound(err) {
 		return err
+	}
+	if err == nil {
+		if err := c.checkDisks(dom, &d); err != nil {
+			return err
+		}
 	}
 	if _, err := c.c.DomainDefineXMLFlags(domainXML, golibvirt.DomainDefineValidate); err != nil {
 		return fmt.Errorf("define domain %s: %w", d.Name, err)
+	}
+	return nil
+}
+
+// checkDisks fails if a disk of dom's definition is not the file that want
+// names for the same target. libvirt points the definition at an overlay
+// file when a snapshot is taken with virsh or virt-manager. Redefining the
+// disk as the base would roll the guest back to the snapshot and let it
+// write into the backing file of the overlay, which holds the work since.
+func (c *Conn) checkDisks(dom golibvirt.Domain, want *libvirtxml.Domain) error {
+	x, err := c.c.DomainGetXMLDesc(dom, golibvirt.DomainXMLInactive)
+	if err != nil {
+		return fmt.Errorf("domain %s: %w", dom.Name, err)
+	}
+	var have libvirtxml.Domain
+	if err := have.Unmarshal(x); err != nil {
+		return fmt.Errorf("parse XML of domain %s: %w", dom.Name, err)
+	}
+	return diskMismatch(&have, want)
+}
+
+func diskMismatch(have, want *libvirtxml.Domain) error {
+	if have.Devices == nil || want.Devices == nil {
+		return nil
+	}
+	for _, w := range want.Devices.Disks {
+		if w.Target == nil || w.Source == nil || w.Source.File == nil {
+			continue
+		}
+		for _, h := range have.Devices.Disks {
+			if h.Target == nil || h.Target.Dev != w.Target.Dev {
+				continue
+			}
+			if h.Source == nil || h.Source.File == nil || h.Source.File.File != w.Source.File.File {
+				cur := "another source"
+				if h.Source != nil && h.Source.File != nil {
+					cur = h.Source.File.File
+				}
+				return fmt.Errorf("domain %s: disk %s is %s, not %s; brig does not support snapshots made with virsh or virt-manager, so merge the snapshot's overlay into the disk first",
+					have.Name, w.Target.Dev, cur, w.Source.File.File)
+			}
+		}
 	}
 	return nil
 }

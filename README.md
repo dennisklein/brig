@@ -70,7 +70,8 @@ the guide has an
 - **VMs** run rootless in your libvirt user session (`qemu:///session`) with
   UEFI, KVM and passt user-mode networking. They show up in virt-manager as
   `brig-<vm>`, but start them with `brig start`, which also starts their
-  network.
+  network. Snapshots made with virt-manager or virsh are not supported: brig
+  refuses to redefine a VM whose disks a snapshot has moved to overlay files.
 - **Base images** are built on your laptop with
   [mkosi](https://github.com/systemd/mkosi), without root: minimal Fedora plus
   OpenShell from brig's package repository.
