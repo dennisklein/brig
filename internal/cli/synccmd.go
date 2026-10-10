@@ -104,6 +104,13 @@ func (a *app) syncOpenShell(ctx context.Context, cli *openshell.CLI, v *vm.VM, o
 	if err != nil {
 		return err
 	}
+	// The report holds names from the config directories and the openshell
+	// CLI's error text.
+	if opts.Out != nil {
+		esc := newEscWriter(opts.Out)
+		defer func() { _ = esc.Close() }()
+		opts.Out = esc
+	}
 	err = a.applyConfigs(ctx, cli, v, st, opts, secretTool)
 	if opts.DryRun {
 		return err
