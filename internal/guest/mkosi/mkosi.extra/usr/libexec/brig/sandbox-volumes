@@ -10,9 +10,15 @@
 #
 # Each line of LIST is "VOLUME DIRECTORY". Volumes from earlier boots that are
 # no longer listed, or that point elsewhere, are removed unless in use.
+#
+# A volume binds a per-boot symlink to its directory, not the directory. A
+# volume that is in use cannot be removed, and if it bound the directory it
+# would show whatever a later mount puts there. Without its symlink it binds
+# nothing, so its sandbox cannot start with it.
 set -euo pipefail
 
 owner=brig.sandbox-mount
+links=${XDG_RUNTIME_DIR:?}/brig/sandbox-volumes
 
 declare -A want=()
 if [[ -r $1 ]]; then
@@ -23,8 +29,14 @@ if [[ -r $1 ]]; then
 	done <"$1"
 fi
 
+rm -rf "$links"
+mkdir -p "$links"
+for name in "${!want[@]}"; do
+	ln -s "${want[$name]}" "$links/$name"
+done
+
 while read -r name dir; do
-	if [[ ${want[$name]-} != "$dir" ]]; then
+	if [[ -z ${want[$name]-} || $dir != "$links/$name" ]]; then
 		podman volume rm "$name" >/dev/null ||
 			echo "brig-sandbox-volumes: cannot remove volume $name" >&2
 	fi
@@ -35,7 +47,7 @@ for name in "${!want[@]}"; do
 		continue
 	fi
 	podman volume create --driver local \
-		--opt type=none --opt o=bind --opt "device=${want[$name]}" \
+		--opt type=none --opt o=bind --opt "device=$links/$name" \
 		--label "$owner=true" \
 		--label openshell.ai/sandbox-attachable=true \
 		--label openshell.ai/sandbox-attachable-workspace=default \
