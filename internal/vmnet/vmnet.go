@@ -279,8 +279,11 @@ func waitForSocket(ctx context.Context, socket, unit string) error {
 		if fi, err := os.Stat(socket); err == nil && fi.Mode()&os.ModeSocket != 0 {
 			return nil
 		}
-		if exec.CommandContext(ctx, "systemctl", "--user", "is-failed", "--quiet", unit).Run() == nil {
-			return fmt.Errorf("%s failed: %s", unit, journal(unit))
+		// The unit runs with --collect, so systemd unloads it once it has
+		// failed and is-failed would not see the failure. Check that the
+		// unit still runs instead. A cancelled context is not a failure.
+		if ctx.Err() == nil && exec.CommandContext(ctx, "systemctl", "--user", "is-active", "--quiet", unit).Run() != nil {
+			return fmt.Errorf("%s exited before it created %s: %s", unit, socket, journal(unit))
 		}
 		select {
 		case <-ctx.Done():

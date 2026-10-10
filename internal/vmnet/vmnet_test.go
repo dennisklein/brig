@@ -4,12 +4,17 @@
 package vmnet
 
 import (
+	"context"
+	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dennisklein/brig/internal/config"
 )
@@ -326,5 +331,56 @@ func TestProfileRoundTrip(t *testing.T) {
 	}
 	if _, err := decodeProfile(`{"bogus":true}`); err == nil {
 		t.Error("unknown profile field accepted")
+	}
+}
+
+// fakeUnit puts a systemctl script with the given body and a journalctl
+// that prints one line first in PATH.
+func fakeUnit(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	scripts := map[string]string{
+		"systemctl":  "#!/bin/sh\n" + body + "\n",
+		"journalctl": "#!/bin/sh\necho 'pasta: nft failed'\n",
+	}
+	for name, script := range scripts {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil { //nolint:gosec // G306: the fakes must be executable
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestWaitForSocket(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "net.sock")
+	unit := UnitName("test")
+
+	// A collected unit is not active any more, so the failure is reported
+	// at once instead of after the timeout.
+	fakeUnit(t, `exit 3`)
+	start := time.Now()
+	err := waitForSocket(context.Background(), socket, unit)
+	if err == nil || !strings.Contains(err.Error(), "exited before it created") || !strings.Contains(err.Error(), "pasta: nft failed") {
+		t.Fatalf("waitForSocket() = %v, want the exit with the journal", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Errorf("waitForSocket() took %v after the unit exited", elapsed)
+	}
+
+	// A unit that runs and makes no socket is waited for until the context ends.
+	fakeUnit(t, `exit 0`)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if err := waitForSocket(ctx, socket, unit); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitForSocket() = %v, want the context's deadline", err)
+	}
+
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	if err := waitForSocket(context.Background(), socket, unit); err != nil {
+		t.Fatalf("waitForSocket() with a listening socket = %v", err)
 	}
 }
