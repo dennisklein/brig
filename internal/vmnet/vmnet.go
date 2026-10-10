@@ -29,6 +29,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress"
+
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/ports"
@@ -211,7 +213,15 @@ func Start(ctx context.Context, c Config) error {
 	if out, err := exec.CommandContext(ctx, "systemd-run", run...).CombinedOutput(); err != nil {
 		return fmt.Errorf("starting %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
 	}
-	return waitForSocket(ctx, c.Socket, unit)
+	return awaitSocket(ctx, c.Socket, unit)
+}
+
+// awaitSocket is waitForSocket as a step of the progress display.
+func awaitSocket(ctx context.Context, socket, unit string) error {
+	ctx, wait := progress.Start(ctx, progress.KindWait, "wait for the VM's network")
+	err := waitForSocket(ctx, socket, unit)
+	wait.End(err)
+	return err
 }
 
 // ErrNoIPv4Gateway is returned by Start when the VM's network could not give

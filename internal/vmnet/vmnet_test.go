@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress/progresstest"
+
 	"github.com/dennisklein/brig/internal/config"
 )
 
@@ -402,5 +404,18 @@ func TestWaitForSocket(t *testing.T) {
 	fakeUnit(t, `exit 0`)
 	if err := Exited(context.Background(), "test"); err != nil {
 		t.Errorf("Exited() of a running unit = %v", err)
+	}
+}
+
+func TestAwaitSocketProgress(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "net.sock")
+	fakeUnit(t, `exit 3`)
+	ctx, w := progresstest.Watch(t.Context(), t)
+	if err := awaitSocket(ctx, socket, UnitName("test")); err == nil {
+		t.Fatal("awaitSocket() of an exited unit succeeded")
+	}
+	got := w.Finish()
+	if !strings.Contains(got, "wait for the VM's network: failed") {
+		t.Errorf("progress\n%s\nwant the wait to have failed", got)
 	}
 }
