@@ -49,6 +49,8 @@ func TestPushImage(t *testing.T) {
 		{"VM down", save, "echo 'ssh: connect to host 127.0.0.1: Connection refused' >&2; exit 255", "loading localhost/agent:latest into dev"},
 		{"load fails", save, "head -c 1000 >/dev/null; exit 125", "loading localhost/agent:latest into dev"},
 		{"save fails", "exit 125", "exec cat >/dev/null", "podman save localhost/agent:latest failed"},
+		// Real podman load rejects the empty stream a failed save leaves.
+		{"save fails, load rejects empty", "echo 'Error: image not known' >&2; exit 125", `[ "$(wc -c)" -gt 0 ] || exit 125`, "podman save localhost/agent:latest failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := testApp(t)

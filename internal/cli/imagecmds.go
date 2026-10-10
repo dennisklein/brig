@@ -5,10 +5,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -268,10 +270,25 @@ func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, cmd *cobra.Co
 	}
 	saveErr := save.Wait()
 	switch {
+	case loadErr != nil && saveErr != nil && saveFailedOnItsOwn(save, loadErr):
+		// podman save failed first and left podman load an empty or
+		// truncated stream, so load's failure only repeats it.
+		return fmt.Errorf("podman save %s failed: %w (podman load in %s: %w)", ref, saveErr, v.Name, loadErr)
 	case loadErr != nil:
 		return fmt.Errorf("loading %s into %s: %w", ref, v.Name, loadErr)
 	case saveErr != nil:
 		return fmt.Errorf("podman save %s failed: %w", ref, saveErr)
 	}
 	return nil
+}
+
+// saveFailedOnItsOwn reports whether podman save exited by itself rather than
+// because brig killed it or load stopped reading, and ssh reached the VM (it
+// exits 255 when it cannot).
+func saveFailedOnItsOwn(save *exec.Cmd, loadErr error) bool {
+	if ee, ok := errors.AsType[*exec.ExitError](loadErr); !ok || ee.ExitCode() == 255 {
+		return false
+	}
+	ws, ok := save.ProcessState.Sys().(syscall.WaitStatus)
+	return ok && (!ws.Signaled() || (ws.Signal() != syscall.SIGKILL && ws.Signal() != syscall.SIGPIPE))
 }
