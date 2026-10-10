@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -140,5 +141,81 @@ func TestStartVMGatewayProgress(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("progress lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestStopProgress(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state libvirt.State
+		force bool
+		err   error
+		want  string
+	}{
+		{"graceful", libvirt.StateRunning, false, nil, "step shut down the VM: ok\n"},
+		{"forced", libvirt.StateRunning, true, nil, "step power off the VM: ok\n"},
+		{"failed", libvirt.StateRunning, false, errors.New("guest is stuck"), "step shut down the VM: failed (target): guest is stuck\n"},
+		// Nothing to wait for.
+		{"shut off", libvirt.StateShutoff, false, nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := testApp(t)
+			v := testVM(t, a, "dev")
+			ctx, w := progresstest.Watch(t.Context(), t)
+			conn := &fakeDomains{state: tc.state, shutdownErr: tc.err}
+			if err := a.stop(ctx, conn, v, tc.force); !errors.Is(err, tc.err) {
+				t.Fatalf("stop: %v, want %v", err, tc.err)
+			}
+			if got := w.Finish(); got != tc.want {
+				t.Errorf("progress\n%s\nwant\n%s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRemoveProgress(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	t.Setenv("PATH", t.TempDir()) // no openshell to unregister the gateway from
+	ctx, w := progresstest.Watch(t.Context(), t)
+	var stdout, stderr bytes.Buffer
+	conn := &fakeDomains{state: libvirt.StateRunning}
+	if err := a.remove(ctx, conn, v, true, &stdout, &stderr); err != nil {
+		t.Fatalf("remove: %v\n%s", err, &stderr)
+	}
+	want := "step power off the VM: ok\nstep remove the VM: ok\n"
+	if got := w.Finish(); got != want {
+		t.Errorf("progress\n%s\nwant\n%s", got, want)
+	}
+	if stdout.String() != "Deleted VM dev.\n" || a.vms.Exists("dev") {
+		t.Errorf("stdout = %q, VM exists: %v", &stdout, a.vms.Exists("dev"))
+	}
+}
+
+// qemuImgInfo makes a fake qemu-img answer `info` for a base image.
+const qemuImgInfo = `if [ "$1" = info ]; then echo '{"virtual-size": 4294967296, "format": "qcow2"}'; exit 0; fi`
+
+func TestProvisionProgress(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	fakeCommands(t, map[string]string{"qemu-img": qemuImgInfo})
+	ctx, w := progresstest.Watch(t.Context(), t)
+	if err := a.provision(ctx, &fakeDomains{state: libvirt.StateMissing}, v); err != nil {
+		t.Fatal(err)
+	}
+	want := "step create the VM: ok\n  call qemu-img create: ok\n  call qemu-img create: ok\n  call qemu-img info: ok\n"
+	if got := w.Finish(); got != want {
+		t.Errorf("progress\n%s\nwant\n%s", got, want)
+	}
+
+	// A failure ends the step with its error, and removes the VM again.
+	other := testVM(t, a, "other")
+	fakeCommands(t, map[string]string{"qemu-img": qemuImgInfo + "\necho 'qemu-img: no space left' >&2; exit 1"})
+	ctx, w = progresstest.Watch(t.Context(), t)
+	if err := a.provision(ctx, &fakeDomains{state: libvirt.StateMissing}, other); err == nil {
+		t.Fatal("provision succeeded")
+	}
+	if got := w.Finish(); !strings.HasPrefix(got, "step create the VM: failed (target): qemu-img create: no space left") || a.vms.Exists("other") {
+		t.Errorf("progress\n%s\nVM exists: %v", got, a.vms.Exists("other"))
 	}
 }
