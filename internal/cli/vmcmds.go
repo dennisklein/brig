@@ -16,6 +16,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/fanout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -398,21 +399,30 @@ func (a *app) status(ctx context.Context) ([]vmStatus, error) {
 	if cerr == nil {
 		state = conn.State
 	}
-	return vmStatuses(vms, state), errors.Join(err, cerr)
+	return vmStatuses(ctx, vms, state), errors.Join(err, cerr)
 }
 
-// vmStatuses pairs the VMs with their states, as state tells them. A VM
-// whose state cannot be had, or all of them if state is nil, is "unknown".
-func vmStatuses(vms []*vm.VM, state func(domain string) (libvirt.State, error)) []vmStatus {
+// statusLimit is how many domain states status asks libvirt for at once.
+const statusLimit = 8
+
+// vmStatuses pairs the VMs with their states, as state tells them, which it
+// does for several VMs at once. A VM whose state cannot be had, or all of
+// them if state is nil or ctx ends first, is "unknown".
+func vmStatuses(ctx context.Context, vms []*vm.VM, state func(domain string) (libvirt.State, error)) []vmStatus {
 	out := make([]vmStatus, len(vms))
 	for i, v := range vms {
 		out[i] = vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName()}
-		if state != nil {
-			if s, err := state(v.DomainName()); err == nil {
-				out[i].State = s.String()
-			}
-		}
 	}
+	if state == nil {
+		return out
+	}
+	// A libvirt connection serves concurrent calls, and each call writes
+	// only its own element of out.
+	fanout.Each(ctx, len(vms), statusLimit, func(i int) {
+		if s, err := state(vms[i].DomainName()); err == nil {
+			out[i].State = s.String()
+		}
+	})
 	return out
 }
 
