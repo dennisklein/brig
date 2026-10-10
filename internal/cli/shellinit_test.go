@@ -166,7 +166,7 @@ for OPENSHELL_GATEWAY in brig-dev brig- other ''; do prompt_brig; instant_prompt
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "segment -f 208 -i brig -t dev|segment -f 208 -i brig -t dev|"; string(got) != want {
+	if want := "segment -f 208 -i ▥ -t dev|segment -f 208 -i brig -t dev|"; string(got) != want {
 		t.Errorf("segments = %q, want %q", got, want)
 	}
 }

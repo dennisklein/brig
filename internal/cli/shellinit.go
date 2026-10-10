@@ -37,7 +37,7 @@ const p10kSegment = `
 # OPENSHELL_GATEWAY points at.
 prompt_brig() {
   [[ $OPENSHELL_GATEWAY == brig-?* ]] || return
-  p10k segment -f 208 -i brig -t "${OPENSHELL_GATEWAY#brig-}"
+  p10k segment -f 208 -i ▥ -t "${OPENSHELL_GATEWAY#brig-}"
 }
 instant_prompt_brig() { prompt_brig; }
 `

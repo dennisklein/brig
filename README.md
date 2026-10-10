@@ -116,14 +116,14 @@ it prints, as `eval "$(brig env NAME)"` would; `brig use --unset` points the
 CLI at no VM. Every other command runs brig as before.
 
 In zsh it also defines a [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
-segment named `brig`, which shows the VM the shell points at, such as `brig
+segment named `brig`, which shows the VM the shell points at, such as `▥
 dev`. Add `brig` to `POWERLEVEL9K_LEFT_PROMPT_ELEMENTS` or
 `POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS` in `~/.p10k.zsh`, and style it like other
 segments, for example:
 
 ```zsh
 typeset -g POWERLEVEL9K_BRIG_FOREGROUND=208                   # the default
-typeset -g POWERLEVEL9K_BRIG_VISUAL_IDENTIFIER_EXPANSION='VM'  # instead of brig
+typeset -g POWERLEVEL9K_BRIG_VISUAL_IDENTIFIER_EXPANSION='VM'  # instead of ▥
 ```
 
 Other prompts can show `${OPENSHELL_GATEWAY#brig-}` when `OPENSHELL_GATEWAY`
