@@ -143,8 +143,8 @@ func newImageListCmd() *cobra.Command {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "ID\tFEDORA\tOPENSHELL\tCREATED\tUSED BY")
 			for _, img := range imgs {
-				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%v\n", img.ID, img.FedoraRelease, img.OpenShellVersion,
-					img.CreatedAt.Local().Format(time.DateTime), users[img.ID])
+				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", termtext.Escape(img.ID), img.FedoraRelease, termtext.Escape(img.OpenShellVersion),
+					img.CreatedAt.Local().Format(time.DateTime), termtext.Escape(fmt.Sprint(users[img.ID])))
 			}
 			return tw.Flush()
 		},

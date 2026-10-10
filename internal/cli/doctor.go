@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/doctor"
@@ -23,7 +24,7 @@ func newDoctorCmd() *cobra.Command {
 			results := doctor.Run(cmd.Context(), doctor.System())
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			for _, r := range results {
-				fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Status, r.Name, r.Detail)
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Status, termtext.Escape(r.Name), termtext.Escape(r.Detail))
 			}
 			if err := tw.Flush(); err != nil {
 				return err
@@ -33,7 +34,7 @@ func newDoctorCmd() *cobra.Command {
 				if r.Hint != "" && !hints[r.Hint] {
 					hints[r.Hint] = true
 					// Indent the continuation lines of a multi-line hint.
-					fmt.Fprintf(cmd.OutOrStdout(), "\nTo fix %s: %s\n", r.Name, strings.ReplaceAll(r.Hint, "\n", "\n    "))
+					fmt.Fprintf(cmd.OutOrStdout(), "\nTo fix %s: %s\n", termtext.Escape(r.Name), strings.ReplaceAll(termtext.EscapeLines(r.Hint), "\n", "\n    "))
 				}
 			}
 			if doctor.Worst(results) == doctor.Fail {
