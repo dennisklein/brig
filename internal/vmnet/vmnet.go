@@ -272,25 +272,62 @@ func toPrefix(a net.Addr) (netip.Prefix, bool) {
 	return p, p.IsValid()
 }
 
-func waitForSocket(ctx context.Context, socket, unit string) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+// socketSettle is how long passt must keep running after it created its
+// socket. It binds the socket before it sandboxes itself, which can still
+// fail, e.g. when SELinux denies it a user namespace capability, and QEMU
+// would then only report that the socket refuses connections.
+var socketSettle = time.Second
+
+func waitForSocket(parent context.Context, socket, unit string) error {
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
+	var settleBy time.Time
 	for {
-		if fi, err := os.Stat(socket); err == nil && fi.Mode()&os.ModeSocket != 0 {
-			return nil
+		if settleBy.IsZero() {
+			if fi, err := os.Stat(socket); err == nil && fi.Mode()&os.ModeSocket != 0 {
+				settleBy = time.Now().Add(socketSettle)
+			}
 		}
 		// The unit runs with --collect, so systemd unloads it once it has
 		// failed and is-failed would not see the failure. Check that the
 		// unit still runs instead. A cancelled context is not a failure.
-		if ctx.Err() == nil && exec.CommandContext(ctx, "systemctl", "--user", "is-active", "--quiet", unit).Run() != nil {
-			return fmt.Errorf("%s exited before it created %s: %s", unit, socket, journal(unit))
+		if err := exited(ctx, unit); err != nil {
+			if settleBy.IsZero() {
+				return fmt.Errorf("%s exited before it created %s: %s", unit, socket, journal(unit))
+			}
+			return fmt.Errorf("%s exited after it created %s: %s", unit, socket, journal(unit))
+		}
+		if !settleBy.IsZero() && time.Now().After(settleBy) {
+			return nil
 		}
 		select {
 		case <-ctx.Done():
+			// Only a slow start, not a cancelled one, ends the wait early.
+			if !settleBy.IsZero() && parent.Err() == nil {
+				return nil
+			}
 			return fmt.Errorf("%s did not create %s: %w: %s", unit, socket, ctx.Err(), journal(unit))
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// exited returns an error unless the unit runs or ctx was cancelled.
+func exited(ctx context.Context, unit string) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	return exec.CommandContext(ctx, "systemctl", "--user", "is-active", "--quiet", unit).Run()
+}
+
+// Exited returns an error with the log of the VM's network unit if it no
+// longer runs, e.g. to explain why QEMU could not connect to passt.
+func Exited(ctx context.Context, vm string) error {
+	unit := UnitName(vm)
+	if exited(ctx, unit) == nil {
+		return nil
+	}
+	return fmt.Errorf("%s has exited: %s", unit, journal(unit))
 }
 
 // journal returns the last log lines of a user unit, for error messages.

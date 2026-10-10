@@ -380,7 +380,27 @@ func TestWaitForSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = ln.Close() }()
+	socketSettle = 300 * time.Millisecond
+	defer func() { socketSettle = time.Second }()
+	start = time.Now()
 	if err := waitForSocket(context.Background(), socket, unit); err != nil {
 		t.Fatalf("waitForSocket() with a listening socket = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < socketSettle {
+		t.Errorf("waitForSocket() returned after %v, before passt settled", elapsed)
+	}
+
+	// passt binds its socket before it sandboxes itself, which may fail.
+	fakeUnit(t, `exit 3`)
+	err = waitForSocket(context.Background(), socket, unit)
+	if err == nil || !strings.Contains(err.Error(), "exited after it created") || !strings.Contains(err.Error(), "pasta: nft failed") {
+		t.Fatalf("waitForSocket() = %v, want the exit with the journal", err)
+	}
+	if err := Exited(context.Background(), "test"); err == nil || !strings.Contains(err.Error(), "has exited: pasta: nft failed") {
+		t.Errorf("Exited() = %v", err)
+	}
+	fakeUnit(t, `exit 0`)
+	if err := Exited(context.Background(), "test"); err != nil {
+		t.Errorf("Exited() of a running unit = %v", err)
 	}
 }

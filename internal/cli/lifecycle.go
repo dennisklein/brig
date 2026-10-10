@@ -267,6 +267,8 @@ func (a *app) startVM(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Wr
 			return fmt.Errorf("starting the network of %s: %w", v.Name, err)
 		}
 		if err := conn.Start(v.DomainName()); err != nil {
+			// QEMU only says that passt's socket refused it.
+			err = errors.Join(err, vmnet.Exited(ctx, v.Name))
 			vmnet.Stop(context.WithoutCancel(ctx), v.Name)
 			return err
 		}
