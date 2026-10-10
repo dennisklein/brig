@@ -5,6 +5,7 @@ package openshell
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -195,7 +196,12 @@ func redact(err error, creds map[string]string) error {
 		return nil
 	}
 	msg := err.Error()
-	for _, v := range creds {
+	// The longest values go first, so that a value which contains another
+	// is not left half visible once the shorter one is replaced.
+	vals := slices.SortedFunc(maps.Values(creds), func(a, b string) int {
+		return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(a, b))
+	})
+	for _, v := range vals {
 		if v != "" {
 			msg = strings.ReplaceAll(msg, v, "[redacted]")
 		}

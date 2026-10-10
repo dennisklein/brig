@@ -5,6 +5,7 @@ package openshell
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -150,5 +151,16 @@ func TestProviderErrorsRedactSecrets(t *testing.T) {
 	err = g.UpdateProvider(context.Background(), "github", map[string]string{"GH_TOKEN": "s3cret"}, nil)
 	if err == nil || strings.Contains(err.Error(), "s3cret") {
 		t.Errorf("UpdateProvider() error = %v", err)
+	}
+}
+
+func TestRedactLongerValueFirst(t *testing.T) {
+	creds := map[string]string{"BOT_ID": "123456", "BOT_TOKEN": "123456:SECRETPART"}
+	// The map order is random, so repeat to cover both orders.
+	for range 50 {
+		err := redact(errors.New("bad token 123456:SECRETPART"), creds)
+		if err == nil || strings.Contains(err.Error(), "SECRETPART") {
+			t.Fatalf("redact left part of a credential: %v", err)
+		}
 	}
 }
