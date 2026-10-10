@@ -66,6 +66,23 @@ jobs:
         run: |
           echo "OpenShell $TAG for Fedora $FEDORA: build=$BUILD publish=$PUBLISH" >> "$GITHUB_STEP_SUMMARY"
 
+  # GitHub disables scheduled workflows in a public repository after 60 days
+  # without repository activity, which would stop this workflow and
+  # openshell-releases quietly. Enabling a workflow resets its counter.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the scheduled workflows enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow enable packages.yaml
+          gh workflow enable openshell-releases.yaml
+
   srpm:
     needs: plan
     if: needs.plan.outputs.build == 'true'

@@ -237,6 +237,10 @@ Two workflows keep the [package repository](#package-repository) current:
   checklist](.claude/skills/openshell-release/SKILL.md); it never starts on
   its own.
 
+GitHub disables scheduled workflows in a public repository after 60 days
+without repository activity. Each scheduled run of these two workflows
+therefore enables both again, so that a quiet period does not stop them.
+
 ### Package repository setup
 
 One-time setup for maintainers:

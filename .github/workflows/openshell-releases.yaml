@@ -17,6 +17,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # GitHub disables scheduled workflows in a public repository after 60 days
+  # without repository activity. Enabling a workflow resets its counter.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the scheduled workflows enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow enable openshell-releases.yaml
+          gh workflow enable packages.yaml
+
   track:
     runs-on: ubuntu-latest
     permissions:
