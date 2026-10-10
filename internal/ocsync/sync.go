@@ -77,7 +77,7 @@ func Sync(ctx context.Context, set *Set, gw Gateway, secrets Secrets, st *State,
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
-	s := &syncer{set: set, gw: gw, secrets: secrets, st: st, opts: opts}
+	s := &syncer{set: set, gw: gw, secrets: secrets, st: st, opts: opts, unapplied: map[string]bool{}}
 	profiles, err := gw.Profiles(ctx)
 	if err != nil {
 		return err
@@ -104,6 +104,9 @@ type syncer struct {
 	// lookupErr stops further secret lookups after one timed out, e.g. at
 	// an unanswered keyring unlock prompt.
 	lookupErr error
+	// unapplied holds the IDs of the set's profiles that this sync did not
+	// apply: providers of those types keep their secrets until it does.
+	unapplied map[string]bool
 }
 
 func (s *syncer) report(kind, name, msg string, changed bool) {
@@ -194,6 +197,7 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 			added = addedEndpoints(eff.Endpoints, p.Endpoints)
 		}
 		if len(added) > 0 && s.opts.HoldNewEndpoints {
+			s.unapplied[p.ID] = true
 			s.fail("profile", p.ID, fmt.Errorf("held back: it would let the credentials of providers %s also go to %s; review with `brig sync --dry-run` and apply with `brig sync`",
 				strings.Join(users, ", "), strings.Join(added, ", ")))
 			continue
@@ -204,7 +208,9 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 			action, version = "update", cur.ResourceVersion
 		}
 		file, err := writeProfile(tmp, p, version)
-		if err == nil {
+		// The gateway's lint reports an existing ID as a conflict, so it
+		// suits imports only; an update is validated as it is applied.
+		if err == nil && !exists {
 			err = s.gw.LintProfile(ctx, file)
 		}
 		if err == nil && !s.opts.DryRun {
@@ -215,6 +221,7 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 			}
 		}
 		if err != nil {
+			s.unapplied[p.ID] = true
 			s.fail("profile", p.ID, err)
 			continue
 		}
@@ -269,6 +276,12 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 		cur, exists := byName[p.Name]
 		if exists && cur.Type != p.Type {
 			s.fail("provider", p.Name, fmt.Errorf("the gateway has a provider of this name with type %s, not %s; delete it first with `openshell provider delete %s`", cur.Type, p.Type, p.Name))
+			continue
+		}
+		// The gateway binds credentials to the profile it holds, so new
+		// secrets must wait for the profile the set wants.
+		if s.unapplied[p.Type] {
+			s.fail("provider", p.Name, fmt.Errorf("not applied because profile %s was not applied", p.Type))
 			continue
 		}
 		endpoints, known := s.endpoints(p.Type, profiles)

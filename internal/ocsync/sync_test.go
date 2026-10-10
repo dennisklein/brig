@@ -50,7 +50,16 @@ func (g *fakeGateway) Profiles(context.Context) ([]openshell.Profile, error) {
 }
 
 func (g *fakeGateway) LintProfile(_ context.Context, file string) error {
-	return g.call("lint %s", filepath.Base(file))
+	id := strings.TrimSuffix(filepath.Base(file), ".yaml")
+	if err := g.call("lint %s", filepath.Base(file)); err != nil {
+		return err
+	}
+	// Like OpenShell, lint reports an existing workspace profile's ID as a
+	// conflict.
+	if _, ok := g.profiles[id]; ok {
+		return fmt.Errorf("custom provider profile '%s' already exists", id)
+	}
+	return nil
 }
 
 func (g *fakeGateway) store(id, file string) error {
@@ -191,7 +200,7 @@ func TestSyncLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"lint github.yaml", "update-profile github", "update github map[GH_TOKEN:tok2] remove []"}; !slices.Equal(calls, want) {
+	if want := []string{"update-profile github", "update github map[GH_TOKEN:tok2] remove []"}; !slices.Equal(calls, want) {
 		t.Errorf("third sync calls %q, want %q", calls, want)
 	}
 	if !strings.Contains(gw.files["github"], "resource_version: 1\n") {
@@ -358,7 +367,7 @@ func TestSyncNeverDeletesWhatItTookOver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"lint github.yaml", "update-profile github", "update github map[GH_TOKEN:new] remove []"}; !slices.Equal(calls, want) {
+	if want := []string{"update-profile github", "update github map[GH_TOKEN:new] remove []"}; !slices.Equal(calls, want) {
 		t.Errorf("take-over calls %q, want %q", calls, want)
 	}
 	if err := os.RemoveAll(filepath.Join(dir, "providers")); err != nil {
@@ -434,5 +443,27 @@ func TestSyncStopsLookingUpAfterATimeout(t *testing.T) {
 	_, _, err := syncDir(t, dir, newFakeGateway(), sec, &State{}, Options{})
 	if err == nil || len(sec.lookups) != 1 || strings.Count(err.Error(), "not looked up") != 2 {
 		t.Errorf("lookups %q, error %v", sec.lookups, err)
+	}
+}
+
+func TestSyncKeepsSecretsWhileTheirProfileIsNotApplied(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	gw, st := newFakeGateway(), &State{}
+	sec := fakeSecrets{"service github.com user alice": "tok1"}
+	if _, _, err := syncDir(t, dir, gw, sec, st, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	// The profile update fails, and the secret was rotated meanwhile.
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile+"description: edited\n")
+	sec["service github.com user alice"] = "tok2"
+	gw.failOn = "update-profile"
+	out, calls, err := syncDir(t, dir, gw, sec, st, Options{})
+	if err == nil || !strings.Contains(out, "provider github: failed: not applied because profile github was not applied") {
+		t.Errorf("report %q, %v", out, err)
+	}
+	if slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "update github") }) || gw.providers["github"].creds["GH_TOKEN"] != "tok1" {
+		t.Errorf("the rotated secret was sent: calls %q", calls)
 	}
 }
