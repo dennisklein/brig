@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dennisklein/brig/internal/ocsync"
 )
@@ -110,6 +111,40 @@ func TestSyncWithoutConfigs(t *testing.T) {
 	testVM(t, a, "dev")
 	if _, err := run(t, "sync", "dev"); err == nil || !strings.Contains(err.Error(), "--add-openshell-config") {
 		t.Errorf("sync without configs: %v", err)
+	}
+}
+
+// TestSyncPrunesAfterLastConfigRemoved checks that --prune still deletes what
+// brig created once the VM has no config directories left.
+func TestSyncPrunesAfterLastConfigRemoved(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	st := &ocsync.State{
+		Providers: map[string]ocsync.ProviderState{"github": {Type: "github", Created: true}},
+		LastSync:  &ocsync.Record{Time: time.Now().UTC()},
+	}
+	if err := st.Save(a.vmFile(v, syncStateFile)); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	log := filepath.Join(bin, "log")
+	writeTestFile(t, filepath.Join(bin, "openshell"), `#!/bin/sh
+echo "$*" >>'`+log+`'
+case "$*" in
+*"status -o json") echo '{"status": "connected", "version": "0.1.2"}' ;;
+*"profile list -o json") echo '[]' ;;
+*"provider list -o json") echo '{"providers": [{"name": "github", "type": "github"}], "next_page_token": ""}' ;;
+esac
+`, 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	out, err := run(t, "sync", "dev", "--prune")
+	if err != nil {
+		t.Fatalf("sync --prune: %v\n%s", err, out)
+	}
+	argv, _ := os.ReadFile(log)
+	if !strings.Contains(string(argv), "-g brig-dev provider delete github\n") {
+		t.Errorf("openshell calls:\n%s", argv)
 	}
 }
 

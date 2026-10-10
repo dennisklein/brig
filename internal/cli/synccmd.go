@@ -31,7 +31,15 @@ func newSyncCmd() *cobra.Command {
 	)
 	cmd := vmCommand("sync NAME", "Apply a VM's OpenShell config directories to its gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		if len(v.OpenShellConfigs) == 0 {
-			return fmt.Errorf("VM %s has no OpenShell config directories; add one with brig update %[1]s --add-openshell-config DIR", v.Name)
+			// Removing the last directory leaves providers from an earlier
+			// sync for --prune to delete, so only a VM never synced is refused.
+			st, err := ocsync.LoadState(a.vmFile(v, syncStateFile))
+			if err != nil {
+				return err
+			}
+			if st.LastSync == nil {
+				return fmt.Errorf("VM %s has no OpenShell config directories; add one with brig update %[1]s --add-openshell-config DIR", v.Name)
+			}
 		}
 		unlock, err := a.lockVM(v.Name)
 		if err != nil {
