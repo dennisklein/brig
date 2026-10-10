@@ -194,6 +194,23 @@ each new OpenShell release from source for the Fedora releases listed in
 [`packaging/`](packaging/) and [OpenShell package
 updates](#openshell-package-updates).
 
+## Troubleshooting
+
+**`brig start` fails and passt's log says `Couldn't write to /proc/N/uid_map:
+Operation not permitted`.** brig runs passt as root in pasta's user
+namespace, so passt needs the `setfcap` capability there to sandbox itself,
+which the SELinux policy of passt 0^20261002 does not grant it. `sudo ausearch
+-m AVC -c passt` shows the denial (`{ setfcap } … tclass=cap_userns`). Until
+the policy allows it, add a local module:
+
+```sh
+echo '(allow passt_t self (cap_userns (setfcap)))' > /tmp/brig-passt.cil
+sudo semodule -i /tmp/brig-passt.cil
+```
+
+`sudo semodule -r brig-passt` removes it again. The guide covers
+[problems inside the VM](docs/openshell.md#troubleshooting).
+
 ## Development
 
 Tool versions are pinned in `mise.toml`:
