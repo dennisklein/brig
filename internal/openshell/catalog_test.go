@@ -74,6 +74,17 @@ esac`)
 	}
 }
 
+func TestProvidersRejectsTokenCycles(t *testing.T) {
+	c, _ := fakeCLI(t, `case "$*" in
+*"--page-token p2"*) echo '{"providers": [], "next_page_token": "p3"}' ;;
+*) echo '{"providers": [], "next_page_token": "p2"}' ;;
+esac`)
+	g, _ := c.Gateway("brig-dev")
+	if _, err := g.Providers(context.Background()); err == nil || !strings.Contains(err.Error(), "repeats") {
+		t.Fatalf("Providers() error = %v, want a repeated token", err)
+	}
+}
+
 // TestProviderSecretsStayOffTheCommandLine checks that credential values
 // reach the CLI through its environment only.
 func TestProviderSecretsStayOffTheCommandLine(t *testing.T) {

@@ -283,6 +283,20 @@ func TestRegisterFailure(t *testing.T) {
 	}
 }
 
+func TestRegisterKeepsTheUsersNewSelection(t *testing.T) {
+	// The user selects another gateway while gateway add runs.
+	c, _ := fakeCLI(t, fakeGateways+`
+[ "$1 $2" != "gateway add" ] || printf prod >"$cfg/active_gateway"`)
+	active := filepath.Join(c.ConfigHome, "active_gateway")
+	writeFile(t, active, "staging", 0o600)
+	if err := c.Register(context.Background(), "brig-dev", 40670); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, active); got != "prod" {
+		t.Errorf("active gateway %q, want the user's prod", got)
+	}
+}
+
 func TestRegisterLock(t *testing.T) {
 	c, log := fakeCLI(t, fakeGateways)
 	unlock, err := c.lock(context.Background())

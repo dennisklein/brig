@@ -213,6 +213,14 @@ func TestOutputError(t *testing.T) {
 	}
 }
 
+func TestOutputLimit(t *testing.T) {
+	fakeSSH(t, `exec head -c 20000000 /dev/zero`)
+	_, err := target().Output(context.Background(), "cat big")
+	if err == nil || !strings.Contains(err.Error(), "wrote more than") {
+		t.Fatalf("Output() error = %v, want the limit", err)
+	}
+}
+
 func TestWaitReady(t *testing.T) {
 	dir := t.TempDir()
 	// Fail twice, then succeed.

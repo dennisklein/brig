@@ -152,18 +152,62 @@ func (t Target) Interactive(remote ...string) []string {
 // Output runs remote on t and returns its standard output. A failure's error
 // includes what ssh and the remote command wrote to standard error and wraps
 // the *exec.ExitError carrying the exit status (255 for ssh's own errors).
+//
+// The guest controls what comes back, so standard output is limited to
+// MaxOutput bytes, past which the command is stopped, and only the start of
+// standard error is kept.
 func (t Target) Output(ctx context.Context, remote string) ([]byte, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	cmd := t.Command(ctx, remote)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	stdout := &capped{max: MaxOutput, full: cancel}
+	stderr := &capped{max: maxStderr}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err := cmd.Run()
+	if stdout.overflow {
+		return nil, fmt.Errorf("ssh %s@%s:%d: %s wrote more than %d bytes", t.User, t.Host, t.Port, remote, MaxOutput)
+	}
 	if err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			err = fmt.Errorf("%w: %s", err, msg)
 		}
-		return out, fmt.Errorf("ssh %s@%s:%d: %w", t.User, t.Host, t.Port, err)
+		return stdout.Bytes(), fmt.Errorf("ssh %s@%s:%d: %w", t.User, t.Host, t.Port, err)
 	}
-	return out, nil
+	return stdout.Bytes(), nil
+}
+
+// MaxOutput is the most standard output that Output accepts.
+const MaxOutput = 4 << 20
+
+// maxStderr is how much of standard error Output keeps for its errors.
+const maxStderr = 8 << 10
+
+// capped keeps up to max bytes. Past them, it discards the rest, or, if full
+// is set, calls full and fails the write.
+// It must not embed bytes.Buffer, whose ReadFrom io.Copy would use instead
+// of Write.
+type capped struct {
+	buf      bytes.Buffer
+	max      int
+	full     func()
+	overflow bool
+}
+
+func (c *capped) Bytes() []byte  { return c.buf.Bytes() }
+func (c *capped) String() string { return c.buf.String() }
+
+func (c *capped) Write(p []byte) (int, error) {
+	room := c.max - c.buf.Len()
+	if len(p) <= room {
+		return c.buf.Write(p)
+	}
+	_, _ = c.buf.Write(p[:max(room, 0)])
+	if c.full == nil {
+		return len(p), nil
+	}
+	c.overflow = true
+	c.full()
+	return 0, errors.New("output limit exceeded")
 }
 
 // WaitReady polls t with `true`, backing off between attempts, until a login

@@ -148,7 +148,7 @@ func (c *CLI) Register(ctx context.Context, gateway string, port int) (err error
 		return err
 	}
 	defer unlock()
-	restore, err := c.keepActive()
+	restore, err := c.keepActive(gateway)
 	if err != nil {
 		return err
 	}
@@ -164,11 +164,18 @@ func (c *CLI) Register(ctx context.Context, gateway string, port int) (err error
 		}
 	}
 	// --remote registers an mTLS gateway whose client bundle is on disk;
-	// the SSH destination it names is only shown in listings.
+	// the SSH destination it names is only shown in listings. gateway add
+	// checks that the gateway answers, which a stalled VM could drag out
+	// while every other brig process waits for the lock.
+	ctx, cancel := context.WithTimeout(ctx, registerTimeout)
+	defer cancel()
 	_, err = c.run(ctx, "gateway", "add", "https://127.0.0.1:"+strconv.Itoa(port),
 		"--remote", gateway, "--name", gateway)
 	return err
 }
+
+// registerTimeout bounds `openshell gateway add`.
+const registerTimeout = 2 * time.Minute
 
 // Unregister removes the gateway's registration and everything the CLI keeps
 // about it, including its client bundle. A gateway that is not registered is
@@ -231,12 +238,20 @@ func registered(dir string) bool {
 }
 
 // keepActive saves the active gateway selection and returns a function that
-// restores it.
-func (c *CLI) keepActive() (restore func() error, err error) {
+// restores it if registering gateway selected it. A selection that the
+// user's own openshell commands made meanwhile, which take no lock, stays.
+func (c *CLI) keepActive(gateway string) (restore func() error, err error) {
 	path := filepath.Join(c.ConfigHome, "active_gateway")
+	selectedByUs := func() bool {
+		cur, err := os.ReadFile(path)
+		return err == nil && strings.TrimSpace(string(cur)) == gateway
+	}
 	fi, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return func() error {
+			if !selectedByUs() {
+				return nil
+			}
 			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
@@ -250,7 +265,12 @@ func (c *CLI) keepActive() (restore func() error, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return func() error { return vm.WriteFileAtomic(path, data, fi.Mode().Perm()) }, nil
+	return func() error {
+		if !selectedByUs() {
+			return nil
+		}
+		return vm.WriteFileAtomic(path, data, fi.Mode().Perm())
+	}, nil
 }
 
 // gatewayEnv lists variables that could point the CLI at another gateway than

@@ -128,6 +128,9 @@ func (g *Gateway) DeleteProfile(ctx context.Context, id string) error {
 func (g *Gateway) Providers(ctx context.Context) ([]Provider, error) {
 	var all []Provider
 	token := ""
+	// A gateway answers from inside the VM, so its page tokens must not
+	// lead in circles.
+	seen := map[string]bool{}
 	for {
 		args := []string{"provider", "list", "-o", "json"}
 		if token != "" {
@@ -145,9 +148,13 @@ func (g *Gateway) Providers(ctx context.Context) ([]Provider, error) {
 			return nil, fmt.Errorf("parse openshell provider list: %w", err)
 		}
 		all = append(all, page.Providers...)
-		if page.NextPageToken == "" || page.NextPageToken == token {
+		if page.NextPageToken == "" {
 			return all, nil
 		}
+		if seen[page.NextPageToken] {
+			return nil, fmt.Errorf("openshell provider list: page token %q repeats", page.NextPageToken)
+		}
+		seen[page.NextPageToken] = true
 		token = page.NextPageToken
 	}
 }
