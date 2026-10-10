@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ParseMount parses a --mount argument of the form
@@ -30,6 +32,13 @@ func ParseMount(arg string) (Mount, error) {
 	src, err := filepath.Abs(parts[0])
 	if err != nil {
 		return Mount{}, err
+	}
+	// The source reaches libvirt as XML and the VM record as JSON, and both
+	// replace what they cannot encode, so virtiofsd would share another path.
+	if !utf8.ValidString(src) || strings.ContainsFunc(src, func(r rune) bool {
+		return unicode.IsControl(r) || r == '￾' || r == '￿'
+	}) {
+		return Mount{}, fmt.Errorf("invalid mount %q: source must be valid UTF-8 without control characters", arg)
 	}
 	m := Mount{Source: src, ReadOnly: true}
 	var opts string

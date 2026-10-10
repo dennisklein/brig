@@ -112,6 +112,7 @@ func TestParseMount(t *testing.T) {
 		"/src/foo:ro,sandbox":           {Source: "/src/foo", Target: "/mnt/foo", ReadOnly: true, Sandbox: true},
 		"rel":                           {Source: filepath.Join(wd, "rel"), Target: "/mnt/rel", ReadOnly: true},
 		"/src/foo:/home/agent/work:ro,": {Source: "/src/foo", Target: "/home/agent/work", ReadOnly: true},
+		"/src/café":                     {Source: "/src/café", Target: "/mnt/café", ReadOnly: true},
 	} {
 		got, err := ParseMount(arg)
 		if err != nil {
@@ -122,7 +123,7 @@ func TestParseMount(t *testing.T) {
 			t.Errorf("ParseMount(%q) = %+v, want %+v", arg, got, want)
 		}
 	}
-	for _, bad := range []string{"", ":/x", "/a:/b:/c:d", "/a:/b:bogus", "/a:rw,sandbox", "/a:/", "/a:/b/../c", "/a:/b c", "/a:/b,sandbox", "/a:/b,rw:ro"} {
+	for _, bad := range []string{"", ":/x", "/a:/b:/c:d", "/a:/b:bogus", "/a:rw,sandbox", "/a:/", "/a:/b/../c", "/a:/b c", "/a:/b,sandbox", "/a:/b,rw:ro", "/src/caf\xe9", "/src/ctl\x01dir", "/src/a\nb", "/src/a\uFFFEb"} {
 		if _, err := ParseMount(bad); err == nil {
 			t.Errorf("ParseMount(%q) succeeded", bad)
 		}
