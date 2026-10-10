@@ -6,10 +6,14 @@ package doctor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/dennisklein/brig/internal/vmnet"
 )
 
 type fakeInfo struct{ dir bool }
@@ -51,7 +55,8 @@ func healthy() Host {
 			}
 			return []byte("openshell 0.1.2\n"), nil
 		},
-		Writable: func(string) bool { return true },
+		Writable:     func(string) bool { return true },
+		ProbeNetwork: func(context.Context) error { return nil },
 	}
 }
 
@@ -126,5 +131,37 @@ func TestProblems(t *testing.T) {
 				t.Errorf("%s: no hint", tc.check)
 			}
 		})
+	}
+}
+
+func TestNetworkProbe(t *testing.T) {
+	h := healthy()
+	h.ProbeNetwork = func(context.Context) error {
+		return errors.New("brig-net-_probe-1.service exited after it created /run/user/1000/brig/probe-1/net.sock: Couldn't write to /proc/14/uid_map")
+	}
+	r := find(t, Run(context.Background(), h), "VM network")
+	if r.Status != Fail || !strings.Contains(r.Hint, "exited after it created") || !strings.Contains(r.Hint, "Troubleshooting in brig's README") {
+		t.Errorf("failing probe: %+v", r)
+	}
+
+	h.ProbeNetwork = func(context.Context) error { return fmt.Errorf("starting: %w", vmnet.ErrNoIPv4Gateway) }
+	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != Warn || !strings.Contains(r.Detail, "no IPv4 default gateway") {
+		t.Errorf("offline host: %+v", r)
+	}
+
+	// The probe needs pasta, so a host without it is not probed.
+	h.ProbeNetwork = func(context.Context) error {
+		t.Error("probed a host without pasta")
+		return nil
+	}
+	lookPath := h.LookPath
+	h.LookPath = func(file string) (string, error) {
+		if file == "pasta" {
+			return "", errors.New("not in PATH")
+		}
+		return lookPath(file)
+	}
+	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != Warn || !strings.Contains(r.Detail, "pasta did not pass") {
+		t.Errorf("host without pasta: %+v", r)
 	}
 }

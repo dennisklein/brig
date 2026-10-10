@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/guest"
+	"github.com/dennisklein/brig/internal/ports"
 )
 
 // DNSAddr is the resolver address the VM is given. pasta forwards DNS
@@ -212,6 +214,10 @@ func Start(ctx context.Context, c Config) error {
 	return waitForSocket(ctx, c.Socket, unit)
 }
 
+// ErrNoIPv4Gateway is returned by Start when the VM's network could not give
+// it an address.
+var ErrNoIPv4Gateway = errors.New("the host has no IPv4 default gateway, so the VM's network cannot give it an address; connect the host to a network with one, or take down interfaces such as container bridges while offline")
+
 // checkIPv4Gateway fails when the host has IPv4 routes but no IPv4 default
 // gateway, e.g. offline with a container bridge up or on a PPP link. pasta
 // then copies the routes into the namespace without a gateway, and passt
@@ -226,7 +232,7 @@ func checkIPv4Gateway(routes []netip.Prefix) error {
 		return err
 	}
 	if len(gws.IPv4) == 0 {
-		return errors.New("the host has no IPv4 default gateway, so the VM's network cannot give it an address; connect the host to a network with one, or take down interfaces such as container bridges while offline")
+		return ErrNoIPv4Gateway
 	}
 	return nil
 }
@@ -350,4 +356,38 @@ func Stop(ctx context.Context, vm string) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		_ = cmd.Run()
 	}
+}
+
+// Probe starts and stops a network like a VM's, without a VM and with a
+// profile that allows nothing, to check that pasta, the firewall and passt
+// work on this host. Its socket goes below the runtime directory rt.
+func Probe(ctx context.Context, rt string) error {
+	if !filepath.IsAbs(rt) {
+		return errors.New("XDG_RUNTIME_DIR must be set to an absolute path")
+	}
+	if err := os.MkdirAll(filepath.Join(rt, "brig"), 0o700); err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp(filepath.Join(rt, "brig"), "probe-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	c := Config{
+		// VM names cannot start with an underscore, so no VM's unit is hit.
+		VM:               "_probe-" + strconv.Itoa(os.Getpid()),
+		Socket:           filepath.Join(dir, "net.sock"),
+		GuestSSHPort:     guest.SSHPort,
+		GuestGatewayPort: guest.GatewayPort,
+	}
+	if c.SSHPort, err = ports.Free(); err != nil {
+		return err
+	}
+	for c.GatewayPort == 0 || c.GatewayPort == c.SSHPort {
+		if c.GatewayPort, err = ports.Free(); err != nil {
+			return err
+		}
+	}
+	defer Stop(context.WithoutCancel(ctx), c.VM)
+	return Start(ctx, c)
 }

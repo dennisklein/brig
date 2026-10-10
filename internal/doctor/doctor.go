@@ -6,15 +6,18 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/dennisklein/brig/internal/image"
 	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/vmnet"
 )
 
 // Status is the outcome of a check.
@@ -58,6 +61,8 @@ type Host struct {
 	Output func(ctx context.Context, name string, args ...string) ([]byte, error)
 	// Writable reports whether the current user may open name read-write.
 	Writable func(name string) bool
+	// ProbeNetwork starts and stops a VM network without a VM.
+	ProbeNetwork func(ctx context.Context) error
 }
 
 // System is the real host.
@@ -79,6 +84,9 @@ func System() Host {
 			_ = f.Close()
 			return true
 		},
+		ProbeNetwork: func(ctx context.Context) error {
+			return vmnet.Probe(ctx, os.Getenv("XDG_RUNTIME_DIR"))
+		},
 	}
 }
 
@@ -86,7 +94,7 @@ const depsHint = "sudo dnf install $(brig print-fedora-deps)"
 
 // Run performs all checks.
 func Run(ctx context.Context, h Host) []Result {
-	return []Result{
+	results := []Result{
 		checkUser(h),
 		checkKVM(h),
 		checkUserNamespaces(h),
@@ -108,6 +116,7 @@ func Run(ctx context.Context, h Host) []Result {
 		checkMkosi(ctx, h),
 		checkOpenShell(ctx, h),
 	}
+	return append(results, checkNetwork(ctx, h, results))
 }
 
 // Worst returns the worst status among results.
@@ -251,5 +260,34 @@ func checkOpenShell(ctx context.Context, h Host) Result {
 		return r
 	}
 	r.Detail = strings.TrimSpace(string(out))
+	return r
+}
+
+// networkNeeds are the checks that a VM network needs to pass.
+var networkNeeds = []string{"user namespaces", "XDG_RUNTIME_DIR", "passt", "pasta", "nft", "/dev/net/tun"}
+
+// checkNetwork starts the network of a VM, without the VM, as brig start
+// would, once the checks it depends on have passed.
+func checkNetwork(ctx context.Context, h Host, prior []Result) Result {
+	r := Result{Name: "VM network", Status: OK, Detail: "pasta, nftables and passt start"}
+	for _, p := range prior {
+		if slices.Contains(networkNeeds, p.Name) && p.Status != OK {
+			r.Status, r.Detail = Warn, "not tried, since "+p.Name+" did not pass"
+			return r
+		}
+	}
+	err := h.ProbeNetwork(ctx)
+	switch {
+	case err == nil:
+	case errors.Is(err, vmnet.ErrNoIPv4Gateway):
+		r.Status, r.Detail, r.Hint = Warn, "not tried: the host has no IPv4 default gateway", "connect the host to a network with a default gateway, or take down interfaces such as container bridges while offline"
+	default:
+		r.Status, r.Detail, r.Hint = Fail, "does not start", err.Error()
+		// passt binds its socket and then sandboxes itself in a user
+		// namespace, which SELinux may deny it.
+		if strings.Contains(err.Error(), "uid_map") {
+			r.Hint += "\nIf SELinux denies passt setfcap (sudo ausearch -m AVC -c passt), see Troubleshooting in brig's README."
+		}
+	}
 	return r
 }
