@@ -27,9 +27,12 @@ on:
 
 permissions: {}
 
+# By default a waiting run is replaced by a newer one, which would drop a
+# push's republish or a dispatch's rebuild. Queue them all instead.
 concurrency:
   group: packages-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
 
 env:
   PAGES_URL: https://dennisklein.github.io/brig
