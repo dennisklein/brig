@@ -225,13 +225,18 @@ func credentialArgs(args *[]string, creds map[string]string) []string {
 }
 
 // jsonValue skips log lines that the CLI may write to standard output before
-// a JSON value: it returns the output from the first line on which valid
-// JSON starts, so that a log line like "[WARN] ..." does not count.
+// and after a JSON value: it returns the first JSON value that starts on a
+// line, so that a log line like "[WARN] ..." does not count and a log line
+// after the value, as RUST_LOG=debug makes the CLI write, is ignored.
 func jsonValue(out []byte) []byte {
 	for rest := out; len(rest) > 0; {
 		trimmed := bytes.TrimLeft(rest, " \t\r")
-		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid(trimmed) {
-			return trimmed
+		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+			dec := json.NewDecoder(bytes.NewReader(trimmed))
+			var v json.RawMessage
+			if dec.Decode(&v) == nil {
+				return trimmed[:dec.InputOffset()]
+			}
 		}
 		i := bytes.IndexByte(rest, '\n')
 		if i < 0 {

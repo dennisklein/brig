@@ -56,6 +56,22 @@ EOF`)
 	}
 }
 
+// TestJSONValue checks that log lines before or after a JSON value on
+// standard output do not stop the value from being read.
+func TestJSONValue(t *testing.T) {
+	for _, tc := range []struct{ name, out, want string }{
+		{"plain", `[]`, `[]`},
+		{"log before", "[WARN] x\n{\"a\": 1}\n", `{"a": 1}`},
+		{"log after", "{\"a\": 1}\nDEBUG h2: send frame=Ping\n", `{"a": 1}`},
+		{"log before and after", "DEBUG x\n[\n  {\"id\": \"a\"}\n]\n2026 DEBUG rustls: CloseNotify\n", "[\n  {\"id\": \"a\"}\n]"},
+		{"no json", "no json here\n", "no json here\n"},
+	} {
+		if got := string(jsonValue([]byte(tc.out))); got != tc.want {
+			t.Errorf("%s: jsonValue() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestProvidersPages(t *testing.T) {
 	c, log := fakeCLI(t, `case "$*" in
 *--page-token*) echo '{"providers": [{"name": "b", "type": "github", "credential_keys": ["GH_TOKEN"]}], "next_page_token": ""}' ;;
