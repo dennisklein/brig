@@ -53,6 +53,11 @@ changelog:
 
 release:
   name_template: "{{ .Tag }}"
+  # Leave the release a draft; the workflow publishes it after attesting the
+  # assets. A published release is immutable, so attesting after publishing
+  # could not be retried. A re-run replaces the draft.
+  draft: true
+  replace_existing_draft: true
   # Tags like v1.0.0-rc.1 are published as GitHub pre-releases.
   prerelease: auto
   # Subject and body only; .TagContents would include a signed tag's
