@@ -14,6 +14,7 @@ Usage: prune-repo.py --keep N DIR
 import argparse
 import functools
 import os
+import re
 import sys
 
 import rpm
@@ -76,7 +77,15 @@ def main():
             continue
         path = os.path.join(args.dir, entry)
         hdr = header(ts, path)
-        key = (hdr[rpm.RPMTAG_NAME], hdr[rpm.RPMTAG_ARCH], bool(hdr[rpm.RPMTAG_SOURCEPACKAGE]))
+        # The source directory holds one SRPM per Fedora release, and each
+        # release keeps its own versions.
+        dist = re.search(r"\.fc\d+$", hdr[rpm.RPMTAG_RELEASE])
+        key = (
+            hdr[rpm.RPMTAG_NAME],
+            hdr[rpm.RPMTAG_ARCH],
+            bool(hdr[rpm.RPMTAG_SOURCEPACKAGE]),
+            dist and dist.group(),
+        )
         by_name.setdefault(key, []).append((evr(hdr), path))
 
     cmp = functools.cmp_to_key(lambda a, b: rpm.labelCompare(a[0], b[0]))

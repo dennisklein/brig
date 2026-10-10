@@ -10,6 +10,7 @@
 # crates, generates the Python SDK's protobuf modules, copies the gateway's
 # systemd user unit from upstream's openshell.spec into ours and runs
 # `rpmbuild -bs` without a dist tag, so one SRPM serves every Fedora release.
+# The rpm jobs turn it into the SRPM that they publish, one per release.
 # Vendoring uses cargo-vendor-filterer to drop crates and prebuilt protoc
 # binaries that an x86_64 Linux build never uses, which shrinks the vendor
 # tarball by more than half. Needs git, cargo, cargo-vendor-filterer, xz, uv,

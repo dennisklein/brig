@@ -114,8 +114,13 @@ jobs:
           dnf -y builddep ./*.src.rpm
       - name: Build RPMs
         run: |
-          rpmbuild --rebuild --define "_topdir $PWD/rpmbuild" ./*.src.rpm
+          # The binaries name the SRPM of this build as their SOURCERPM, with
+          # this release's dist tag. Publish that SRPM, so that dnf can find
+          # the source of an installed package in the brig-source repository.
+          rpmbuild -rs --nodeps --define "_topdir $PWD/rpmbuild" ./*.src.rpm
+          rpmbuild --rebuild --define "_topdir $PWD/rpmbuild" rpmbuild/SRPMS/*.src.rpm
           mkdir out
+          cp -t out rpmbuild/SRPMS/*.src.rpm
           find rpmbuild/RPMS -name '*.rpm' ! -name '*-debuginfo-*' ! -name '*-debugsource-*' -exec cp -t out {} +
           ls -l out
           for pkg in out/*.rpm; do rpm -qp --requires "$pkg" | sed "s|^|${pkg##*/}: |"; done
@@ -171,7 +176,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{srpm,rpm-*}"
+          pattern: "rpm-*"
           path: incoming
           merge-multiple: true
       - name: Assemble signed repository
@@ -227,7 +232,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{srpm,rpm-*}"
+          pattern: "rpm-*"
           path: incoming
           merge-multiple: true
       - name: Assemble repository with a throwaway key
