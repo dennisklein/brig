@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress/progresstest"
+
 	"github.com/dennisklein/brig/internal/bytesize"
 )
 
@@ -499,5 +501,30 @@ func TestCancel(t *testing.T) {
 	}
 	if d := time.Since(start); d > 10*time.Second {
 		t.Fatalf("qemu-img ran for %v after the context ended", d)
+	}
+}
+
+func TestConvertProgress(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "base.raw")
+	if err := os.WriteFile(src, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fakeQemuImg(t, "exit 0")
+	ctx, w := progresstest.Watch(t.Context(), t)
+	if err := Convert(ctx, src, filepath.Join(dir, "base.qcow2")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := w.Finish(), "call qemu-img convert: ok\n"; got != want {
+		t.Errorf("progress\n%s\nwant\n%s", got, want)
+	}
+
+	fakeQemuImg(t, "echo 'qemu-img: no space left' >&2; exit 1")
+	ctx, w = progresstest.Watch(t.Context(), t)
+	if err := Convert(ctx, src, filepath.Join(dir, "other.qcow2")); err == nil {
+		t.Fatal("Convert succeeded")
+	}
+	if got, want := w.Finish(), "call qemu-img convert: failed (target): qemu-img convert: no space left (exit status 1)\n"; got != want {
+		t.Errorf("progress\n%s\nwant\n%s", got, want)
 	}
 }
