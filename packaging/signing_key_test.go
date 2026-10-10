@@ -13,11 +13,12 @@ import (
 
 // fakeGH stands in for the gh CLI. It logs each call to $FAKE_LOG and serves
 // the deployment policies listed in $FAKE_POLICIES (tab-separated id, type,
-// name). $FAKE_FAIL names the call that fails: "list" or "delete".
+// name). The environment has no key yet. $FAKE_FAIL names the call that fails: "list" or "delete".
 const fakeGH = `#!/bin/sh
 echo "$*" >> "$FAKE_LOG"
 case "$*" in
   "auth status") ;;
+  *"/secrets/"*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
   *"--paginate"*)
     if [ "$FAKE_FAIL" = list ]; then echo "gh: HTTP 502" >&2; exit 1; fi
     cat "$FAKE_POLICIES" ;;
