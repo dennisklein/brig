@@ -124,7 +124,7 @@ var testOptions = BuildOptions{
 }
 
 func TestBuild(t *testing.T) {
-	f := newFixture(t, "mkosi 25.3", buildOK)
+	f := newFixture(t, "mkosi 26.1", buildOK)
 	root := f.s.root
 	// A build that died without cleaning up.
 	if err := os.MkdirAll(filepath.Join(root, ".build-123", "workspace"), 0o700); err != nil {
@@ -205,7 +205,7 @@ exit 1`)
 }
 
 func TestBuildCancelled(t *testing.T) {
-	f := newFixture(t, "mkosi 25", "exec sleep 30")
+	f := newFixture(t, "mkosi 26", "exec sleep 30")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
@@ -222,7 +222,7 @@ func TestBuildCancelled(t *testing.T) {
 }
 
 func TestBuildWaitsForLock(t *testing.T) {
-	f := newFixture(t, "mkosi 25", buildOK)
+	f := newFixture(t, "mkosi 26", buildOK)
 	if err := paths.EnsurePrivate(f.s.root); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestBuildWaitsForLock(t *testing.T) {
 }
 
 func TestBuildIfNone(t *testing.T) {
-	f := newFixture(t, "mkosi 25", buildOK)
+	f := newFixture(t, "mkosi 26", buildOK)
 	o := testOptions
 	o.IfNone = true
 	first, built, err := f.s.Build(context.Background(), t.TempDir(), o)
@@ -277,9 +277,9 @@ func TestBuildIfNone(t *testing.T) {
 
 func TestBuildChecksMkosiVersion(t *testing.T) {
 	for _, tt := range []struct{ version, wantErr string }{
-		{"mkosi 25.3", ""},
+		{"mkosi 26", ""},
 		{"mkosi 28~devel", ""},
-		{"mkosi 24.3", "mkosi 24.3 is too old: brig needs mkosi 25 or newer"},
+		{"mkosi 25.3", "mkosi 25.3 is too old: brig needs mkosi 26 or newer"},
 		{"mkosi devel", `cannot parse mkosi version "mkosi devel"`},
 	} {
 		f := newFixture(t, tt.version, "exit 1")
@@ -306,7 +306,7 @@ func TestBuildChecksMkosiVersion(t *testing.T) {
 }
 
 func TestBuildRejectsInvalidOptions(t *testing.T) {
-	f := newFixture(t, "mkosi 25", buildOK)
+	f := newFixture(t, "mkosi 26", buildOK)
 	if _, _, err := f.s.Build(context.Background(), t.TempDir(), BuildOptions{}); err == nil {
 		t.Fatal("Build() without a Fedora release succeeded")
 	}

@@ -50,8 +50,10 @@ type Image struct {
 // ErrNotFound is returned for images that do not exist.
 var ErrNotFound = errors.New("no such image")
 
-// MinMkosiVersion is the oldest mkosi that builds brig's images unprivileged.
-const MinMkosiVersion = 25
+// MinMkosiVersion is the oldest mkosi that builds brig's images unprivileged
+// and checks the brig repository with the key that brig embeds: mkosi 25
+// binds the host's /etc/pki over the one brig puts into the sandbox.
+const MinMkosiVersion = 26
 
 const (
 	baseFile     = "base.qcow2"

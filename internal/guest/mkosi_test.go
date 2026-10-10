@@ -47,7 +47,7 @@ func TestWriteMkosiConfig(t *testing.T) {
 
 	conf := readFile(t, dir, "mkosi.conf")
 	for _, want := range []string{
-		"\nMinimumVersion=25\n", "\nDistribution=fedora\n", "\nRelease=44\n", "\nArchitecture=x86-64\n",
+		"\nMinimumVersion=26\n", "\nDistribution=fedora\n", "\nRelease=44\n", "\nArchitecture=x86-64\n",
 		"\nFormat=disk\n", "\nOutput=base\n", "\nManifestFormat=json\n", "\nBootable=yes\n",
 		"\nBootloader=systemd-boot\n", "\nKernelCommandLine=console=ttyS0 rw systemd.firstboot=no fsck.repair=yes\n",
 		"\nSELinuxRelabel=yes\n",
