@@ -246,14 +246,22 @@ func readConfigFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-// quotedRE matches the values that yaml.v3 quotes in its error messages.
-var quotedRE = regexp.MustCompile("`[^`]*`")
+// yaml.v3 puts a scalar into its error messages in several ways: in
+// backticks, bare as a tag ("cannot unmarshal !tag `value` into T"), and
+// in single quotes as an alias or anchor name.
+var (
+	quotedRE    = regexp.MustCompile("`[^`]*`")
+	unmarshalRE = regexp.MustCompile(`cannot unmarshal .* into `)
+	anchorRE    = regexp.MustCompile(`anchor '.*' `)
+)
 
 // redactYAMLError formats a YAML decoding error without the values it
 // quotes, which in a provider file could be a secret written where a
 // secret_tool reference belongs.
 func redactYAMLError(err error) string {
-	return quotedRE.ReplaceAllString(err.Error(), "a value")
+	s := unmarshalRE.ReplaceAllString(err.Error(), "cannot unmarshal a value into ")
+	s = anchorRE.ReplaceAllString(s, "anchor ")
+	return quotedRE.ReplaceAllString(s, "a value")
 }
 
 // loadProfile reads what brig needs from an OpenShell profile file: its ID

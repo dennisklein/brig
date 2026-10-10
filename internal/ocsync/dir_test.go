@@ -154,6 +154,12 @@ func TestLoadDoesNotEchoPlaintextSecrets(t *testing.T) {
 	for _, body := range []string{
 		"name: p\ntype: github\ncredentials:\n  GH_TOKEN: hunter2pw\n",
 		"name: p\ntype: github\ncredentials:\n  GH_TOKEN: ghp_R3allyL0ngT0kenValue\n",
+		"name: p\ntype: github\ncredentials:\n  GH_TOKEN: !hunter2pw\n",
+		"name: p\ntype: github\ncredentials:\n  GH_TOKEN: !!hunter2pw\n",
+		"name: p\ntype: github\ncredentials:\n  GH_TOKEN: *hunter2pw\n",
+		"name: p\ntype: github\ncredentials:\n  GH_TOKEN: ab`hunter2pw\n",
+		"name: p\ntype: github\ncredentials:\n  GH_TOKEN:\n    secret_tool: !hunter2pw\n",
+		"name: p\ntype: github\ncredentials:\n  GH_TOKEN:\n    secret_tool: *hunter2pw\n",
 		"name: p\ntype: github\ncredentials:\n  GH_TOKEN:\n    secret_tool: hunter2pw\n",
 		"name: p\ntype: github\ncredentials:\n  GH_TOKEN:\n    secret_tool:\n      lookup: hunter2pw\n",
 	} {
