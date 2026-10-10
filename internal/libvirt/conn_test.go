@@ -285,6 +285,22 @@ func (f *fakeClient) DomainBlockResize(d golibvirt.Domain, disk string, size uin
 	return err
 }
 
+func (f *fakeClient) DomainAttachDeviceFlags(d golibvirt.Domain, x string, flags uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("attach %s %s %d", d.Name, x, flags)
+	_, err := f.dom(d)
+	return err
+}
+
+func (f *fakeClient) DomainDetachDeviceFlags(d golibvirt.Domain, x string, flags uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("detach %s %s %d", d.Name, x, flags)
+	_, err := f.dom(d)
+	return err
+}
+
 func (f *fakeClient) Disconnect() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -626,6 +642,23 @@ func TestBlockResize(t *testing.T) {
 	checkCalls(t, f,
 		fmt.Sprintf("resize brig-a vdb %d %d", 40*bytesize.GiB, golibvirt.DomainBlockResizeBytes),
 		fmt.Sprintf("resize brig-a vdb %d %d", 40*bytesize.GiB+512, golibvirt.DomainBlockResizeBytes))
+}
+
+func TestAttachAndDetachDeviceChangeOnlyTheRunningDomain(t *testing.T) {
+	c, f := newFake(map[string]*fakeDomain{"brig-a": running(-1)})
+	if err := c.AttachDevice("brig-a", "<filesystem/>"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DetachDevice("brig-a", "<filesystem/>"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AttachDevice("brig-b", "<filesystem/>"); err == nil || !strings.Contains(err.Error(), "brig-b") {
+		t.Errorf("attaching to a missing domain = %v", err)
+	}
+	live := golibvirt.DomainDeviceModifyLive
+	checkCalls(t, f,
+		fmt.Sprintf("attach brig-a <filesystem/> %d", live),
+		fmt.Sprintf("detach brig-a <filesystem/> %d", live))
 }
 
 func TestClose(t *testing.T) {
