@@ -29,10 +29,12 @@ import (
 )
 
 const (
-	sshReadyTimeout     = 5 * time.Minute
-	gatewayReadyTimeout = 3 * time.Minute
-	shutdownTimeout     = 2 * time.Minute
+	sshReadyTimeout = 5 * time.Minute
+	shutdownTimeout = 2 * time.Minute
 )
+
+// gatewayReadyTimeout bounds the waits for the gateway; tests shorten it.
+var gatewayReadyTimeout = 3 * time.Minute
 
 // Files in a VM's directory.
 const (
@@ -418,7 +420,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 	if err := cli.Register(ctx, v.GatewayName(), v.Ports.Gateway); err != nil {
 		return fmt.Errorf("registering the gateway: %w", err)
 	}
-	answers := a.checkVersions(ctx, cli, v, sync, w)
+	answers := a.checkVersions(ctx, cli, v, sync, w, check)
 	if check && !answers {
 		return fmt.Errorf("the OpenShell gateway in %s does not answer; check `brig ssh %s -- journalctl --user -u openshell-gateway`", v.Name, v.Name)
 	}
@@ -450,13 +452,18 @@ const startSyncTimeout = 3 * time.Minute
 // when its certificates lack a name its version requires, e.g. after an
 // upgrade, and an earlier copy may then be stale. It reports whether the
 // gateway answers.
-func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, sync func(context.Context) error, w io.Writer) bool {
+func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, sync func(context.Context) error, w io.Writer, check bool) bool {
 	host, err := cli.Version(ctx)
 	if err != nil {
 		return false
 	}
 	var gw string
-	_ = inSpan(ctx, progress.KindWait, "wait for the gateway to answer", func(ctx context.Context) error {
+	// A gateway that does not answer fails the start only with check.
+	span := inSpan
+	if !check {
+		span = inOptionalSpan
+	}
+	_ = span(ctx, progress.KindWait, "wait for the gateway to answer", func(ctx context.Context) error {
 		return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
 			if gw, err = cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
 				_ = sync(ctx)
