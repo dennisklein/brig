@@ -94,6 +94,10 @@ func TestSyncBundle(t *testing.T) {
 	ca, cert, key = pemFile("CERTIFICATE", "ca2"), pemFile("CERTIFICATE", "client2"), pemFile("PRIVATE KEY", "key2")
 	writeFile(t, output, fetchOutput(ca, cert, key), 0o600)
 	sync(true)
+
+	// The agent's ~/.bashrc prints before the script runs.
+	writeFile(t, output, "Agent pid 4242\n"+fetchOutput(ca, cert, key), 0o600)
+	sync(false)
 }
 
 func TestSyncBundleErrors(t *testing.T) {

@@ -106,12 +106,15 @@ func SyncBundle(ctx context.Context, t sshx.Target, configHome, gateway string) 
 	return changed, nil
 }
 
-// decodeBundle decodes fetchScript's output into the bundle's files.
+// decodeBundle decodes fetchScript's output into the bundle's files. It
+// ignores lines before the last len(bundle) ones: sshd runs the script with
+// the agent's login shell, which may print to stdout from ~/.bashrc first.
 func decodeBundle(out []byte) ([][]byte, error) {
 	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
-	if len(lines) != len(bundle) {
+	if len(lines) < len(bundle) {
 		return nil, fmt.Errorf("got %d files, want %d", len(lines), len(bundle))
 	}
+	lines = lines[len(lines)-len(bundle):]
 	files := make([][]byte, len(bundle))
 	for i, f := range bundle {
 		data, err := base64.StdEncoding.DecodeString(lines[i])
