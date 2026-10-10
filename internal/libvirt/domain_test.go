@@ -82,8 +82,13 @@ func TestDomainXML(t *testing.T) {
 	if f := d.Features; f.PS2 == nil || f.PS2.State != "off" || f.VMPort == nil || f.VMPort.State != "off" {
 		t.Errorf("ps2 %+v, vmport %+v", f.PS2, f.VMPort)
 	}
-	if c := d.Devices.Controllers; len(c) != 1 || c[0].Type != "usb" || c[0].Model != "none" {
+	if c := d.Devices.Controllers; len(c) == 0 || c[0].Type != "usb" || c[0].Model != "none" {
 		t.Errorf("controllers %+v", c)
+	}
+	// Two disks, a NIC, an RNG, two filesystems, the virtio-serial
+	// controller and the balloon take a root port each; the rest are spare.
+	if n := rootPorts(d); n != 8+spareRootPorts {
+		t.Errorf("%d PCI Express root ports, want %d", n, 8+spareRootPorts)
 	}
 	if d.PM == nil || d.PM.SuspendToMem == nil || d.PM.SuspendToMem.Enabled != "no" || d.PM.SuspendToDisk == nil || d.PM.SuspendToDisk.Enabled != "no" {
 		t.Errorf("pm = %+v", d.PM)
@@ -211,6 +216,18 @@ func TestDomainXML(t *testing.T) {
 	}
 }
 
+// rootPorts counts the PCI Express root ports of d, checking that their
+// indexes run from 1.
+func rootPorts(d libvirtxml.Domain) int {
+	n := 0
+	for _, c := range d.Devices.Controllers {
+		if c.Type == "pci" && c.Model == "pcie-root-port" && c.Index != nil && *c.Index == uint(n+1) {
+			n++
+		}
+	}
+	return n
+}
+
 // selfContained reports whether b is an empty <backingStore/>, which
 // libvirtxml parses as a file source without a path.
 func selfContained(b *libvirtxml.DomainDiskBackingStore) bool {
@@ -225,6 +242,9 @@ func TestDomainXMLMinimal(t *testing.T) {
 	if len(d.Devices.Filesystems) != 0 {
 		t.Errorf("filesystems without mounts:\n%s", x)
 	}
+	if n := rootPorts(d); n != 6+spareRootPorts {
+		t.Errorf("%d PCI Express root ports, want %d", n, 6+spareRootPorts)
+	}
 	// The vhost-user NIC needs shared memory even without virtiofs.
 	if m := d.MemoryBacking; m == nil || m.MemorySource.Type != "memfd" || m.MemoryAccess.Mode != "shared" {
 		t.Errorf("memory backing = %+v, want shared memfd", m)
@@ -235,6 +255,30 @@ func TestDomainXMLMinimal(t *testing.T) {
 	}
 	if d.Devices.Serials[0].Log != nil {
 		t.Errorf("console log without path:\n%s", x)
+	}
+}
+
+func TestFilesystemXMLMatchesDomainXML(t *testing.T) {
+	s := testSpec()
+	_, d := parse(t, s)
+	x, err := FilesystemXML(s.Mounts[0], s.MountIDMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := d.Devices.Filesystems[0].Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x != want {
+		t.Errorf("FilesystemXML =\n%s\nwant\n%s", x, want)
+	}
+	rw := s.Mounts[0]
+	rw.ReadOnly = false
+	if _, err := FilesystemXML(rw, s.MountIDMap); err == nil {
+		t.Error("FilesystemXML accepted a read-write sandbox mount")
+	}
+	if _, err := FilesystemXML(s.Mounts[1], nil); err == nil {
+		t.Error("FilesystemXML accepted a mount without an ID map")
 	}
 }
 

@@ -35,6 +35,8 @@ type client interface {
 	DomainUndefineFlags(dom golibvirt.Domain, flags golibvirt.DomainUndefineFlagsValues) error
 	DomainGetBlockInfo(dom golibvirt.Domain, path string, flags uint32) (allocation, capacity, physical uint64, err error)
 	DomainBlockResize(dom golibvirt.Domain, disk string, size uint64, flags golibvirt.DomainBlockResizeFlags) error
+	DomainAttachDeviceFlags(dom golibvirt.Domain, xml string, flags uint32) error
+	DomainDetachDeviceFlags(dom golibvirt.Domain, xml string, flags uint32) error
 	Disconnect() error
 }
 
@@ -421,6 +423,34 @@ func (c *Conn) blockResize(dom golibvirt.Domain, disk string, size bytesize.Size
 		return fmt.Errorf("refusing to shrink it from %s to %s", bytesize.Size(capacity), size)
 	}
 	return c.c.DomainBlockResize(dom, disk, uint64(size), golibvirt.DomainBlockResizeBytes)
+}
+
+// AttachDevice adds the device that deviceXML describes to the running
+// domain. Only the running domain changes: Define changes the persistent
+// definition.
+func (c *Conn) AttachDevice(name, deviceXML string) error {
+	dom, err := c.c.DomainLookupByName(name)
+	if err == nil {
+		err = c.c.DomainAttachDeviceFlags(dom, deviceXML, uint32(golibvirt.DomainDeviceModifyLive))
+	}
+	if err != nil {
+		return fmt.Errorf("attach device to domain %s: %w", name, err)
+	}
+	return nil
+}
+
+// DetachDevice asks the guest of the running domain to release the device
+// that deviceXML describes, and removes it once the guest has. Only the
+// running domain changes: Define changes the persistent definition.
+func (c *Conn) DetachDevice(name, deviceXML string) error {
+	dom, err := c.c.DomainLookupByName(name)
+	if err == nil {
+		err = c.c.DomainDetachDeviceFlags(dom, deviceXML, uint32(golibvirt.DomainDeviceModifyLive))
+	}
+	if err != nil {
+		return fmt.Errorf("detach device from domain %s: %w", name, err)
+	}
+	return nil
 }
 
 // lookupOwned looks up the named domain and checks that it carries brig's

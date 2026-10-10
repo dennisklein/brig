@@ -203,19 +203,47 @@ func devices(s DomainSpec) *libvirtxml.DomainDeviceList {
 		MemBalloon: &libvirtxml.DomainMemBalloon{Model: "virtio"},
 	}
 	for _, m := range s.Mounts {
-		fs := libvirtxml.DomainFilesystem{
-			AccessMode: "passthrough",
-			Driver:     &libvirtxml.DomainFilesystemDriver{Type: "virtiofs"},
-			IDMap:      s.MountIDMap,
-			Source:     &libvirtxml.DomainFilesystemSource{Mount: &libvirtxml.DomainFilesystemSourceMount{Dir: m.Source}},
-			Target:     &libvirtxml.DomainFilesystemTarget{Dir: m.Tag},
-		}
-		if m.ReadOnly {
-			fs.ReadOnly = &libvirtxml.DomainFilesystemReadOnly{}
-		}
-		devs.Filesystems = append(devs.Filesystems, fs)
+		devs.Filesystems = append(devs.Filesystems, filesystem(m, s.MountIDMap))
+	}
+	// Each PCI Express device sits on a root port of its own. libvirt adds
+	// only the ports that the devices need, so without spare ones nothing
+	// could be hot-plugged. The virtio-serial controller of the channels and
+	// the memory balloon need ports, too.
+	ports := len(devs.Disks) + len(devs.Interfaces) + len(devs.RNGs) + len(devs.Filesystems) + 2
+	for i := range ports + spareRootPorts {
+		idx := uint(i + 1) // index 0 is the root complex
+		devs.Controllers = append(devs.Controllers, libvirtxml.DomainController{Type: "pci", Index: &idx, Model: "pcie-root-port"})
 	}
 	return devs
+}
+
+// spareRootPorts is the number of PCI Express root ports that brig keeps free
+// in a domain, so that mounts can be hot-plugged into a running VM.
+const spareRootPorts = 8
+
+func filesystem(m vm.Mount, idmap *libvirtxml.DomainFilesystemIDMap) libvirtxml.DomainFilesystem {
+	fs := libvirtxml.DomainFilesystem{
+		AccessMode: "passthrough",
+		Driver:     &libvirtxml.DomainFilesystemDriver{Type: "virtiofs"},
+		IDMap:      idmap,
+		Source:     &libvirtxml.DomainFilesystemSource{Mount: &libvirtxml.DomainFilesystemSourceMount{Dir: m.Source}},
+		Target:     &libvirtxml.DomainFilesystemTarget{Dir: m.Tag},
+	}
+	if m.ReadOnly {
+		fs.ReadOnly = &libvirtxml.DomainFilesystemReadOnly{}
+	}
+	return fs
+}
+
+// FilesystemXML renders the virtiofs device of mount m, as DomainXML does,
+// for attaching it to or detaching it from a running domain.
+func FilesystemXML(m vm.Mount, idmap *libvirtxml.DomainFilesystemIDMap) (string, error) {
+	s := DomainSpec{Mounts: []vm.Mount{m}, MountIDMap: idmap}
+	if err := errors.Join(s.validateMounts()...); err != nil {
+		return "", err
+	}
+	fs := filesystem(m, idmap)
+	return fs.Marshal()
 }
 
 func disk(dev, path string) libvirtxml.DomainDisk {
