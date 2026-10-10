@@ -49,6 +49,9 @@ env:
   PAGES_URL: https://dennisklein.github.io/brig
   KEEP_VERSIONS: "2"
 
+# Job names are fixed: GitHub shows the name of a skipped job unexpanded, and
+# appends the Fedora release to the names of the matrix jobs itself. The plan
+# job's summary names the versions a run builds.
 jobs:
   plan:
     name: Plan what to build and publish
@@ -103,7 +106,7 @@ jobs:
           gh workflow enable openshell-releases.yaml
 
   openshell-srpm:
-    name: OpenShell ${{ needs.plan.outputs.tag }} source RPM
+    name: OpenShell source RPM
     needs: plan
     if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
@@ -134,7 +137,7 @@ jobs:
           retention-days: 7
 
   openshell-rpm:
-    name: OpenShell ${{ needs.plan.outputs.tag }} for Fedora ${{ matrix.fedora }}
+    name: OpenShell RPMs for Fedora
     needs: [plan, openshell-srpm]
     runs-on: ubuntu-latest
     permissions: {}
@@ -174,7 +177,7 @@ jobs:
           retention-days: 7
 
   brig-srpm:
-    name: brig ${{ needs.plan.outputs.brig_tag }} source RPM
+    name: brig source RPM
     needs: plan
     if: needs.plan.outputs.brig_build == 'true'
     runs-on: ubuntu-latest
@@ -202,7 +205,7 @@ jobs:
           retention-days: 7
 
   brig-rpm:
-    name: brig ${{ needs.plan.outputs.brig_tag }} for Fedora ${{ matrix.fedora }}
+    name: brig RPMs for Fedora
     needs: [plan, brig-srpm]
     runs-on: ubuntu-latest
     permissions: {}
@@ -379,7 +382,7 @@ jobs:
   # Installs from the assembled site, real or dry run, before a real one is
   # deployed.
   smoke-test:
-    name: Smoke test on Fedora ${{ matrix.fedora }}
+    name: Smoke test on Fedora
     needs: [plan, publish, dry-run]
     if: >-
       !cancelled() &&
