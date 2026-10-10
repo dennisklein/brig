@@ -34,10 +34,21 @@ root=$(git rev-parse --show-toplevel)
 pubkey=$root/packaging/brig-release/RPM-GPG-KEY-brig
 backup=${XDG_DATA_HOME:-$HOME/.local/share}/brig/signing-key
 if [ -e "$pubkey" ]; then
-  echo "$pubkey already exists; to rotate the key, delete it and bump brig-release's Version" >&2
+  echo "$pubkey already exists; to rotate the key, delete it and the $secret secret and bump brig-release's Version" >&2
   exit 1
 fi
 gh auth status > /dev/null
+# The public key may be missing from this checkout although the secret exists,
+# e.g. in a clone from before the key was committed. Only a 404 means that
+# neither the environment nor the secret exists yet.
+if out=$(gh api "repos/$repo/environments/$environment/secrets/$secret" 2>&1); then
+  echo "$secret already exists in the $environment environment of $repo; update this checkout to get ${pubkey#"$root"/}" >&2
+  echo "or, to rotate the key, delete the secret and bump brig-release's Version" >&2
+  exit 1
+elif ! grep -q 'HTTP 404' <<< "$out"; then
+  echo "cannot check for an existing $secret: $out" >&2
+  exit 1
+fi
 
 # Restrict the environment before any key exists. This replaces the
 # environment's protection rules with a deployment branch policy and removes
