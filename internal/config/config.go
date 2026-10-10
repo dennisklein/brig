@@ -194,6 +194,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("defaults.cpus must be at least %d", MinCPUs)
 	case d.Memory < MinMemory:
 		return fmt.Errorf("defaults.memory must be at least %s", MinMemory)
+	case d.Memory%bytesize.MiB != 0:
+		return errors.New("defaults.memory must be a whole number of MiB")
 	case d.RootDisk < MinRootDisk:
 		return fmt.Errorf("defaults.root_disk must be at least %s", MinRootDisk)
 	case d.DataDisk < MinDataDisk:

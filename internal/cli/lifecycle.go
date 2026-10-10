@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/libvirt"
@@ -137,6 +138,9 @@ func (a *app) domainSpec(v *vm.VM) (libvirt.DomainSpec, error) {
 func checkVM(v *vm.VM) error {
 	if v.CPUs < config.MinCPUs || v.Memory < config.MinMemory {
 		return fmt.Errorf("a VM needs at least %d CPU and %s of memory", config.MinCPUs, config.MinMemory)
+	}
+	if v.Memory%bytesize.MiB != 0 {
+		return errors.New("a VM's memory must be a whole number of MiB")
 	}
 	return checkMounts(v.Mounts)
 }

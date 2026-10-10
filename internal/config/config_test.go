@@ -74,13 +74,14 @@ network_profiles:
 
 func TestLoadErrors(t *testing.T) {
 	for name, tc := range map[string]struct{ yaml, want string }{
-		"unknown key":     {"defaults:\n  cpu: 2\n", "field cpu not found"},
-		"bad size":        {"defaults:\n  memory: lots\n", "invalid size"},
-		"unknown profile": {"defaults:\n  network_profile: nope\n", `unknown network profile "nope"`},
-		"tiny memory":     {"defaults:\n  memory: 1MiB\n", "at least 512MiB"},
-		"port zero":       {"network_profiles:\n  x:\n    host_ports: [0]\n", "must not contain 0"},
-		"relative tool":   {"openshell:\n  secret_tool: bin/secret-tool\n", "absolute path"},
-		"relative config": {"openshell:\n  configs: [team]\n", "not an absolute path"},
+		"unknown key":       {"defaults:\n  cpu: 2\n", "field cpu not found"},
+		"bad size":          {"defaults:\n  memory: lots\n", "invalid size"},
+		"unknown profile":   {"defaults:\n  network_profile: nope\n", `unknown network profile "nope"`},
+		"tiny memory":       {"defaults:\n  memory: 1MiB\n", "at least 512MiB"},
+		"fractional memory": {"defaults:\n  memory: 1000000K\n", "whole number of MiB"},
+		"port zero":         {"network_profiles:\n  x:\n    host_ports: [0]\n", "must not contain 0"},
+		"relative tool":     {"openshell:\n  secret_tool: bin/secret-tool\n", "absolute path"},
+		"relative config":   {"openshell:\n  configs: [team]\n", "not an absolute path"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, tc.yaml))

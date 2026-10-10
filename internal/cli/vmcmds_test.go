@@ -93,6 +93,7 @@ func TestCreateChecksSettingsBeforeBuildingAnImage(t *testing.T) {
 		{[]string{"--mount", src + ":/a", "--mount", src + ":/a"}, "duplicate"},
 		{[]string{"--cpus", "0"}, "at least 1 CPU"},
 		{[]string{"--memory", "256MiB"}, "512MiB of memory"},
+		{[]string{"--memory", "1000000K"}, "whole number of MiB"},
 		{[]string{"--root-disk", "1GiB"}, "root disk of at least 8GiB"},
 	} {
 		testApp(t)
