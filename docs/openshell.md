@@ -452,17 +452,19 @@ them after a fresh VM.
 ### Developing plugins without rebuilding
 
 While you write an extension or skill, mount its directory instead of baking
-it. Give the VM a read-only sandbox mount, which brig exposes as a Podman
-volume (`brig show dev` names it, here `brig0`), and attach it to a sandbox:
+it. `brig sandbox create` gives the running VM a read-only sandbox mount of the
+directory, which brig exposes as a Podman volume, and creates a sandbox with
+that volume attached; what follows `--` goes to `openshell sandbox create`:
 
 ```sh
-brig update dev --add-mount ~/src/pi-kit:/pi-kit:ro,sandbox
-openshell sandbox create --name kit-dev --from localhost/pi-agent:2026-10-08 \
-  --provider llm --driver-config-json \
-  '{"podman":{"mounts":[{"type":"volume","source":"brig0","target":"/usr/local/share/pi-kit-dev"}]}}'
+brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit-dev -- \
+  --name kit-dev --from localhost/pi-agent:2026-10-08 --provider llm
 # in the sandbox
 pi-sandbox -e /usr/local/share/pi-kit-dev
 ```
+
+The VM keeps the mount for later sandboxes; `brig show dev` lists it with its
+volume, and `brig update dev --remove-mount` removes it once no sandbox uses it.
 
 Edits on the host appear in the sandbox at once; `/reload` in Pi picks them
 up. The mount is read-only, so the agent cannot change your plugin source, and

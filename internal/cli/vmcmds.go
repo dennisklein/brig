@@ -56,7 +56,7 @@ Mounts share host directories with the VM via virtiofs:
 TARGET defaults to /mnt/<basename of SOURCE>. OPTIONS is a comma-separated
 list of ro (default), rw and sandbox; sandbox also offers the directory to
 OpenShell sandboxes, read-only, as a Podman volume named after the mount's
-tag (see brig show).
+tag (see brig show and brig sandbox create --help).
 
 OpenShell config directories hold provider profiles and providers, which
 brig applies to the VM's gateway at every start, and a default sandbox
@@ -894,17 +894,12 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 			if err != nil {
 				return err
 			}
-			// A config directory that does not load is an error, not a VM
-			// without a default policy. Nothing is printed then, so the
-			// shell keeps its variables, and the error is shown as create
-			// and sync show theirs.
-			policy := ""
-			if len(v.OpenShellConfigs) > 0 {
-				set, err := ocsync.Load(v.OpenShellConfigs)
-				if err != nil {
-					return err
-				}
-				policy = set.DefaultPolicy
+			// Nothing is printed for a config directory that does not
+			// load, so the shell keeps its variables, and the error is
+			// shown as create and sync show theirs.
+			policy, err := defaultPolicy(v)
+			if err != nil {
+				return err
 			}
 			// Unset a default policy that another VM's environment exported.
 			if sh == "fish" {
@@ -927,6 +922,20 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 	}
 	cmd.Flags().BoolVar(unset, "unset", false, "unset the variables instead, without a NAME")
 	return cmd
+}
+
+// defaultPolicy returns the default sandbox policy file of v's OpenShell
+// config directories, or "" if they have none. A config directory that does
+// not load is an error, not a VM without a default policy.
+func defaultPolicy(v *vm.VM) (string, error) {
+	if len(v.OpenShellConfigs) == 0 {
+		return "", nil
+	}
+	set, err := ocsync.Load(v.OpenShellConfigs)
+	if err != nil {
+		return "", err
+	}
+	return set.DefaultPolicy, nil
 }
 
 // execve replaces brig with the named program, which gets the arguments argv

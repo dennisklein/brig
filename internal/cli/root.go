@@ -60,6 +60,7 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
+		newSandboxCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)
@@ -70,8 +71,8 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 	}
 	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
 	// These own the terminal, or must keep standard output exactly as is.
-	for _, name := range []string{"ssh", "console", "env", "use", "shell-init", "version", "net-helper"} {
-		if c, _, err := cmd.Find([]string{name}); err == nil && c != cmd {
+	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}} {
+		if c, _, err := cmd.Find(path); err == nil && c != cmd {
 			if c.Annotations == nil {
 				c.Annotations = map[string]string{}
 			}
