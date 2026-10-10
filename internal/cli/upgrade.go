@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/libvirt"
@@ -126,14 +127,14 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 	}
 
 	if err := os.Remove(prev); err != nil {
-		fmt.Fprintf(w, "Warning: %v\n", err)
+		fmt.Fprintf(w, "Warning: %s\n", termtext.Escape(err.Error()))
 	}
 	// qemu-img cannot change the data disk while the VM has it open.
 	if err := a.stop(ctx, conn, v, false); err != nil {
 		return fmt.Errorf("upgraded %s to image %s, but stopping it to delete the data disk snapshot %s failed: %w", v.Name, id, snapshot, err)
 	}
 	if err := qemuimg.DeleteSnapshot(ctx, data, snapshot); err != nil {
-		fmt.Fprintf(w, "Warning: could not delete data disk snapshot %s: %v\n", snapshot, err)
+		fmt.Fprintf(w, "Warning: could not delete data disk snapshot %s: %s\n", snapshot, termtext.Escape(err.Error()))
 	}
 	if keepRunning {
 		fmt.Fprintf(w, "Starting %s again...\n", v.Name)

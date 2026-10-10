@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/termtext"
+
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/guest"
@@ -361,7 +363,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 	}
 	cli, err := openshell.Find()
 	if errors.Is(err, openshell.ErrNotInstalled) {
-		fmt.Fprintf(w, "The openshell CLI is not installed, so the gateway is not registered. %v\n", err)
+		fmt.Fprintf(w, "The openshell CLI is not installed, so the gateway is not registered. %s\n", termtext.Escape(err.Error()))
 		if check {
 			// Without the CLI, the gateway's service must at least run.
 			return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
@@ -395,7 +397,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 		ctx, cancel := context.WithTimeout(ctx, startSyncTimeout)
 		defer cancel()
 		if err := a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true}, ""); err != nil {
-			fmt.Fprintf(w, "Warning: applying the OpenShell config directories failed; fix it and run `brig sync %s`: %v\n", v.Name, err)
+			fmt.Fprintf(w, "Warning: applying the OpenShell config directories failed; fix it and run `brig sync %s`: %s\n", v.Name, termtext.Escape(err.Error()))
 		}
 	}
 	return nil
@@ -429,7 +431,7 @@ func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, s
 		return false
 	}
 	if !openshell.CompatibleVersions(host, gw) {
-		fmt.Fprintf(w, "Warning: the openshell CLI is version %s but the gateway in %s runs %s; install the matching CLI version.\n", host, v.Name, gw)
+		fmt.Fprintf(w, "Warning: the openshell CLI is version %s but the gateway in %s runs %s; install the matching CLI version.\n", termtext.Escape(host), v.Name, termtext.Escape(gw))
 	}
 	return true
 }
