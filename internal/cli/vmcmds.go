@@ -394,16 +394,26 @@ func (a *app) status(ctx context.Context) ([]vmStatus, error) {
 	if cerr == nil {
 		defer func() { _ = conn.Close() }()
 	}
+	var state func(string) (libvirt.State, error)
+	if cerr == nil {
+		state = conn.State
+	}
+	return vmStatuses(vms, state), errors.Join(err, cerr)
+}
+
+// vmStatuses pairs the VMs with their states, as state tells them. A VM
+// whose state cannot be had, or all of them if state is nil, is "unknown".
+func vmStatuses(vms []*vm.VM, state func(domain string) (libvirt.State, error)) []vmStatus {
 	out := make([]vmStatus, len(vms))
 	for i, v := range vms {
 		out[i] = vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName()}
-		if cerr == nil {
-			if s, err := conn.State(v.DomainName()); err == nil {
+		if state != nil {
+			if s, err := state(v.DomainName()); err == nil {
 				out[i].State = s.String()
 			}
 		}
 	}
-	return out, errors.Join(err, cerr)
+	return out
 }
 
 func newListCmd() *cobra.Command {

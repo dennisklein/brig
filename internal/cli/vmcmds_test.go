@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
+	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/ports"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -322,5 +323,36 @@ func TestForgetGatewayRemovesTheBundleWhenUnregisteringFails(t *testing.T) {
 	}
 	if _, err := os.Stat(key); !os.IsNotExist(err) {
 		t.Errorf("client key still there after forgetGateway(): %v", err)
+	}
+}
+
+func TestVMStatuses(t *testing.T) {
+	vms := []*vm.VM{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	states := map[string]libvirt.State{"brig-a": libvirt.StateRunning, "brig-c": libvirt.StateShutoff}
+	state := func(domain string) (libvirt.State, error) {
+		s, ok := states[domain]
+		if !ok {
+			return 0, errors.New("boom")
+		}
+		return s, nil
+	}
+	for _, tc := range []struct {
+		name  string
+		state func(string) (libvirt.State, error)
+		want  []string
+	}{
+		{"states", state, []string{"running", "unknown", "shut off"}},
+		{"no connection", nil, []string{"unknown", "unknown", "unknown"}},
+	} {
+		got := vmStatuses(vms, tc.state)
+		if len(got) != len(vms) {
+			t.Fatalf("%s: got %d statuses, want %d", tc.name, len(got), len(vms))
+		}
+		for i, s := range got {
+			if s.VM != vms[i] || s.State != tc.want[i] || s.Gateway != "brig-"+vms[i].Name {
+				t.Errorf("%s: status %d = {%s %q %q}, want {%s %q %q}", tc.name, i,
+					s.Name, s.State, s.Gateway, vms[i].Name, tc.want[i], "brig-"+vms[i].Name)
+			}
+		}
 	}
 }
