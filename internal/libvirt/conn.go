@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress"
 	golibvirt "github.com/digitalocean/go-libvirt"
 	"github.com/digitalocean/go-libvirt/socket/dialers"
 	"libvirt.org/go/libvirtxml"
@@ -284,7 +285,9 @@ func (c *Conn) Shutdown(ctx context.Context, name string, timeout time.Duration)
 			return c.Destroy(name)
 		}
 	}
-	done, err := c.awaitShutoff(ctx, dom, timeout)
+	wctx, wait := progress.Start(ctx, progress.KindWait, "wait for the guest to power off")
+	done, err := c.awaitShutoff(wctx, dom, timeout)
+	wait.End(err)
 	if done || err != nil {
 		return err
 	}
