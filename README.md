@@ -148,8 +148,9 @@ The host is reachable from a VM at the VM's default gateway address; with
 `host_ports`, only those TCP ports are. Without `host`, the host's own
 addresses are blocked too. The LAN means the private, shared (100.64.0.0/10),
 link-local, multicast and broadcast address ranges plus the networks of the
-host's addresses, which brig reads when a VM starts: restart VMs after joining
-another network.
+host's addresses and of its routes other than default ones, such as a VPN's
+intranet. brig reads them when a VM starts: restart VMs after joining another
+network or connecting a VPN.
 
 A profile that allows the internet, the LAN or the host also gets DNS from the
 host's resolver, for any name; other profiles, such as `isolated` or one with

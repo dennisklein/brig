@@ -38,6 +38,7 @@ func Groups() []Group {
 				{"edk2-ovmf", "UEFI firmware for the VMs"},
 				{"passt", "user-mode networking for rootless VMs (passt and pasta)"},
 				{"nftables", "enforces network profiles in each VM's network namespace"},
+				{"iproute", "reads the routes that network profiles are enforced against"},
 				{"openssh-clients", "brig ssh, gateway setup and image push"},
 				{"mkosi", "builds the VM base images"},
 				{"distribution-gpg-keys", "Fedora's package signing keys, also for releases newer than the host's"},

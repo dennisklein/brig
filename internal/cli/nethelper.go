@@ -28,5 +28,6 @@ func newNetHelperCmd() *cobra.Command {
 	f.IntVar(&o.GuestGatewayPort, "guest-gateway-port", 0, "guest OpenShell gateway port")
 	f.StringVar(&o.Profile, "profile", "", "network profile as JSON")
 	f.StringArrayVar(&o.HostAddrs, "host-addr", nil, "host address with prefix length (repeatable)")
+	f.StringArrayVar(&o.Routes, "route", nil, "destination of a host route (repeatable)")
 	return cmd
 }

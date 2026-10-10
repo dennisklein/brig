@@ -15,8 +15,8 @@ import (
 )
 
 var testGateways = Gateways{
-	IPv4: netip.MustParseAddr("192.168.1.1"),
-	IPv6: netip.MustParseAddr("fe80::1"),
+	IPv4: []netip.Addr{netip.MustParseAddr("192.168.1.1")},
+	IPv6: []netip.Addr{netip.MustParseAddr("fe80::1")},
 }
 
 // testHostAddrs are a host's addresses on a LAN with public IPv4 and IPv6
@@ -65,7 +65,7 @@ func TestRulesetHostAddrs(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := Ruleset(tc.profile, testGateways, testHostAddrs)
+			got := Ruleset(tc.profile, testGateways, testHostAddrs, nil)
 			for _, s := range tc.want {
 				if !strings.Contains(got, s) {
 					t.Errorf("missing %q in\n%s", s, got)
@@ -111,13 +111,14 @@ func TestToPrefix(t *testing.T) {
 }
 
 func TestRulesetDefaultProfile(t *testing.T) {
-	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil)
+	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil, nil)
 	want := `table inet brig {
 	chain output {
 		type filter hook output priority filter; policy drop;
 		oif "lo" accept
 		ct state established,related accept
 		ip daddr 169.254.1.1 meta l4proto { tcp, udp } th dport 53 accept
+		ip daddr 169.254.1.1 drop
 		ip daddr 192.168.1.1 drop
 		ip daddr { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 255.255.255.255/32 } drop
 		meta nfproto ipv6 drop
@@ -164,7 +165,7 @@ func TestRulesetVariants(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := Ruleset(tc.profile, tc.gateways, nil)
+			got := Ruleset(tc.profile, tc.gateways, nil, nil)
 			for _, s := range tc.want {
 				if !strings.Contains(got, s) {
 					t.Errorf("missing %q in\n%s", s, got)
@@ -192,34 +193,83 @@ func TestRulesetLoads(t *testing.T) {
 	profiles["ports"] = config.NetworkProfile{Internet: true, HostPorts: []uint16{11434}, IPv6: true}
 	for name, p := range profiles {
 		cmd := exec.Command("unshare", "-Urn", "nft", "-c", "-f", "-")
-		cmd.Stdin = strings.NewReader(Ruleset(p, testGateways, testHostAddrs))
+		cmd.Stdin = strings.NewReader(Ruleset(p, testGateways, testHostAddrs, testRoutes))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Errorf("profile %s: nft rejected the ruleset: %v\n%s", name, err, out)
 		}
 	}
 }
 
-func TestDefaultGateway4(t *testing.T) {
-	table := "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n" +
-		"wlan0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n" +
-		"eth0\t00000000\t010200C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n" +
-		"eth0\t000200C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n"
-	got, err := defaultGateway4(strings.NewReader(table))
-	if err != nil || got != netip.MustParseAddr("192.0.2.1") {
-		t.Fatalf("defaultGateway4() = %v, %v; want the lowest-metric gateway 192.0.2.1", got, err)
+// testRoutes are a host's routes: a VPN's intranet, an on-link network of
+// a DHCPv6 /128 address, and VPN routes that stand in for a default route.
+var testRoutes = []netip.Prefix{
+	netip.MustParsePrefix("131.169.0.0/16"),
+	netip.MustParsePrefix("2001:db8:2::/64"),
+	netip.MustParsePrefix("0.0.0.0/1"),
+	netip.MustParsePrefix("128.0.0.0/1"),
+	netip.MustParsePrefix("10.8.0.0/24"),
+}
+
+func TestRulesetRoutesAndWideNetworks(t *testing.T) {
+	hostAddrs := []netip.Prefix{
+		netip.MustParsePrefix("100.20.30.40/8"),    // contains 100.64.0.0/10
+		netip.MustParsePrefix("2001:db8:2::5/128"), // DHCPv6
 	}
-	got, err = defaultGateway4(strings.NewReader("Iface\tDestination\tGateway\n"))
-	if err != nil || got.IsValid() {
-		t.Fatalf("defaultGateway4(no routes) = %v, %v", got, err)
+	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, hostAddrs, testRoutes)
+	for _, s := range []string{
+		"ip daddr { 10.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 255.255.255.255/32, 100.0.0.0/8, 131.169.0.0/16 } drop\n",
+		"ip daddr 169.254.1.1 drop\n",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in\n%s", s, got)
+		}
+	}
+	if strings.Contains(got, "0.0.0.0/1") || strings.Contains(got, "128.0.0.0/1") {
+		t.Errorf("a route standing in for the default route counts as the LAN:\n%s", got)
+	}
+	got = Ruleset(config.NetworkProfile{Internet: true, IPv6: true}, testGateways, hostAddrs, testRoutes)
+	if !strings.Contains(got, "ip6 daddr { fc00::/7, fe80::/10, ff00::/8, 2001:db8:2::/64 } drop") {
+		t.Errorf("the on-link network of a /128 address is not the LAN:\n%s", got)
 	}
 }
 
-func TestDefaultGateway6(t *testing.T) {
-	table := "00000000000000000000000000000000 00 00000000000000000000000000000000 00 fe800000000000000000000000000001 00000400 00000001 00000000 00000003 eth0\n" +
-		"20010db8000000000000000000000000 40 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001 eth0\n"
-	got, err := defaultGateway6(strings.NewReader(table))
-	if err != nil || got != netip.MustParseAddr("fe80::1") {
-		t.Fatalf("defaultGateway6() = %v, %v", got, err)
+func TestRulesetMultipathGateways(t *testing.T) {
+	gws := Gateways{IPv4: []netip.Addr{netip.MustParseAddr("192.168.1.1"), netip.MustParseAddr("192.168.2.1")}}
+	got := Ruleset(config.NetworkProfile{Internet: true, HostPorts: []uint16{8080}}, gws, nil, nil)
+	for _, s := range []string{
+		"ip daddr { 192.168.1.1, 192.168.2.1 } tcp dport { 8080 } accept",
+		"ip daddr { 192.168.1.1, 192.168.2.1 } drop",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("missing %q in\n%s", s, got)
+		}
+	}
+}
+
+func TestParseRoutes(t *testing.T) {
+	out := `[{"dst":"default","nexthops":[{"gateway":"192.0.2.1","dev":"eth0"},{"gateway":"198.51.100.1","dev":"eth1"}]},
+		{"dst":"default","gateway":"192.0.2.1","dev":"eth0","metric":600},
+		{"dst":"192.0.2.0/24","dev":"eth0","protocol":"kernel","scope":"link"},
+		{"dst":"203.0.113.7","gateway":"192.0.2.1","dev":"eth0"},
+		{"type":"blackhole","dst":"198.18.0.0/15"}]`
+	routes, err := parseRoutes([]byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gateways(routes); !reflect.DeepEqual(got, []netip.Addr{netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("198.51.100.1")}) {
+		t.Errorf("gateways = %v", got)
+	}
+	var prefixes []string
+	for _, r := range routes {
+		if p, ok := r.prefix(); ok {
+			prefixes = append(prefixes, p.String())
+		}
+	}
+	if want := []string{"192.0.2.0/24", "203.0.113.7/32"}; !reflect.DeepEqual(prefixes, want) {
+		t.Errorf("prefixes = %v, want %v", prefixes, want)
+	}
+	if routes, err := parseRoutes([]byte("\n")); err != nil || routes != nil {
+		t.Errorf("empty output: %v, %v", routes, err)
 	}
 }
 

@@ -20,6 +20,8 @@ type HelperOptions struct {
 	// HostAddrs are the host's addresses with prefix lengths, as in
 	// Config.HostAddrs.
 	HostAddrs []string
+	// Routes are the host's route destinations, as in Config.Routes.
+	Routes []string
 }
 
 // RunHelper runs inside pasta's namespace: it loads the firewall for the
@@ -37,11 +39,13 @@ func RunHelper(o HelperOptions) error {
 	if err := c.validate(); err != nil {
 		return err
 	}
-	hostAddrs := make([]netip.Prefix, len(o.HostAddrs))
-	for i, s := range o.HostAddrs {
-		if hostAddrs[i], err = netip.ParsePrefix(s); err != nil {
-			return err
-		}
+	hostAddrs, err := parsePrefixes(o.HostAddrs)
+	if err != nil {
+		return err
+	}
+	routes, err := parsePrefixes(o.Routes)
+	if err != nil {
+		return err
 	}
 	gateways, err := ReadGateways()
 	if err != nil {
@@ -52,7 +56,7 @@ func RunHelper(o HelperOptions) error {
 		return err
 	}
 	nft := exec.Command(nftPath, "-f", "-")
-	nft.Stdin = strings.NewReader(Ruleset(profile, gateways, hostAddrs))
+	nft.Stdin = strings.NewReader(Ruleset(profile, gateways, hostAddrs, routes))
 	if out, err := nft.CombinedOutput(); err != nil {
 		return fmt.Errorf("loading the firewall: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -71,4 +75,15 @@ func lookPath(name string) (string, error) {
 		return p, nil
 	}
 	return exec.LookPath("/usr/sbin/" + name)
+}
+
+func parsePrefixes(ss []string) ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, len(ss))
+	for i, s := range ss {
+		var err error
+		if prefixes[i], err = netip.ParsePrefix(s); err != nil {
+			return nil, err
+		}
+	}
+	return prefixes, nil
 }

@@ -4,18 +4,11 @@
 package vmnet
 
 import (
-	"bufio"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"net/netip"
-	"os"
+	"os/exec"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/dennisklein/brig/internal/config"
@@ -32,19 +25,22 @@ var (
 // namespace. All traffic there originates from passt on behalf of the VM, so
 // only the output hook is filtered.
 //
-// gateways are the namespace's IPv4 and IPv6 default gateways, which pasta
-// maps to the host's loopback interface. A family without a default route
-// has an invalid Addr; the host is then unreachable over it anyway. Host
-// ports are only reachable over IPv4.
+// gateways are the namespace's IPv4 and IPv6 default gateways, all next
+// hops of its default routes, one of which pasta maps to the host's
+// loopback interface. A family without a default route has none; the host
+// is then unreachable over it anyway. Host ports are only reachable over
+// IPv4.
 //
 // hostAddrs are the host's interface addresses with their prefix lengths.
 // pasta connects to any address on the VM's behalf, so a connection to one
 // of them reaches the host's services as if from the host itself; without
 // p.Host, they are blocked. Their networks count as the LAN, besides the
 // special-purpose ranges, because LANs may use public addresses too, as
-// IPv6 LANs mostly do.
-func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs []netip.Prefix) string {
-	addrs4, addrs6, nets4, nets6 := hostSets(hostAddrs)
+// IPv6 LANs mostly do. So do routes, the destinations of the host's routes
+// other than default ones: pasta's connections follow them, for example
+// into a VPN's intranet.
+func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []netip.Prefix) string {
+	addrs4, addrs6, nets4, nets6 := hostSets(hostAddrs, routes)
 	var b strings.Builder
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 	w("table inet brig {")
@@ -55,25 +51,28 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs []netip.Prefi
 	if p.Internet || p.LAN || p.Host {
 		w("\t\tip daddr %s meta l4proto { tcp, udp } th dport 53 accept", DNSAddr)
 	}
-	if gw := gateways.IPv4; gw.IsValid() {
+	// pasta maps more than DNS on this address to the host's resolver,
+	// e.g. DNS over TLS on port 853.
+	w("\t\tip daddr %s drop", DNSAddr)
+	if gws := addrList(gateways.IPv4); gws != "" {
 		switch {
 		case p.Host:
-			w("\t\tip daddr %s accept", gw)
+			w("\t\tip daddr %s accept", gws)
 		case len(p.HostPorts) > 0:
 			ports := make([]string, len(p.HostPorts))
 			for i, port := range p.HostPorts {
 				ports[i] = fmt.Sprint(port)
 			}
-			w("\t\tip daddr %s tcp dport { %s } accept", gw, strings.Join(ports, ", "))
+			w("\t\tip daddr %s tcp dport { %s } accept", gws, strings.Join(ports, ", "))
 		}
-		w("\t\tip daddr %s drop", gw)
+		w("\t\tip daddr %s drop", gws)
 	}
-	if gw := gateways.IPv6; gw.IsValid() && p.IPv6 {
+	if gws := addrList(gateways.IPv6); gws != "" && p.IPv6 {
 		verdict := "drop"
 		if p.Host {
 			verdict = "accept"
 		}
-		w("\t\tip6 daddr %s %s", gw, verdict)
+		w("\t\tip6 daddr %s %s", gws, verdict)
 	}
 	if !p.Host && len(addrs4) > 0 {
 		w("\t\tip daddr { %s } drop", strings.Join(addrs4, ", "))
@@ -85,9 +84,9 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs []netip.Prefi
 	if p.LAN {
 		verdict = "accept"
 	}
-	w("\t\tip daddr { %s } %s", strings.Join(slices.Concat(lan4, nets4), ", "), verdict)
+	w("\t\tip daddr { %s } %s", strings.Join(nets4, ", "), verdict)
 	if p.IPv6 {
-		w("\t\tip6 daddr { %s } %s", strings.Join(slices.Concat(lan6, nets6), ", "), verdict)
+		w("\t\tip6 daddr { %s } %s", strings.Join(nets6, ", "), verdict)
 	} else {
 		w("\t\tmeta nfproto ipv6 drop")
 	}
@@ -99,19 +98,22 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs []netip.Prefi
 	return b.String()
 }
 
-// hostSets splits hostAddrs into the host's IPv4 and IPv6 addresses and
-// their networks. Networks within the special-purpose LAN ranges or within
-// each other are left out, so that every network is listed once.
-func hostSets(hostAddrs []netip.Prefix) (addrs4, addrs6, nets4, nets6 []string) {
+// minRouteBits are the shortest IPv4 and IPv6 routes that count as the
+// LAN. Shorter ones stand in for a default route, such as the 0.0.0.0/1 and
+// 128.0.0.0/1 that VPN clients add to route all traffic.
+const minRouteBits4, minRouteBits6 = 8, 16
+
+// hostSets splits hostAddrs into the host's IPv4 and IPv6 addresses, and
+// returns the LAN: the special-purpose ranges plus the networks of
+// hostAddrs and routes. A network within another one is left out, so that
+// the sets hold no overlapping intervals.
+func hostSets(hostAddrs, routes []netip.Prefix) (addrs4, addrs6, nets4, nets6 []string) {
 	var nets []netip.Prefix
 	for _, r := range slices.Concat(lan4, lan6) {
 		nets = append(nets, netip.MustParsePrefix(r))
 	}
-	// Wider networks first, so that they absorb narrower ones.
-	sorted := slices.Clone(hostAddrs)
-	slices.SortStableFunc(sorted, func(a, b netip.Prefix) int { return a.Bits() - b.Bits() })
 	seen := map[netip.Addr]bool{}
-	for _, p := range sorted {
+	for _, p := range hostAddrs {
 		if !p.IsValid() {
 			continue
 		}
@@ -123,11 +125,24 @@ func hostSets(hostAddrs []netip.Prefix) (addrs4, addrs6, nets4, nets6 []string) 
 				addrs6 = append(addrs6, a.String())
 			}
 		}
-		n := p.Masked()
-		if slices.ContainsFunc(nets, n.Overlaps) {
+		nets = append(nets, p.Masked())
+	}
+	for _, r := range routes {
+		minBits := minRouteBits6
+		if r.Addr().Is4() {
+			minBits = minRouteBits4
+		}
+		if r.IsValid() && r.Bits() >= minBits {
+			nets = append(nets, r.Masked())
+		}
+	}
+	for i, n := range nets {
+		// Keep n unless a wider network, or an earlier equal one, covers it.
+		if slices.ContainsFunc(nets, func(m netip.Prefix) bool {
+			return m != n && m.Bits() <= n.Bits() && m.Contains(n.Addr())
+		}) || slices.Index(nets, n) < i {
 			continue
 		}
-		nets = append(nets, n)
 		if n.Addr().Is4() {
 			nets4 = append(nets4, n.String())
 		} else {
@@ -137,83 +152,128 @@ func hostSets(hostAddrs []netip.Prefix) (addrs4, addrs6, nets4, nets6 []string) 
 	return addrs4, addrs6, nets4, nets6
 }
 
-// Gateways are the default gateways of a network namespace.
-type Gateways struct {
-	IPv4, IPv6 netip.Addr
+// addrList renders addresses as an nftables value: a single address or an
+// anonymous set. It returns "" for none.
+func addrList(addrs []netip.Addr) string {
+	switch len(addrs) {
+	case 0:
+		return ""
+	case 1:
+		return addrs[0].String()
+	}
+	s := make([]string, len(addrs))
+	for i, a := range addrs {
+		s[i] = a.String()
+	}
+	return "{ " + strings.Join(s, ", ") + " }"
 }
 
-// ReadGateways reads the default gateways of the caller's network namespace.
+// Gateways are the default gateways of a network namespace: the next hops
+// of its default routes, in the order the kernel lists them.
+type Gateways struct {
+	IPv4, IPv6 []netip.Addr
+}
+
+// ReadGateways reads the default gateways of the caller's network namespace
+// with ip(8), which, unlike /proc/net/route, lists every next hop of a
+// multipath route.
 func ReadGateways() (Gateways, error) {
 	var g Gateways
-	var err error
-	if g.IPv4, err = readRouteFile("/proc/net/route", defaultGateway4); err != nil {
+	routes, err := ipRoutes("-4", "default")
+	if err != nil {
 		return g, err
 	}
-	g.IPv6, err = readRouteFile("/proc/net/ipv6_route", defaultGateway6)
-	return g, err
+	g.IPv4 = gateways(routes)
+	if routes, err = ipRoutes("-6", "default"); err != nil {
+		return g, err
+	}
+	g.IPv6 = gateways(routes)
+	return g, nil
 }
 
-func readRouteFile(path string, parse func(io.Reader) (netip.Addr, error)) (netip.Addr, error) {
-	f, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return netip.Addr{}, nil // family disabled
+// ReadRoutes reads the destinations of the caller's routes in the main
+// routing table, other than default routes and routes that drop traffic.
+func ReadRoutes() ([]netip.Prefix, error) {
+	var prefixes []netip.Prefix
+	for _, family := range []string{"-4", "-6"} {
+		routes, err := ipRoutes(family, "table", "main")
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range routes {
+			if p, ok := r.prefix(); ok {
+				prefixes = append(prefixes, p)
+			}
+		}
 	}
+	return prefixes, nil
+}
+
+// ipRoute is a route as `ip -json route show` prints it.
+type ipRoute struct {
+	Type     string `json:"type"`
+	Dst      string `json:"dst"`
+	Gateway  string `json:"gateway"`
+	Nexthops []struct {
+		Gateway string `json:"gateway"`
+	} `json:"nexthops"`
+}
+
+// prefix returns the route's destination unless it is a default route or
+// a route that does not deliver traffic, such as a blackhole route.
+func (r ipRoute) prefix() (netip.Prefix, bool) {
+	if r.Dst == "default" || (r.Type != "" && r.Type != "unicast") {
+		return netip.Prefix{}, false
+	}
+	if p, err := netip.ParsePrefix(r.Dst); err == nil {
+		return p, true
+	}
+	if a, err := netip.ParseAddr(r.Dst); err == nil {
+		return netip.PrefixFrom(a, a.BitLen()), true
+	}
+	return netip.Prefix{}, false
+}
+
+// gateways returns the next hops of routes, each once.
+func gateways(routes []ipRoute) []netip.Addr {
+	var addrs []netip.Addr
+	add := func(s string) {
+		if a, err := netip.ParseAddr(s); err == nil && !slices.Contains(addrs, a) {
+			addrs = append(addrs, a)
+		}
+	}
+	for _, r := range routes {
+		add(r.Gateway)
+		for _, h := range r.Nexthops {
+			add(h.Gateway)
+		}
+	}
+	return addrs
+}
+
+// ipRoutes runs `ip -json FAMILY route show ARGS...`.
+func ipRoutes(family string, args ...string) ([]ipRoute, error) {
+	ip, err := lookPath("ip")
 	if err != nil {
-		return netip.Addr{}, err
+		return nil, fmt.Errorf("ip is not installed (package iproute): %w", err)
 	}
-	defer func() { _ = f.Close() }()
-	return parse(f)
+	cmd := exec.Command(ip, append([]string{"-json", family, "route", "show"}, args...)...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", strings.Join(cmd.Args, " "), err)
+	}
+	return parseRoutes(out)
 }
 
-// defaultGateway4 picks the IPv4 default gateway with the lowest metric from
-// a /proc/net/route table. It returns the zero Addr when there is none.
-func defaultGateway4(r io.Reader) (netip.Addr, error) {
-	s := bufio.NewScanner(r)
-	best, bestMetric := netip.Addr{}, uint64(0)
-	for first := true; s.Scan(); first = false {
-		f := strings.Fields(s.Text())
-		// Iface Destination Gateway Flags RefCnt Use Metric ...
-		if first || len(f) < 7 || f[1] != "00000000" || f[2] == "00000000" {
-			continue
-		}
-		raw, err := hex.DecodeString(f[2])
-		metric, merr := strconv.ParseUint(f[6], 10, 32)
-		if err != nil || len(raw) != 4 || merr != nil {
-			return netip.Addr{}, fmt.Errorf("malformed default route %q", s.Text())
-		}
-		// The kernel prints the address as a little-endian word.
-		var a [4]byte
-		binary.BigEndian.PutUint32(a[:], binary.LittleEndian.Uint32(raw))
-		if !best.IsValid() || metric < bestMetric {
-			best, bestMetric = netip.AddrFrom4(a), metric
-		}
+func parseRoutes(out []byte) ([]ipRoute, error) {
+	var routes []ipRoute
+	if len(strings.TrimSpace(string(out))) == 0 {
+		return nil, nil // the family is disabled
 	}
-	return best, s.Err()
-}
-
-// defaultGateway6 picks the IPv6 default gateway with the lowest metric from
-// a /proc/net/ipv6_route table. It returns the zero Addr when there is none.
-func defaultGateway6(r io.Reader) (netip.Addr, error) {
-	s := bufio.NewScanner(r)
-	best, bestMetric := netip.Addr{}, uint64(0)
-	const zero = "00000000000000000000000000000000"
-	for s.Scan() {
-		f := strings.Fields(s.Text())
-		// Destination PrefixLen Source SrcPrefixLen NextHop Metric ...
-		if len(f) < 6 || f[0] != zero || f[1] != "00" || f[4] == zero {
-			continue
-		}
-		raw, err := hex.DecodeString(f[4])
-		metric, merr := strconv.ParseUint(f[5], 16, 32)
-		if err != nil || len(raw) != 16 || merr != nil {
-			return netip.Addr{}, fmt.Errorf("malformed default route %q", s.Text())
-		}
-		a := netip.AddrFrom16([16]byte(raw))
-		if !best.IsValid() || metric < bestMetric {
-			best, bestMetric = a, metric
-		}
+	if err := json.Unmarshal(out, &routes); err != nil {
+		return nil, fmt.Errorf("parsing ip's routes: %w", err)
 	}
-	return best, s.Err()
+	return routes, nil
 }
 
 func encodeProfile(p config.NetworkProfile) (string, error) {

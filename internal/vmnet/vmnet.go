@@ -56,6 +56,9 @@ type Config struct {
 	// the LAN. Start reads them from the host, so they are those of the
 	// networks the host is in when the VM starts.
 	HostAddrs []netip.Prefix
+	// Routes are the destinations of the host's routes, which Ruleset also
+	// counts as the LAN. Start reads them when the VM starts.
+	Routes []netip.Prefix
 }
 
 // UnitName is the systemd user unit that runs the VM's network.
@@ -137,6 +140,9 @@ func (c Config) helperArgs() ([]string, error) {
 	for _, p := range c.HostAddrs {
 		args = append(args, "--host-addr", p.String())
 	}
+	for _, p := range c.Routes {
+		args = append(args, "--route", p.String())
+	}
 	return args, nil
 }
 
@@ -173,6 +179,9 @@ func Start(ctx context.Context, c Config) error {
 	if c.HostAddrs, err = hostAddrs(); err != nil {
 		return err
 	}
+	if c.Routes, err = ReadRoutes(); err != nil {
+		return err
+	}
 	argv, err := c.Command(pasta, brig)
 	if err != nil {
 		return err
@@ -198,8 +207,9 @@ func Start(ctx context.Context, c Config) error {
 	return waitForSocket(ctx, c.Socket, unit)
 }
 
-// hostAddrs returns the addresses of the host's network interfaces other
-// than loopback, with their prefix lengths.
+// hostAddrs returns the addresses of the host's network interfaces, with
+// their prefix lengths, other than loopback addresses. An address added to
+// the loopback interface is the host's like any other.
 func hostAddrs() ([]netip.Prefix, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -207,15 +217,12 @@ func hostAddrs() ([]netip.Prefix, error) {
 	}
 	var prefixes []netip.Prefix
 	for _, iface := range ifaces {
-		if iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
 		addrs, err := iface.Addrs()
 		if err != nil {
 			return nil, fmt.Errorf("listing the addresses of %s: %w", iface.Name, err)
 		}
 		for _, a := range addrs {
-			if p, ok := toPrefix(a); ok {
+			if p, ok := toPrefix(a); ok && !p.Addr().IsLoopback() {
 				prefixes = append(prefixes, p)
 			}
 		}
