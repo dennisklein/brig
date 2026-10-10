@@ -26,6 +26,11 @@ type BootConfig struct {
 	// Mounts are the VM's virtiofs mounts. Sandbox mounts are also offered
 	// to OpenShell sandboxes, as Podman volumes named after their tags.
 	Mounts []vm.Mount
+	// FormatDataDisk formats the data disk if it holds no file system. Set
+	// it only until the disk has been formatted: a disk whose file system
+	// cannot be recognised later, e.g. after a crash, must fail to mount
+	// rather than be formatted again.
+	FormatDataDisk bool
 }
 
 // Files in User's home that Credentials writes at every boot.
@@ -172,12 +177,15 @@ func (c BootConfig) tmpfiles() string {
 }
 
 // fstab returns the fstab(5) lines of the data disk and the virtiofs mounts.
-// The data disk is formatted on first boot and grown after a resize. A
+// The data disk is formatted with FormatDataDisk and grown after a resize. A
 // virtiofs mount that fails does not fail the boot.
 func (c BootConfig) fstab() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "/dev/disk/by-id/virtio-%s %s ext4 defaults,x-systemd.makefs,x-systemd.growfs 0 2\n",
-		DataDiskSerial, home)
+	opts := "defaults,x-systemd.growfs"
+	if c.FormatDataDisk {
+		opts = "defaults,x-systemd.makefs,x-systemd.growfs"
+	}
+	fmt.Fprintf(&b, "/dev/disk/by-id/virtio-%s %s ext4 %s 0 2\n", DataDiskSerial, home, opts)
 	for _, m := range c.Mounts {
 		opts := "rw,nofail"
 		if m.ReadOnly {

@@ -16,8 +16,9 @@ const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB4z brig@host"
 
 func testBootConfig() BootConfig {
 	return BootConfig{
-		Hostname:      "dev",
-		AuthorizedKey: testKey,
+		Hostname:       "dev",
+		AuthorizedKey:  testKey,
+		FormatDataDisk: true,
 		Mounts: []vm.Mount{
 			{Source: "/src/a", Target: "/mnt/a", ReadOnly: true, Tag: "brig0"},
 			{Source: "/src/b", Target: "/work/b", Tag: "brig1"},
@@ -123,6 +124,7 @@ brig2 /home/agent/c virtiofs ro,nofail,context=system_u:object_r:container_file_
 func TestCredentialsWithoutSandboxMounts(t *testing.T) {
 	c := testBootConfig()
 	c.Mounts = nil
+	c.FormatDataDisk = false
 	c.AuthorizedKey = "  " + testKey + "\t"
 	data := credentialData(t, c)
 	files := parseTmpfiles(t, data["tmpfiles.extra"])
@@ -135,7 +137,7 @@ func TestCredentialsWithoutSandboxMounts(t *testing.T) {
 	if got := files["/home/agent/.ssh/authorized_keys"].content; got != testKey+"\n" {
 		t.Errorf("authorized_keys = %q", got)
 	}
-	if got, want := data["fstab.extra"], "/dev/disk/by-id/virtio-brig-data /home/agent ext4 defaults,x-systemd.makefs,x-systemd.growfs 0 2\n"; got != want {
+	if got, want := data["fstab.extra"], "/dev/disk/by-id/virtio-brig-data /home/agent ext4 defaults,x-systemd.growfs 0 2\n"; got != want {
 		t.Errorf("fstab.extra = %q, want %q", got, want)
 	}
 }

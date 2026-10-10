@@ -101,9 +101,10 @@ func (a *app) domainSpec(v *vm.VM) (libvirt.DomainSpec, error) {
 		return libvirt.DomainSpec{}, err
 	}
 	creds, err := guest.Credentials(guest.BootConfig{
-		Hostname:      v.Name,
-		AuthorizedKey: strings.TrimSpace(string(pub)),
-		Mounts:        v.Mounts,
+		Hostname:       v.Name,
+		AuthorizedKey:  strings.TrimSpace(string(pub)),
+		Mounts:         v.Mounts,
+		FormatDataDisk: !v.DataDiskReady,
 	})
 	if err != nil {
 		return libvirt.DomainSpec{}, err
@@ -229,6 +230,13 @@ func (a *app) startVM(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Wr
 	defer cancel()
 	if err := a.sshTarget(v, false).WaitReady(wctx); err != nil {
 		return fmt.Errorf("%s is not reachable over SSH (boot log: %s): %w", v.Name, a.vmFile(v, consoleLogFile), err)
+	}
+	// SSH logs in as the data disk's owner, so the disk is mounted.
+	if !v.DataDiskReady {
+		v.DataDiskReady = true
+		if err := a.vms.Save(v); err != nil {
+			return err
+		}
 	}
 	if err := a.connectGateway(ctx, v, w, check); err != nil {
 		return err

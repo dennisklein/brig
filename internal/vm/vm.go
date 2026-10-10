@@ -42,6 +42,9 @@ type VM struct {
 	// OpenShellConfigs are the absolute paths of the OpenShell config
 	// directories that brig applies to the VM's gateway.
 	OpenShellConfigs []string `json:"openshell_configs,omitempty"`
+	// DataDiskReady records that the VM booted with its data disk mounted,
+	// so the disk has a file system and must not be formatted again.
+	DataDiskReady bool `json:"data_disk_ready,omitempty"`
 }
 
 // Ports are the host loopback ports forwarded into the VM.
