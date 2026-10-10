@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
 # SPDX-License-Identifier: Apache-2.0
 #
-# Install the OpenShell packages from a repository site the way users do and
-# check that they run. Meant for a throwaway Fedora container.
+# Install the OpenShell and brig packages from a repository site the way users
+# do and check that they run. Meant for a throwaway Fedora container.
 #
 # Usage: smoke-test.sh <site-url>
 set -euo pipefail
@@ -16,13 +16,21 @@ rpm --import /tmp/RPM-GPG-KEY-brig
 dnf -y install "$base/brig-release.noarch.rpm"
 # brig.repo points at the public site; follow the site under test instead.
 dnf -y install --setopt="brig.baseurl=$base/rpm/fedora/\$releasever/\$basearch/" \
-  openshell openshell-gateway openshell-prover python3-openshell
+  openshell openshell-gateway openshell-prover python3-openshell brig brig-selinux
 
 openshell --version
 openshell-gateway --version
 openshell-prover --version
+
+# brig installs openshell (same repository) and, with SELinux policy, its
+# module, which semodule must list: this loads the CIL of brig-selinux.
+brig_version=$(rpm -q --qf '%{VERSION}' brig)
+[ "$(brig --version)" = "brig version v$brig_version" ]
+brig print-fedora-deps
+semodule -l | grep -Eq '^brig([[:space:]]|$)'
+
 rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}: %{SIGPGP:pgpsig}\n' \
-  brig-release openshell openshell-gateway openshell-prover python3-openshell
+  brig-release openshell openshell-gateway openshell-prover python3-openshell brig brig-selinux
 
 # The SDK's Python dependencies are only recommended, as Fedora may ship older
 # ones than it needs. Install those its metadata names from PyPI into a virtual

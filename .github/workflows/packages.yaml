@@ -1,8 +1,9 @@
 name: packages
 
-# Builds signed Fedora RPMs of NVIDIA OpenShell from source and publishes
-# them, with the brig-release repository package, as a dnf repository on
-# GitHub Pages. See packaging/ for the scripts each job runs.
+# Builds signed Fedora RPMs of NVIDIA OpenShell and of brig from source and
+# publishes them, with the brig-release repository package, as a dnf
+# repository on GitHub Pages. See packaging/ for the scripts each job runs.
+# The release workflow starts this one after it publishes a brig release.
 
 on:
   push:
@@ -12,12 +13,16 @@ on:
       - packaging/**
       - .github/workflows/packages.yaml
   schedule:
-    # Daily check for a new OpenShell release.
+    # Daily check for a new OpenShell or brig release.
     - cron: "23 4 * * *"
   workflow_dispatch:
     inputs:
       openshell-tag:
         description: OpenShell release tag to package (default latest release)
+        required: false
+        default: ""
+      brig-tag:
+        description: brig release tag to package (default latest release)
         required: false
         default: ""
       rebuild:
@@ -53,6 +58,8 @@ jobs:
       tag: ${{ steps.plan.outputs.tag }}
       fedora: ${{ steps.plan.outputs.fedora }}
       build: ${{ steps.plan.outputs.build }}
+      brig_tag: ${{ steps.plan.outputs.brig_tag }}
+      brig_build: ${{ steps.plan.outputs.brig_build }}
       publish: ${{ steps.plan.outputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,6 +68,7 @@ jobs:
       - id: plan
         env:
           INPUT_TAG: ${{ inputs.openshell-tag }}
+          INPUT_BRIG_TAG: ${{ inputs.brig-tag }}
           REBUILD: ${{ inputs.rebuild || inputs.discard-published }}
         run: packaging/plan.sh
       - name: Summary
@@ -68,9 +76,12 @@ jobs:
           TAG: ${{ steps.plan.outputs.tag }}
           FEDORA: ${{ steps.plan.outputs.fedora }}
           BUILD: ${{ steps.plan.outputs.build }}
+          BRIG_TAG: ${{ steps.plan.outputs.brig_tag }}
+          BRIG_BUILD: ${{ steps.plan.outputs.brig_build }}
           PUBLISH: ${{ steps.plan.outputs.publish }}
         run: |
           echo "OpenShell $TAG for Fedora $FEDORA: build=$BUILD publish=$PUBLISH" >> "$GITHUB_STEP_SUMMARY"
+          echo "brig $BRIG_TAG: build=$BRIG_BUILD" >> "$GITHUB_STEP_SUMMARY"
 
   # GitHub disables scheduled workflows in a public repository after 60 days
   # without repository activity, which would stop this workflow and
@@ -158,6 +169,70 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  brig-srpm:
+    needs: plan
+    if: needs.plan.outputs.brig_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    timeout-minutes: 30
+    steps:
+      - name: Install tools
+        run: dnf -y install git-core golang rpm-build xz
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build source RPM
+        env:
+          TAG: ${{ needs.plan.outputs.brig_tag }}
+        run: packaging/brig/make-srpm.sh "$TAG" out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: brig-srpm
+          path: out/*.src.rpm
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  brig-rpm:
+    needs: [plan, brig-srpm]
+    runs-on: ubuntu-latest
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ${{ fromJSON(needs.plan.outputs.fedora) }}
+    container:
+      image: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: brig-srpm
+      - name: Install build dependencies
+        run: |
+          dnf -y install rpm-build dnf5-plugins
+          dnf -y builddep ./*.src.rpm
+      - name: Build RPMs
+        run: |
+          # As for OpenShell: publish the SRPM with this release's dist tag.
+          rpmbuild -rs --nodeps --define "_topdir $PWD/rpmbuild" ./*.src.rpm
+          rpmbuild --rebuild --define "_topdir $PWD/rpmbuild" rpmbuild/SRPMS/*.src.rpm
+          mkdir out
+          cp -t out rpmbuild/SRPMS/*.src.rpm
+          find rpmbuild/RPMS -name '*.rpm' -exec cp -t out {} +
+          ls -l out
+          for pkg in out/*.rpm; do rpm -qp --requires "$pkg" | sed "s|^|${pkg##*/}: |"; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-brig-fc${{ matrix.fedora }}
+          path: out/*.rpm
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
   release-rpm:
     needs: plan
     if: needs.plan.outputs.publish == 'real'
@@ -182,12 +257,15 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: [plan, srpm, rpm, release-rpm]
+    needs: [plan, srpm, rpm, brig-srpm, brig-rpm, release-rpm]
     # A build job that timed out ends cancelled, which !failure() misses.
+    # Without a build, the published packages are restored.
     if: >-
       !cancelled() && needs.plan.outputs.publish == 'real' &&
       contains(fromJSON('["success","skipped"]'), needs.srpm.result) &&
       contains(fromJSON('["success","skipped"]'), needs.rpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.brig-srpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.brig-rpm.result) &&
       needs.release-rpm.result == 'success'
     runs-on: ubuntu-latest
     environment: rpm-signing
@@ -242,11 +320,14 @@ jobs:
   # Assembles the repository with a throwaway key, so packaging changes are
   # verified end to end (see smoke-test) without the real key or a deploy.
   dry-run:
-    needs: [plan, srpm, rpm]
+    needs: [plan, srpm, rpm, brig-srpm, brig-rpm]
+    # The plan builds brig for a dry run, as it restores nothing.
     if: >-
       !cancelled() && needs.plan.outputs.publish == 'dry-run' &&
       contains(fromJSON('["success","skipped"]'), needs.srpm.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.rpm.result)
+      contains(fromJSON('["success","skipped"]'), needs.rpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.brig-srpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.brig-rpm.result)
     runs-on: ubuntu-latest
     permissions:
       contents: read

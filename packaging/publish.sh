@@ -123,6 +123,8 @@ for pkg in "$incoming"/*.rpm; do
       dests=(rpm/fedora/source) ;;
     brig-release-*.noarch.rpm)
       for f in "${releases[@]}"; do dests+=("rpm/fedora/$f/x86_64"); done ;;
+    # Built per Fedora release, with a dist tag: the packages of OpenShell and
+    # brig, and brig-selinux, which is noarch but ships next to brig.
     *.fc[0-9]*.x86_64.rpm | *.fc[0-9]*.noarch.rpm)
       f=${name##*.fc}
       dests=("rpm/fedora/${f%%.*}/x86_64") ;;

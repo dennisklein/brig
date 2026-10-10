@@ -48,3 +48,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+
+  # Puts a stable release into the package repository within minutes instead
+  # of at the next daily run. It is a job of its own, so that it can be
+  # re-run without releasing again. Pre-releases are not packaged.
+  packages:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Run the packages workflow
+        run: gh workflow run packages.yaml --ref main -f brig-tag="$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
