@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress/progresstest"
 	golibvirt "github.com/digitalocean/go-libvirt"
 	"libvirt.org/go/libvirtxml"
 
@@ -640,4 +641,41 @@ func TestIsCode(t *testing.T) {
 	if !isCode(err, golibvirt.ErrOperationInvalid) || isCode(err, golibvirt.ErrNoDomain) || isCode(errors.New("x"), golibvirt.ErrNoDomain) {
 		t.Error("isCode misclassifies errors")
 	}
+}
+
+func TestShutdownProgress(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		offAfter int
+		timeout  time.Duration
+		want     string
+	}{
+		{"graceful", 2, time.Minute, "wait wait for the guest to power off: ok\n"},
+		// The domain is destroyed once the wait is over; that is no failure.
+		{"timeout", -1, 30 * time.Millisecond, "wait wait for the guest to power off: ok\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := newFake(map[string]*fakeDomain{"brig-a": running(tc.offAfter)})
+			ctx, w := progresstest.Watch(t.Context(), t)
+			if err := c.Shutdown(ctx, "brig-a", tc.timeout); err != nil {
+				t.Fatal(err)
+			}
+			if got := w.Finish(); got != tc.want {
+				t.Errorf("progress\n%s\nwant\n%s", got, tc.want)
+			}
+		})
+	}
+	t.Run("canceled", func(t *testing.T) {
+		c, _ := newFake(map[string]*fakeDomain{"brig-a": running(-1)})
+		ctx, w := progresstest.Watch(t.Context(), t)
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+		defer cancel()
+		if err := c.Shutdown(ctx, "brig-a", time.Minute); err == nil {
+			t.Fatal("Shutdown succeeded")
+		}
+		t.Log(w.Tree())
+		if got, want := w.Finish(), "wait wait for the guest to power off: failed (timeout)"; !strings.HasPrefix(got, want) {
+			t.Errorf("progress\n%s\nwant it to start with %q", got, want)
+		}
+	})
 }
