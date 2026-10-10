@@ -395,6 +395,25 @@ func TestSyncPruneSkipsAProviderOfAnotherType(t *testing.T) {
 	}
 }
 
+func TestSyncForgetsAGoneResourceWithoutPrune(t *testing.T) {
+	gw := newFakeGateway()
+	st := &State{
+		Providers: map[string]ProviderState{"github": {Type: "github", Created: true}},
+		Profiles:  map[string]ProfileState{"github": {Created: true}},
+	}
+	// Neither exists on the gateway, so a plain sync drops both records.
+	out, calls, err := syncDir(t, t.TempDir(), gw, fakeSecrets{}, st, Options{})
+	if err != nil || len(calls) != 0 || strings.Count(out, "already gone") != 2 || len(st.Providers)+len(st.Profiles) != 0 {
+		t.Errorf("calls %q, report %q, state %+v, %v", calls, out, st, err)
+	}
+	// A provider created by hand afterwards is not brig's to prune.
+	gw.providers["github"] = &fakeProvider{typ: "github", creds: map[string]string{}}
+	_, calls, err = syncDir(t, t.TempDir(), gw, fakeSecrets{}, st, Options{Prune: true})
+	if err != nil || len(calls) != 0 {
+		t.Errorf("calls %q, %v", calls, err)
+	}
+}
+
 func TestSyncHoldsBackNewEndpointsForExistingCredentials(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)

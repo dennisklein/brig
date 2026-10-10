@@ -404,12 +404,15 @@ func (s *syncer) pruneProviders(ctx context.Context, providers []openshell.Provi
 		switch {
 		case !ps.Created:
 			s.forget("provider", name, "no longer configured; left as it is, since brig did not create it", func() { delete(s.st.Providers, name) })
-		case !s.opts.Prune:
-			s.report("provider", name, "no longer configured; kept (brig sync --prune deletes it)", true)
+		// A record whose provider is gone or replaced is dropped on every sync,
+		// not only with --prune: a provider created by hand later under the
+		// same name must not count as brig's.
 		case i < 0:
 			s.forget("provider", name, "no longer configured and already gone", func() { delete(s.st.Providers, name) })
 		case providers[i].Type != ps.Type:
 			s.forget("provider", name, fmt.Sprintf("no longer configured; left as it is, since it has type %s now", providers[i].Type), func() { delete(s.st.Providers, name) })
+		case !s.opts.Prune:
+			s.report("provider", name, "no longer configured; kept (brig sync --prune deletes it)", true)
 		default:
 			if !s.opts.DryRun {
 				if err := s.gw.DeleteProvider(ctx, name); err != nil {
@@ -433,10 +436,10 @@ func (s *syncer) pruneProfiles(ctx context.Context, profiles []openshell.Profile
 		switch {
 		case !s.st.Profiles[id].Created:
 			s.forget("profile", id, "no longer configured; left as it is, since brig did not create it", func() { delete(s.st.Profiles, id) })
-		case !s.opts.Prune:
-			s.report("profile", id, "no longer configured; kept (brig sync --prune deletes it)", true)
 		case !exists:
 			s.forget("profile", id, "no longer configured and already gone", func() { delete(s.st.Profiles, id) })
+		case !s.opts.Prune:
+			s.report("profile", id, "no longer configured; kept (brig sync --prune deletes it)", true)
 		default:
 			if !s.opts.DryRun {
 				if err := s.gw.DeleteProfile(ctx, id); err != nil {
