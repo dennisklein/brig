@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -183,6 +184,9 @@ func Start(ctx context.Context, c Config) error {
 	if c.Routes, err = ReadRoutes(); err != nil {
 		return err
 	}
+	if err := checkIPv4Gateway(c.Routes); err != nil {
+		return err
+	}
 	argv, err := c.Command(pasta, brig)
 	if err != nil {
 		return err
@@ -206,6 +210,25 @@ func Start(ctx context.Context, c Config) error {
 		return fmt.Errorf("starting %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
 	}
 	return waitForSocket(ctx, c.Socket, unit)
+}
+
+// checkIPv4Gateway fails when the host has IPv4 routes but no IPv4 default
+// gateway, e.g. offline with a container bridge up or on a PPP link. pasta
+// then copies the routes into the namespace without a gateway, and passt
+// hands the VM no address, so it would never become reachable. Without any
+// IPv4 route, pasta uses a link-local network of its own instead.
+func checkIPv4Gateway(routes []netip.Prefix) error {
+	if !slices.ContainsFunc(routes, func(p netip.Prefix) bool { return p.Addr().Is4() }) {
+		return nil
+	}
+	gws, err := ReadGateways()
+	if err != nil {
+		return err
+	}
+	if len(gws.IPv4) == 0 {
+		return errors.New("the host has no IPv4 default gateway, so the VM's network cannot give it an address; connect the host to a network with one, or take down interfaces such as container bridges while offline")
+	}
+	return nil
 }
 
 // hostAddrs returns the addresses of the host's network interfaces, with
