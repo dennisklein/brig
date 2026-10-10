@@ -929,6 +929,9 @@ Upgrade in this order:
 3. `sudo dnf upgrade openshell` on the host. `brig start` warns when the CLI's
    and the gateway's minor versions differ.
 
+dnf in the VM does not upgrade OpenShell: its packages are excluded in the
+image, so `brig upgrade` is the only way to move the gateway.
+
 `brig image prune` then removes base images no VM uses, keeping the newest.
 
 ### Sandbox image

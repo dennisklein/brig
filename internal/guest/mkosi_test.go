@@ -246,9 +246,10 @@ func TestPresetsEnableShippedUnits(t *testing.T) {
 	}
 }
 
-// TestDNFExcludesOnlyKernels checks that dnf in the VM cannot update the
-// kernel in place but can still install kernel-headers, which gcc needs.
-func TestDNFExcludesOnlyKernels(t *testing.T) {
+// TestDNFExcludesKernelsAndOpenShell checks that dnf in the VM cannot update
+// the kernel or OpenShell in place, but can still install kernel-headers,
+// which gcc needs.
+func TestDNFExcludesKernelsAndOpenShell(t *testing.T) {
 	data, err := mkosiFiles.ReadFile("mkosi/mkosi.extra/etc/dnf/dnf.conf")
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +260,7 @@ func TestDNFExcludesOnlyKernels(t *testing.T) {
 			excluded = strings.Split(strings.TrimSpace(v), ",")
 		}
 	}
-	for _, pkg := range []string{"kernel", "kernel-core", "kernel-modules"} {
+	for _, pkg := range []string{"kernel", "kernel-core", "kernel-modules", "openshell", "openshell-gateway"} {
 		if !slices.Contains(excluded, pkg) {
 			t.Errorf("dnf.conf does not exclude %s: %q", pkg, excluded)
 		}
