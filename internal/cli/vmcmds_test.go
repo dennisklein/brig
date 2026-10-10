@@ -270,3 +270,31 @@ func TestWriteKeysAfterLockingANewVM(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUpgradeChecksBootInputsBeforeStoppingTheVM(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		change  func(v *vm.VM)
+		wantErr string
+	}{
+		{"mount", func(v *vm.VM) {
+			v.Mounts = []vm.Mount{{Source: filepath.Join(t.TempDir(), "missing"), Target: "/work"}}
+		}, "is not a directory"},
+		{"profile", func(v *vm.VM) { v.NetworkProfile = "gone" }, "unknown network profile"},
+	} {
+		a := testApp(t)
+		v := testVM(t, a, "dev")
+		tc.change(v)
+		if err := a.vms.Save(v); err != nil {
+			t.Fatal(err)
+		}
+		testImage(t, a, "f44-openshell0.1.2-20261008T120000Z")
+		out, err := run(t, "upgrade", "dev")
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("upgrade with a bad %s: %v, want an error containing %q", tc.name, err, tc.wantErr)
+		}
+		if strings.Contains(out, "Stopping") {
+			t.Errorf("upgrade with a bad %s stopped the VM:\n%s", tc.name, out)
+		}
+	}
+}

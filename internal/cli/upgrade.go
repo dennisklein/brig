@@ -50,6 +50,15 @@ func newUpgradeCmd() *cobra.Command {
 				target.ID, current.OpenShellVersion, target.OpenShellVersion)
 		}
 
+		// Check what the check boot needs before stopping the VM, so that an
+		// upgrade that cannot boot leaves a running VM alone.
+		if err := checkMounts(v.Mounts); err != nil {
+			return err
+		}
+		if _, err := a.netConfig(v); err != nil {
+			return err
+		}
+
 		conn, err := a.connect(ctx)
 		if err != nil {
 			return err
