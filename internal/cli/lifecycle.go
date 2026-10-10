@@ -430,11 +430,14 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 			fmt.Fprintf(w, "Run `brig sync %s` to apply its OpenShell config directories once the gateway answers.\n", v.Name)
 			return nil
 		}
-		// A keyring that waits for an unlock must not hold up the start
-		// for long.
-		ctx, cancel := context.WithTimeout(ctx, startSyncTimeout)
-		defer cancel()
-		if err := a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true}, ""); err != nil {
+		err := inOptionalSpan(ctx, progress.KindStep, "apply the OpenShell config directories", func(ctx context.Context) error {
+			// A keyring that waits for an unlock must not hold up the start
+			// for long.
+			ctx, cancel := context.WithTimeout(ctx, startSyncTimeout)
+			defer cancel()
+			return a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true}, "")
+		})
+		if err != nil {
 			fmt.Fprintf(w, "Warning: applying the OpenShell config directories failed; fix it and run `brig sync %s`: %s\n", v.Name, termtext.Escape(err.Error()))
 		}
 	}
