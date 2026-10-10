@@ -95,6 +95,26 @@ func TestEnvExportsTheDefaultPolicy(t *testing.T) {
 	}
 }
 
+// A config directory that does not load must not look like one without a
+// default policy: env prints nothing, so that the shell keeps what it has.
+func TestEnvFailsOnAConfigDirThatDoesNotLoad(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	dir := configDir(t)
+	writeTestFile(t, filepath.Join(dir, "providers", "bad.yaml"), "name: bad\ntype: github\ncredentials:\n  T:\n    value: s3cret\n", 0o600)
+	v.OpenShellConfigs = []string{dir}
+	if err := a.vms.Save(v); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "env", "dev")
+	if err == nil || !strings.Contains(err.Error(), "never values") {
+		t.Errorf("env: %v, want an error containing %q", err, "never values")
+	}
+	if out != "" {
+		t.Errorf("env printed %q, want nothing", out)
+	}
+}
+
 func TestUpdateChecksOpenShellConfigs(t *testing.T) {
 	a := testApp(t)
 	testVM(t, a, "dev")

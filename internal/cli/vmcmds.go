@@ -714,17 +714,20 @@ func newConsoleCmd() *cobra.Command {
 
 func newEnvCmd() *cobra.Command {
 	cmd := vmCommand("env NAME", "Print shell commands that point the openshell CLI at a VM", func(_ context.Context, cmd *cobra.Command, _ *app, v *vm.VM) error {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
+		// A config directory that does not load is an error, not a VM
+		// without a default policy. Nothing is printed then, so the shell
+		// keeps its variables, and the error is shown as create and sync
+		// show theirs.
 		policy := ""
 		if len(v.OpenShellConfigs) > 0 {
 			set, err := ocsync.Load(v.OpenShellConfigs)
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", err)
-			} else {
-				policy = set.DefaultPolicy
+				return err
 			}
+			policy = set.DefaultPolicy
 		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
 		// Unset a default policy that another VM's environment exported.
 		if policy == "" {
 			fmt.Fprintln(out, "unset OPENSHELL_SANDBOX_POLICY")
@@ -736,7 +739,8 @@ func newEnvCmd() *cobra.Command {
 	cmd.Long = `Print shell commands that point the openshell CLI at a VM's gateway:
 OPENSHELL_GATEWAY, and OPENSHELL_SANDBOX_POLICY when one of the VM's
 OpenShell config directories has a policies/default.yaml (else it is
-unset, so that no other VM's default policy applies). Use it as
+unset, so that no other VM's default policy applies). It fails, and
+prints nothing, if a config directory does not load. Use it as
 eval "$(brig env NAME)"; without the quotes, the shell splits paths
 that contain spaces.`
 	return cmd
