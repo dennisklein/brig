@@ -152,7 +152,7 @@ starts with `brig-`.
 | Command | Purpose |
 |---|---|
 | `create NAME` | create and start a VM |
-| `list`, `show NAME` | list VMs, show one (`-o json`) |
+| `list`, `show NAME` | list VMs (queried in parallel), show one (`-o json`) |
 | `start NAME`, `stop NAME` | boot and re-register the gateway, shut down |
 | `update NAME` | change CPUs, memory, disks, network profile and mounts (at the next boot) and OpenShell config directories |
 | `sync NAME` | apply the VM's OpenShell config directories to its gateway |
@@ -168,6 +168,23 @@ starts with `brig-`.
 | `completion SHELL` | shell completion for bash, zsh, fish and PowerShell |
 
 `brig COMMAND --help` lists each command's flags.
+
+## Progress output
+
+Commands that take a while, such as `create`, `start`, `stop`, `upgrade`,
+`delete` and `image build`, show what they are doing on standard error, so
+standard output stays clean for scripts. Steps that the command goes on
+without, such as a gateway that does not answer at `brig start`, end as
+skipped with the reason. `ssh`, `console`, `env`, `use` and `shell-init` show
+no progress, since they own the terminal or must print exactly their output.
+
+`--progress MODE` (or `BRIG_PROGRESS`) picks the display: `auto` (the
+default) chooses from where standard error goes, `tty` redraws a tree of
+steps, `counter` a single line, `plain` prints one line per event, and `none`
+shows nothing. `--progress-log FILE` (or `BRIG_PROGRESS_LOG`) also appends a
+JSON event log of the work to FILE. On a terminal, `NO_COLOR` turns colours
+off. Text from guests, images and libvirt is escaped before it is shown, so
+it cannot inject terminal control sequences.
 
 ## Configuration
 
