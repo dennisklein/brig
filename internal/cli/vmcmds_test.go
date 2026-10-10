@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -213,5 +214,59 @@ func TestCreateLeavesAVMCreatedMeanwhileAlone(t *testing.T) {
 	}
 	if !a.vms.Exists("dev") {
 		t.Fatal("existing VM was removed")
+	}
+}
+
+func TestLockSurvivesDeletingTheVM(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	unlock, err := a.lockVM("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	// As brig delete does while it holds the lock.
+	if err := a.vms.Remove("dev"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.lockVM("dev"); err == nil || !strings.Contains(err.Error(), "another brig command") {
+		t.Fatalf("lockVM() after the VM was removed = %v, want an error saying that another command holds the lock", err)
+	}
+}
+
+func TestLockLoadedVMRefusesADeletedVM(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	if err := a.vms.Remove("dev"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.lockLoadedVM(v); !errors.Is(err, vm.ErrNotFound) {
+		t.Fatalf("lockLoadedVM() = %v, want ErrNotFound", err)
+	}
+	if a.vms.Exists("dev") {
+		t.Fatal("the deleted VM's record is back")
+	}
+	if unlock, err := a.lockVM("dev"); err != nil {
+		t.Fatalf("lockVM() = %v, want the failed lockLoadedVM to have released the lock", err)
+	} else {
+		unlock()
+	}
+}
+
+func TestWriteKeysAfterLockingANewVM(t *testing.T) {
+	a := testApp(t)
+	// As create does for a name that is free: lock it, then write the keys
+	// before anything else has made the VM's directory.
+	unlock, err := a.lockVM("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	v := &vm.VM{Name: "dev"}
+	if err := a.writeKeys(v); err != nil {
+		t.Fatalf("writeKeys() = %v", err)
+	}
+	if _, err := os.Stat(a.vmFile(v, clientKeyFile)); err != nil {
+		t.Fatal(err)
 	}
 }

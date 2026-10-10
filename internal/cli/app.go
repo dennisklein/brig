@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -53,13 +52,16 @@ func (a *app) connect(ctx context.Context) (*libvirt.Conn, error) {
 }
 
 // lockVM serialises brig commands that change the named VM. The returned
-// function releases the lock.
+// function releases the lock. The lock file stays after brig delete, so a
+// command that starts later cannot lock a new file while delete holds the old.
 func (a *app) lockVM(name string) (func(), error) {
-	dir := a.vms.Dir(name)
-	if err := paths.EnsurePrivate(dir); err != nil {
+	if err := vm.ValidateName(name); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err := paths.EnsurePrivate(a.dirs.VMsDir()); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(a.vms.LockPath(name), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +97,22 @@ func (a *app) lockAllVMs() (func(), error) {
 		}
 		unlocks = append(unlocks, u)
 	}
+	return unlock, nil
+}
+
+// lockLoadedVM locks the VM and reloads its record into v. The command loaded
+// v before it had the lock, so a brig delete may have removed the VM since.
+func (a *app) lockLoadedVM(v *vm.VM) (func(), error) {
+	unlock, err := a.lockVM(v.Name)
+	if err != nil {
+		return nil, err
+	}
+	fresh, err := a.vms.Load(v.Name)
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	*v = *fresh
 	return unlock, nil
 }
 

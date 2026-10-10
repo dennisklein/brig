@@ -16,7 +16,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
@@ -98,6 +100,11 @@ func NewStore(dirs paths.Dirs) Store { return Store{root: dirs.VMsDir()} }
 
 // Dir is the directory holding the named VM's files.
 func (s Store) Dir(name string) string { return filepath.Join(s.root, name) }
+
+// LockPath is the file that serialises brig commands changing the named VM. It
+// sits next to the VM's directory, not in it, so that deleting the directory
+// does not unlink a lock another command may still hold.
+func (s Store) LockPath(name string) string { return filepath.Join(s.root, "."+name+".lock") }
 
 func (s Store) recordPath(name string) string { return filepath.Join(s.Dir(name), "vm.json") }
 
@@ -186,8 +193,9 @@ func (s Store) List() ([]*VM, error) {
 	return vms, errors.Join(errs...)
 }
 
-// DirNames returns the names of all VM directories, sorted, including those
-// of VMs that are still being created and have no record yet.
+// DirNames returns the names of all VMs that have a directory or a lock
+// file, sorted, including those of VMs that are still being created and have
+// no record yet.
 func (s Store) DirNames() ([]string, error) {
 	entries, err := os.ReadDir(s.root)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -198,10 +206,19 @@ func (s Store) DirNames() ([]string, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if e.IsDir() && ValidateName(e.Name()) == nil {
-			names = append(names, e.Name())
+		name := e.Name()
+		if !e.IsDir() {
+			// A VM being created may have only its lock file yet.
+			if !strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".lock") {
+				continue
+			}
+			name = strings.TrimSuffix(name[1:], ".lock")
+		}
+		if ValidateName(name) == nil && !slices.Contains(names, name) {
+			names = append(names, name)
 		}
 	}
+	slices.Sort(names)
 	return names, nil
 }
 

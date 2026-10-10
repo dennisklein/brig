@@ -224,8 +224,12 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 	return nil
 }
 
-// writeKeys creates the VM's SSH client key, host key and known_hosts.
+// writeKeys creates the VM's directory with its SSH client key, host key and
+// known_hosts.
 func (a *app) writeKeys(v *vm.VM) error {
+	if err := paths.EnsurePrivate(a.vms.Dir(v.Name)); err != nil {
+		return err
+	}
 	client, clientPub, err := sshx.GenerateKey("brig@" + v.Name)
 	if err != nil {
 		return err
@@ -273,7 +277,7 @@ func vmCommand(use, short string, run func(ctx context.Context, cmd *cobra.Comma
 
 func newStartCmd() *cobra.Command {
 	return vmCommand("start NAME", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		unlock, err := a.lockVM(v.Name)
+		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
 		}
@@ -290,7 +294,7 @@ func newStartCmd() *cobra.Command {
 func newStopCmd() *cobra.Command {
 	var force bool
 	cmd := vmCommand("stop NAME", "Shut a VM down", func(ctx context.Context, _ *cobra.Command, a *app, v *vm.VM) error {
-		unlock, err := a.lockVM(v.Name)
+		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
 		}
@@ -309,7 +313,7 @@ func newStopCmd() *cobra.Command {
 func newDeleteCmd() *cobra.Command {
 	var force bool
 	cmd := vmCommand("delete NAME", "Delete a VM and all its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		unlock, err := a.lockVM(v.Name)
+		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
 		}
@@ -489,7 +493,7 @@ func newUpdateCmd() *cobra.Command {
 		addConfigs, rmConfigs    []string
 	)
 	cmd := vmCommand("update NAME", "Change a VM's resources, mounts, network profile or OpenShell config directories", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		unlock, err := a.lockVM(v.Name)
+		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
 		}
