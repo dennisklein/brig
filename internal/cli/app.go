@@ -73,6 +73,31 @@ func (a *app) lockVM(name string) (func(), error) {
 	return func() { _ = f.Close() }, nil
 }
 
+// lockAllVMs takes the lock of every VM, so that no brig command is changing
+// a VM, for example upgrading it onto an image while its old root disk still
+// depends on another. The returned function releases the locks.
+func (a *app) lockAllVMs() (func(), error) {
+	names, err := a.vms.DirNames()
+	if err != nil {
+		return nil, err
+	}
+	var unlocks []func()
+	unlock := func() {
+		for _, u := range unlocks {
+			u()
+		}
+	}
+	for _, name := range names {
+		u, err := a.lockVM(name)
+		if err != nil {
+			unlock()
+			return nil, err
+		}
+		unlocks = append(unlocks, u)
+	}
+	return unlock, nil
+}
+
 // newUUID returns a random (version 4) UUID.
 func newUUID() (string, error) {
 	var b [16]byte

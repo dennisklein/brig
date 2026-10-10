@@ -186,6 +186,25 @@ func (s Store) List() ([]*VM, error) {
 	return vms, errors.Join(errs...)
 }
 
+// DirNames returns the names of all VM directories, sorted, including those
+// of VMs that are still being created and have no record yet.
+func (s Store) DirNames() ([]string, error) {
+	entries, err := os.ReadDir(s.root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() && ValidateName(e.Name()) == nil {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
 // Names returns the names of all VMs, for shell completion.
 func (s Store) Names() []string {
 	vms, _ := s.List()

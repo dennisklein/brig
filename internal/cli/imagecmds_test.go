@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // fakeCommands puts shell scripts named after the keys of scripts first in
@@ -70,6 +72,35 @@ func TestPushImage(t *testing.T) {
 				t.Fatalf("pushImage() = %v", err)
 			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
 				t.Fatalf("pushImage() = %v, want an error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestImageRemoveWaitsForVMCommands(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cmd  *cobra.Command
+		args []string
+	}{
+		{"rm", newImageRemoveCmd(), []string{"f44-openshell0.1.2-20260101T000000Z"}},
+		{"prune", newImagePruneCmd(), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := testApp(t)
+			testVM(t, a, "dev")
+			// A VM that is being created has a directory but no record yet.
+			unlock, err := a.lockVM("new")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unlock()
+			tc.cmd.SetOut(io.Discard)
+			tc.cmd.SetErr(io.Discard)
+			tc.cmd.SetArgs(tc.args)
+			err = tc.cmd.ExecuteContext(t.Context())
+			if err == nil || !strings.Contains(err.Error(), "another brig command is working on VM new") {
+				t.Fatalf("err = %v, want a busy VM", err)
 			}
 		})
 	}

@@ -148,6 +148,11 @@ func newImageRemoveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			unlock, err := a.lockAllVMs()
+			if err != nil {
+				return err
+			}
+			defer unlock()
 			users, err := a.imageUsers()
 			if err != nil {
 				return err
@@ -176,6 +181,11 @@ func newImagePruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			unlock, err := a.lockAllVMs()
+			if err != nil {
+				return err
+			}
+			defer unlock()
 			imgs, err := a.images.List()
 			if err != nil {
 				return err
