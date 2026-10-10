@@ -161,6 +161,10 @@ func TestCredentialsRejects(t *testing.T) {
 		"blank in target":    mount(vm.Mount{Target: "/a b", ReadOnly: true, Tag: "brig9"}),
 		"home target":        mount(vm.Mount{Target: "/home/agent", ReadOnly: true, Tag: "brig9"}),
 		"home parent target": mount(vm.Mount{Target: "/home", ReadOnly: true, Tag: "brig9"}),
+		"rw tmp target":      mount(vm.Mount{Target: "/tmp", Tag: "brig9"}),
+		"rw var tmp target":  mount(vm.Mount{Target: "/var/tmp", Tag: "brig9"}),
+		"rw srv target":      mount(vm.Mount{Target: "/srv", Tag: "brig9"}),
+		"rw var target":      mount(vm.Mount{Target: "/var", Tag: "brig9"}),
 		"rw sandbox mount":   mount(vm.Mount{Target: "/x", Sandbox: true, Tag: "brig9"}),
 	} {
 		c := testBootConfig()
@@ -231,5 +235,15 @@ func TestCredentialsEscapesMountParents(t *testing.T) {
 		if !strings.Contains("\n"+text, "\n"+line+"\n") {
 			t.Errorf("tmpfiles.extra lacks %q:\n%s", line, text)
 		}
+	}
+}
+
+func TestCredentialsAllowsReadOnlyMountsOverTmpfilesDirs(t *testing.T) {
+	c := testBootConfig()
+	c.Mounts = append(c.Mounts,
+		vm.Mount{Source: "/src/x", Target: "/tmp", ReadOnly: true, Tag: "brig8"},
+		vm.Mount{Source: "/src/y", Target: "/var/tmp/x", Tag: "brig9"})
+	if _, err := Credentials(c); err != nil {
+		t.Errorf("Credentials: %v", err)
 	}
 }

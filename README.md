@@ -63,7 +63,10 @@ is a comma-separated list of `ro` (the default), `rw` and `sandbox`. With
 `sandbox`, OpenShell sandboxes can attach the directory read-only as a Podman
 volume named after the mount's tag, which `brig show` lists (e.g. `brig0`);
 the guide has an
-[example](docs/openshell.md#developing-plugins-without-rebuilding).
+[example](docs/openshell.md#developing-plugins-without-rebuilding). A `rw`
+mount cannot target `/tmp`, `/srv` or `/var` and its `log`, `cache`, `lib`,
+`spool` and `tmp` directories: the image's tmpfiles rules would change the
+mode of the host directory and delete its old files.
 
 ## How it works
 

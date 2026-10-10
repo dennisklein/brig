@@ -79,6 +79,8 @@ func CheckMounts(mounts []vm.Mount) error {
 			return fmt.Errorf("mount %s: target must not hide %s", m, home)
 		case hidesProvisioned(t) != "":
 			return fmt.Errorf("mount %s: target must not hide %s, which brig writes at every boot", m, hidesProvisioned(t))
+		case !m.ReadOnly && tmpfilesManaged[t]:
+			return fmt.Errorf("mount %s: a read-write target must not be %s, which the image's tmpfiles rules chmod or clean", m, t)
 		case m.Sandbox && !m.ReadOnly:
 			return fmt.Errorf("mount %s: sandbox mounts must be read-only", m)
 		case tags[m.Tag] || targets[t]:
@@ -111,6 +113,22 @@ func hidesProvisioned(target string) string {
 		}
 	}
 	return ""
+}
+
+// tmpfilesManaged are the directories that the image's standard tmpfiles.d
+// rules chmod at every boot (tmp.conf, home.conf, var.conf), and that
+// systemd-tmpfiles-clean deletes old files from in /tmp and /var/tmp. A
+// read-write mount there would let the stock image change and delete files on
+// the host through virtiofs.
+var tmpfilesManaged = map[string]bool{
+	"/tmp":       true,
+	"/var/tmp":   true,
+	"/srv":       true,
+	"/var":       true,
+	"/var/log":   true,
+	"/var/cache": true,
+	"/var/lib":   true,
+	"/var/spool": true,
 }
 
 // Credentials returns the non-secret systemd credentials for one boot. The
