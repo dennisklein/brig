@@ -23,30 +23,36 @@ its own OpenShell gateway, the gateway runs each agent in a sandbox container,
 and everything a sandbox sends leaves through that sandbox's proxy.
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph host["Your laptop"]
+    direction TB
     cli["openshell CLI<br/>drives gateway brig-dev"]
     keyring["Keyring<br/>read by secret-tool"]
-    hostpodman["brig and Podman<br/>build and push images"]
+    hostpodman["brig and Podman<br/>build, push images"]
   end
   subgraph vm["brig VM dev"]
-    gateway["OpenShell gateway<br/>profiles, providers (hold the secrets),<br/>policies, templates, on /home/agent"]
-    vmpodman["Podman, rootless<br/>images, sandbox containers,<br/>workspace volumes"]
+    direction TB
+    gateway["OpenShell gateway<br/>profiles, policies, templates<br/>providers hold the secrets"]
+    vmpodman["Podman, rootless<br/>images, sandboxes,<br/>workspace volumes"]
     subgraph sandbox["Sandbox webapp"]
-      agent["Agent container<br/>Pi or Claude Code, git and gh from your image<br/>writes only /sandbox and /tmp<br/>GH_TOKEN holds a placeholder"]
-      proxy["Supervisor and proxy<br/>fence 1: the OpenShell policy<br/>per host, binary, method, path<br/>swaps the placeholder for the token"]
+      direction TB
+      agent["Agent container<br/>Pi or Claude Code<br/>writes only /sandbox, /tmp<br/>GH_TOKEN is a placeholder"]
+      proxy["Supervisor and proxy<br/>fence 1: OpenShell policy<br/>per host, binary, method, path<br/>swaps placeholder for token"]
     end
   end
-  fence["fence 2: brig network profile,<br/>enforced on the host, outside the VM"]
-  models["Model APIs<br/>your endpoint, api.anthropic.com"]
-  github["github.com"]
-  gitlab["gitlab.example.org"]
+  fence["fence 2: brig network profile<br/>enforced on the host,<br/>outside the VM"]
+  subgraph out["Outbound"]
+    direction TB
+    models["Model APIs<br/>your endpoint, api.anthropic.com"]
+    github["github.com"]
+    gitlab["gitlab.example.org"]
+  end
   cli -- "mTLS gRPC" --> gateway
   keyring -- "brig sync: secret via env" --> gateway
   hostpodman -- "brig image push" --> vmpodman
   gateway -- "policy, secrets" --> proxy
   agent -- requests --> proxy
-  proxy -- "allowed requests only" --> fence
+  proxy -- "allowed only" --> fence
   fence --> models & github & gitlab
   style proxy stroke-width:3px
   style fence stroke-dasharray: 5 5
@@ -100,7 +106,7 @@ also adds a network rule named `_provider_<name>` to the sandbox's effective
 policy, so attaching `github` is what opens `api.github.com` and `github.com`.
 
 ```mermaid
-flowchart TB
+flowchart LR
   keyring["Your keyring<br/>the real token"] -- "brig sync" --> provider["Provider github<br/>gateway keeps the token"]
   provider -- attached --> env["Agent environment<br/>GH_TOKEN = placeholder"]
   env -- "request with placeholder" --> policy{"Policy allows<br/>binary and host?"}
