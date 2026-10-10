@@ -133,7 +133,7 @@ func TestBuild(t *testing.T) {
 	cache := t.TempDir()
 	o := testOptions
 	o.OpenShellVersion = "0.1.2"
-	img, err := f.s.Build(context.Background(), cache, o)
+	img, _, err := f.s.Build(context.Background(), cache, o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ exit 1`)
 	var log bytes.Buffer
 	o := testOptions
 	o.Log = &log
-	_, err := f.s.Build(context.Background(), t.TempDir(), o)
+	_, _, err := f.s.Build(context.Background(), t.TempDir(), o)
 	if err == nil || !strings.Contains(err.Error(), "mkosi build: exit status 1") {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -209,7 +209,7 @@ func TestBuildCancelled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := f.s.Build(ctx, t.TempDir(), testOptions)
+	_, _, err := f.s.Build(ctx, t.TempDir(), testOptions)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Build() error = %v, want context.DeadlineExceeded", err)
 	}
@@ -239,7 +239,7 @@ func TestBuildWaitsForLock(t *testing.T) {
 	var log bytes.Buffer
 	o := testOptions
 	o.Log = &log
-	if _, err := f.s.Build(ctx, t.TempDir(), o); !errors.Is(err, context.DeadlineExceeded) {
+	if _, _, err := f.s.Build(ctx, t.TempDir(), o); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Build() error = %v, want context.DeadlineExceeded", err)
 	}
 	if !strings.Contains(log.String(), "Waiting for another image build") {
@@ -254,15 +254,18 @@ func TestBuildIfNone(t *testing.T) {
 	f := newFixture(t, "mkosi 25", buildOK)
 	o := testOptions
 	o.IfNone = true
-	first, err := f.s.Build(context.Background(), t.TempDir(), o)
+	first, built, err := f.s.Build(context.Background(), t.TempDir(), o)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !built {
+		t.Fatal("Build() did not report building the first image")
+	}
 	// As if this build had waited for the first one.
 	f.s.now = func() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC) }
-	again, err := f.s.Build(context.Background(), t.TempDir(), o)
-	if err != nil || again != first {
-		t.Fatalf("Build() = %+v, %v; want the existing image %+v", again, err, first)
+	again, built, err := f.s.Build(context.Background(), t.TempDir(), o)
+	if err != nil || built || again != first {
+		t.Fatalf("Build() = %+v, built %t, %v; want the existing image %+v, not built", again, built, err, first)
 	}
 	if len(f.configs) != 1 {
 		t.Fatalf("mkosi ran %d times, want once", len(f.configs))
@@ -280,7 +283,7 @@ func TestBuildChecksMkosiVersion(t *testing.T) {
 		{"mkosi devel", `cannot parse mkosi version "mkosi devel"`},
 	} {
 		f := newFixture(t, tt.version, "exit 1")
-		_, err := f.s.Build(context.Background(), t.TempDir(), testOptions)
+		_, _, err := f.s.Build(context.Background(), t.TempDir(), testOptions)
 		if tt.wantErr == "" {
 			if err == nil || !strings.HasPrefix(err.Error(), "mkosi build:") {
 				t.Errorf("%s: error = %v, want a failing build", tt.version, err)
@@ -297,18 +300,18 @@ func TestBuildChecksMkosiVersion(t *testing.T) {
 
 	s := NewStore(paths.Dirs{Data: t.TempDir()})
 	s.mkosi = "brig-test-no-such-mkosi"
-	if _, err := s.Build(context.Background(), t.TempDir(), testOptions); err == nil || !strings.Contains(err.Error(), "not installed") {
+	if _, _, err := s.Build(context.Background(), t.TempDir(), testOptions); err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Errorf("Build() without mkosi: error = %v", err)
 	}
 }
 
 func TestBuildRejectsInvalidOptions(t *testing.T) {
 	f := newFixture(t, "mkosi 25", buildOK)
-	if _, err := f.s.Build(context.Background(), t.TempDir(), BuildOptions{}); err == nil {
+	if _, _, err := f.s.Build(context.Background(), t.TempDir(), BuildOptions{}); err == nil {
 		t.Fatal("Build() without a Fedora release succeeded")
 	}
 	t.Chdir(t.TempDir())
-	if _, err := f.s.Build(context.Background(), "", testOptions); err == nil || !strings.Contains(err.Error(), "no package cache directory") {
+	if _, _, err := f.s.Build(context.Background(), "", testOptions); err == nil || !strings.Contains(err.Error(), "no package cache directory") {
 		t.Fatalf("Build() without a package cache directory: error = %v", err)
 	}
 	if f.configs != nil {

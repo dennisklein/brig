@@ -36,11 +36,17 @@ func (a *app) buildImage(ctx context.Context, cmd *cobra.Command, o image.BuildO
 		return image.Image{}, err
 	}
 	o.Log = cmd.ErrOrStderr()
-	img, err := a.images.Build(ctx, a.dirs.MkosiCacheDir(), o)
+	img, built, err := a.images.Build(ctx, a.dirs.MkosiCacheDir(), o)
 	if err != nil {
 		return image.Image{}, fmt.Errorf("building base image: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Built image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
+	// With o.IfNone, Build may return an image that another build added
+	// while this one waited for the lock.
+	if built {
+		fmt.Fprintf(cmd.OutOrStdout(), "Built image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Using existing image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
+	}
 	return img, nil
 }
 

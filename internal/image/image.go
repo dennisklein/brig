@@ -205,42 +205,44 @@ type BuildOptions struct {
 // Build builds a new image with mkosi and adds it to the store. It names the
 // image after the Fedora release, the installed OpenShell gateway version
 // and the build time. cacheDir is mkosi's package cache, which builds share.
+// The bool result reports whether Build built the image; with IfNone it is
+// false when Build returned an existing image instead.
 //
 // One build runs at a time: Build waits for other builds to finish. mkosi
 // runs unprivileged and builds in a temporary directory inside the store, so
 // the finished image moves into place atomically; the temporary directory
 // is removed when the build fails or is cancelled.
-func (s Store) Build(ctx context.Context, cacheDir string, o BuildOptions) (Image, error) {
+func (s Store) Build(ctx context.Context, cacheDir string, o BuildOptions) (Image, bool, error) {
 	if o.FedoraRelease < 1 {
-		return Image{}, fmt.Errorf("invalid Fedora release %d", o.FedoraRelease)
+		return Image{}, false, fmt.Errorf("invalid Fedora release %d", o.FedoraRelease)
 	}
 	if cacheDir == "" {
 		// filepath.Abs would turn it into the working directory.
-		return Image{}, errors.New("no package cache directory for mkosi")
+		return Image{}, false, errors.New("no package cache directory for mkosi")
 	}
 	if err := s.checkMkosi(ctx); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	cacheDir, err := filepath.Abs(cacheDir)
 	if err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	if err := paths.EnsurePrivate(s.root); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	unlock, err := lock(ctx, s.root, o.Log)
 	if err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	defer unlock()
 	s.removeStaleBuilds()
 	if o.IfNone {
 		img, err := s.Newest()
 		if err == nil || !errors.Is(err, ErrNotFound) {
-			return img, err
+			return img, false, err
 		}
 	}
 
@@ -248,22 +250,22 @@ func (s Store) Build(ctx context.Context, cacheDir string, o BuildOptions) (Imag
 	// instead of copying them.
 	tmp, err := os.MkdirTemp(s.root, buildPrefix)
 	if err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	defer func() { _ = removeAll(tmp) }()
 	if tmp, err = filepath.Abs(tmp); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	out := filepath.Join(tmp, "output")
 	if err := s.runMkosi(ctx, tmp, out, cacheDir, o); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 
 	// mkosi names its outputs after Output=base: base.raw for Format=disk
 	// and base.manifest for ManifestFormat=json.
 	version, err := gatewayVersion(filepath.Join(out, "base.manifest"))
 	if err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	img := Image{
 		FedoraRelease:    o.FedoraRelease,
@@ -272,12 +274,12 @@ func (s Store) Build(ctx context.Context, cacheDir string, o BuildOptions) (Imag
 	}
 	img.ID = fmt.Sprintf("f%d-openshell%s-%s", img.FedoraRelease, version, img.CreatedAt.Format("20060102T150405Z"))
 	if err := validateID(img.ID); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
 	if err := s.install(ctx, img, out, filepath.Join(tmp, "image")); err != nil {
-		return Image{}, err
+		return Image{}, false, err
 	}
-	return img, nil
+	return img, true, nil
 }
 
 // runMkosi writes the mkosi configuration into tmp and builds it into the
