@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/dennisklein/brig/internal/openshell"
 )
@@ -165,6 +167,30 @@ func TestLoadReadsOnlyRegularFiles(t *testing.T) {
 	}
 	if _, err := Load([]string{dir}); err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Errorf("symlink to /dev/zero: %v", err)
+	}
+	fifo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(fifo, "profiles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(fifo, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(fifo, "fifo"), filepath.Join(fifo, "profiles", "fifo.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := Load([]string{fifo})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("symlink to a FIFO: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		// The goroutine stays blocked in open(2); the test binary exits anyway.
+		t.Fatal("Load blocked on a symlink to a FIFO")
 	}
 	big := t.TempDir()
 	writeFile(t, filepath.Join(big, "profiles", "big.yaml"), "id: big\n#"+strings.Repeat("x", maxConfigFileSize)+"\n")

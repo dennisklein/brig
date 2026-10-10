@@ -210,12 +210,22 @@ const maxConfigFileSize = 1 << 20
 // links, but only a regular file of bounded size: a shared directory must
 // not make brig read a device or wait on a FIFO.
 func readConfigFile(path string) ([]byte, error) {
+	// Check the type before opening: opening a FIFO blocks until a writer
+	// appears, and opening a device can have side effects.
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	fi, err := f.Stat()
+	// The file may have been replaced since the check above.
+	fi, err = f.Stat()
 	if err != nil {
 		return nil, err
 	}
