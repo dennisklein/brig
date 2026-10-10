@@ -28,6 +28,10 @@ func testSpec() DomainSpec {
 			{Source: "/home/u/src", Target: "/mnt/src", ReadOnly: true, Sandbox: true, Tag: "brig0"},
 			{Source: "/home/u/out", Target: "/mnt/out", Tag: "brig1"},
 		},
+		MountIDMap: &libvirtxml.DomainFilesystemIDMap{
+			UID: []libvirtxml.DomainFilesystemIDMapEntry{{Start: 1000, Target: 4242, Count: 1}},
+			GID: []libvirtxml.DomainFilesystemIDMapEntry{{Start: 1000, Target: 4343, Count: 1}},
+		},
 		ConsoleLog: "/vms/dev/console.log",
 		Credentials: []sdcred.Credential{
 			{Name: "fstab.extra", Data: []byte("x\n")},
@@ -145,7 +149,8 @@ func TestDomainXML(t *testing.T) {
 	for i, m := range testSpec().Mounts {
 		f := fs[i]
 		if f.AccessMode != "passthrough" || f.Driver.Type != "virtiofs" || f.Source.Mount.Dir != m.Source ||
-			f.Target.Dir != m.Tag || (f.ReadOnly != nil) != m.ReadOnly || f.IDMap != nil {
+			f.Target.Dir != m.Tag || (f.ReadOnly != nil) != m.ReadOnly ||
+			f.IDMap == nil || f.IDMap.UID[0].Target != 4242 || f.IDMap.GID[0].Target != 4343 {
 			t.Errorf("filesystem %d = %+v", i, f)
 		}
 	}
@@ -255,6 +260,7 @@ func TestDomainXMLRejects(t *testing.T) {
 		{"long tag", func(s *DomainSpec) { s.Mounts[0].Tag = strings.Repeat("t", 37) }, "virtiofs tag"},
 		{"duplicate tag", func(s *DomainSpec) { s.Mounts[1].Tag = "brig0" }, "duplicate virtiofs tag"},
 		{"writable sandbox mount", func(s *DomainSpec) { s.Mounts[1].Sandbox = true }, "sandbox mounts must be read-only"},
+		{"mounts without ID map", func(s *DomainSpec) { s.MountIDMap = nil }, "need an ID map"},
 		{"bad credential name", func(s *DomainSpec) { s.Credentials[0].Name = "a/b" }, "invalid credential name"},
 		{"secret oem credential", func(s *DomainSpec) { s.Credentials[0].Secret = true }, "is secret"},
 		{"duplicate credential", func(s *DomainSpec) { s.SecretCredentialFiles["fstab.extra"] = "/x" }, "duplicate credential"},

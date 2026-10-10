@@ -59,7 +59,10 @@ To run an agent, build an image for it and give it credentials as described in
 [the guide](docs/openshell.md#your-first-agent-sandbox-pi).
 
 Share host directories with `--mount SOURCE[:TARGET][:OPTIONS]`, where OPTIONS
-is a comma-separated list of `ro` (the default), `rw` and `sandbox`. With
+is a comma-separated list of `ro` (the default), `rw` and `sandbox`. In the
+VM, user `agent` owns what you own there, and what it writes is yours; the
+VM's other users map to your subordinate IDs, which need entries in
+`/etc/subuid` and `/etc/subgid` (Fedora adds them for new users). With
 `sandbox`, OpenShell sandboxes can attach the directory read-only as a Podman
 volume named after the mount's tag, which `brig show` lists (e.g. `brig0`);
 the guide has an

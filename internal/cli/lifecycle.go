@@ -114,7 +114,7 @@ func (a *app) domainSpec(v *vm.VM) (libvirt.DomainSpec, error) {
 	if err != nil {
 		return libvirt.DomainSpec{}, err
 	}
-	return libvirt.DomainSpec{
+	spec := libvirt.DomainSpec{
 		Name:        v.DomainName(),
 		UUID:        v.UUID,
 		CPUs:        v.CPUs,
@@ -129,12 +129,18 @@ func (a *app) domainSpec(v *vm.VM) (libvirt.DomainSpec, error) {
 		SecretCredentialFiles: map[string]string{
 			guest.HostKeyCredential: a.vmFile(v, hostKeyFile),
 		},
-	}, nil
+	}
+	if len(v.Mounts) > 0 {
+		if spec.MountIDMap, err = libvirt.HostMountIDMap(); err != nil {
+			return libvirt.DomainSpec{}, err
+		}
+	}
+	return spec, nil
 }
 
 // checkVM checks the settings of a new or changed VM that brig can check
 // before it builds an image or changes anything: its CPUs and memory, and
-// its mounts.
+// its mounts and their ID map.
 func checkVM(v *vm.VM) error {
 	if v.CPUs < config.MinCPUs || v.Memory < config.MinMemory {
 		return fmt.Errorf("a VM needs at least %d CPU and %s of memory", config.MinCPUs, config.MinMemory)
@@ -142,7 +148,15 @@ func checkVM(v *vm.VM) error {
 	if v.Memory%bytesize.MiB != 0 {
 		return errors.New("a VM's memory must be a whole number of MiB")
 	}
-	return checkMounts(v.Mounts)
+	if err := checkMounts(v.Mounts); err != nil {
+		return err
+	}
+	if len(v.Mounts) > 0 {
+		// Every start needs the mounts' ID map.
+		_, err := libvirt.HostMountIDMap()
+		return err
+	}
+	return nil
 }
 
 // parseMount parses a --mount argument and resolves symbolic links in its

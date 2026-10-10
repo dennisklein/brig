@@ -49,6 +49,9 @@ type DomainSpec struct {
 	// Mounts are host directories shared via virtiofs under their Tag.
 	// Sandbox mounts must be read-only.
 	Mounts []vm.Mount
+	// MountIDMap maps the IDs of the mounts' files between the guest and
+	// the host (see MountIDMap). VMs with mounts need one.
+	MountIDMap *libvirtxml.DomainFilesystemIDMap
 	// ConsoleLog is the file that receives the serial console output. It
 	// is truncated on every start. Empty disables the log.
 	ConsoleLog string
@@ -203,6 +206,7 @@ func devices(s DomainSpec) *libvirtxml.DomainDeviceList {
 		fs := libvirtxml.DomainFilesystem{
 			AccessMode: "passthrough",
 			Driver:     &libvirtxml.DomainFilesystemDriver{Type: "virtiofs"},
+			IDMap:      s.MountIDMap,
 			Source:     &libvirtxml.DomainFilesystemSource{Mount: &libvirtxml.DomainFilesystemSourceMount{Dir: m.Source}},
 			Target:     &libvirtxml.DomainFilesystemTarget{Dir: m.Tag},
 		}
@@ -280,6 +284,9 @@ func (s DomainSpec) validate() error {
 
 func (s DomainSpec) validateMounts() []error {
 	var errs []error
+	if len(s.Mounts) > 0 && s.MountIDMap == nil {
+		errs = append(errs, errors.New("mounts need an ID map"))
+	}
 	tags := map[string]bool{}
 	for _, m := range s.Mounts {
 		if !filepath.IsAbs(m.Source) {
