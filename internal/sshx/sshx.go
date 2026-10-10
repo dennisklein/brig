@@ -73,7 +73,8 @@ func WriteKnownHosts(path, alias string, pub ssh.PublicKey) error {
 	return vm.WriteFileAtomic(path, []byte(line), 0o600)
 }
 
-// Target is an SSH login on a VM. All fields are required.
+// Target is an SSH login on a VM. All fields are required. The file paths
+// must not contain % or ${, which ssh expands (see paths.Default).
 type Target struct {
 	// Host is the address ssh connects to, e.g. 127.0.0.1.
 	Host string

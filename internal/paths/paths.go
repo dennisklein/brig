@@ -7,8 +7,10 @@ package paths
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Dirs holds brig's base directories.
@@ -42,6 +44,12 @@ func Default() (Dirs, error) {
 	}
 	if d.Data, err = dir("XDG_DATA_HOME", filepath.Join(".local", "share")); err != nil {
 		return Dirs{}, err
+	}
+	// ssh expands % and ${NAME} in the key and known_hosts paths. It has no
+	// escape for ${, and -i is checked before it is expanded, so % cannot be
+	// escaped either. Such a directory could not hold a VM's files.
+	if strings.ContainsRune(d.Data, '%') || strings.Contains(d.Data, "${") {
+		return Dirs{}, fmt.Errorf("data directory %q must not contain %% or ${: ssh expands them", d.Data)
 	}
 	if d.Cache, err = dir("XDG_CACHE_HOME", ".cache"); err != nil {
 		return Dirs{}, err

@@ -35,6 +35,20 @@ func TestDefaultRejectsRelativeXDG(t *testing.T) {
 	}
 }
 
+func TestDefaultRejectsDataDirSSHExpands(t *testing.T) {
+	for _, dir := range []string{"/x/100%", "/x/%h", "/x/${USER}"} {
+		t.Setenv("XDG_DATA_HOME", dir)
+		if _, err := Default(); err == nil {
+			t.Errorf("Default() accepted data directory %q", dir)
+		}
+	}
+	// ssh expands only ${NAME}, so a bare $ is fine.
+	t.Setenv("XDG_DATA_HOME", "/x/$USER")
+	if _, err := Default(); err != nil {
+		t.Errorf("Default() rejected a bare $: %v", err)
+	}
+}
+
 func TestEnsurePrivate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "a", "b")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
