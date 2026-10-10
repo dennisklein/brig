@@ -21,6 +21,12 @@ var (
 	lan6 = []string{"fc00::/7", "fe80::/10", "ff00::/8"}
 )
 
+// maxUDPFlows is how many UDP flows a VM may have at once. passt keeps the
+// guest's UDP source ports and pasta holds a host socket on each of them until
+// the flow has been idle for 30 seconds, so without a limit a guest could
+// occupy the host's ephemeral ports.
+const maxUDPFlows = 1024
+
 // Ruleset renders the nftables rules that enforce p in the VM's network
 // namespace. All traffic there originates from passt on behalf of the VM, so
 // only the output hook is filtered.
@@ -55,6 +61,7 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []net
 		// pasta answers on the tap; nothing is forwarded.
 		w("\t\ticmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept")
 	}
+	w("\t\tmeta l4proto udp ct state new ct count over %d drop", maxUDPFlows)
 	if p.Internet || p.LAN || p.Host {
 		w("\t\tip daddr %s meta l4proto { tcp, udp } th dport 53 accept", DNSAddr)
 	}

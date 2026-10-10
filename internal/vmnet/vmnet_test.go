@@ -118,6 +118,7 @@ func TestRulesetDefaultProfile(t *testing.T) {
 		type filter hook output priority filter; policy drop;
 		oif "lo" accept
 		ct state established,related accept
+		meta l4proto udp ct state new ct count over 1024 drop
 		ip daddr 169.254.1.1 meta l4proto { tcp, udp } th dport 53 accept
 		ip daddr 169.254.1.1 drop
 		ip daddr 192.168.1.1 drop
