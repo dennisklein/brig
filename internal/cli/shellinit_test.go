@@ -59,7 +59,7 @@ func TestUsePrintsWhatEnvPrints(t *testing.T) {
 // The brig function evaluates what brig use writes to standard output, so
 // its help must go elsewhere.
 func TestUseHelpGoesToStandardError(t *testing.T) {
-	cmd := newRootCmd()
+	cmd := newRootCmd(&progressRun{})
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)

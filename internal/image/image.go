@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress"
 	"golang.org/x/sys/unix"
 
 	"github.com/dennisklein/brig/internal/guest"
@@ -303,25 +304,41 @@ func (s Store) runMkosi(ctx context.Context, tmp, out, cacheDir string, o BuildO
 		return fmt.Errorf("writing mkosi configuration: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, s.mkosi, "-C", cfg, "--output-directory="+out,
-		"--package-cache-dir="+cacheDir, "--workspace-directory="+work, "--cache-only=never", "-f", "build")
-	cmd.Stdout, cmd.Stderr = o.Log, o.Log
-	// On SIGTERM, mkosi stops and removes its workspace.
-	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
-	cmd.WaitDelay = time.Minute
-	err = cmd.Run()
-	if ctx.Err() != nil {
-		return fmt.Errorf("mkosi build: %w", context.Cause(ctx))
-	}
-	if err != nil {
-		return fmt.Errorf("mkosi build: %w", err)
-	}
-	return nil
+	ctx, step := progress.Start(ctx, progress.KindStep, "build with mkosi", progress.WithFlags(progress.ShowLines))
+	err = func() (err error) {
+		// The tree shows a line of output on the row of a target.
+		ctx, target := progress.Start(ctx, progress.KindTarget, fmt.Sprintf("Fedora %d", o.FedoraRelease))
+		defer func() { target.End(err) }()
+		log := o.Log
+		if log == nil {
+			log = io.Discard
+		}
+		cmd := exec.CommandContext(ctx, s.mkosi, "-C", cfg, "--output-directory="+out,
+			"--package-cache-dir="+cacheDir, "--workspace-directory="+work, "--cache-only=never", "-f", "build")
+		// Tee returns log itself when no display wants the lines.
+		cmd.Stdout = progress.Tee(ctx, log, progress.Stdout, nil)
+		cmd.Stderr = progress.Tee(ctx, log, progress.Stderr, nil)
+		// On SIGTERM, mkosi stops and removes its workspace.
+		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+		cmd.WaitDelay = time.Minute
+		err = cmd.Run()
+		if ctx.Err() != nil {
+			return fmt.Errorf("mkosi build: %w", context.Cause(ctx))
+		}
+		if err != nil {
+			return fmt.Errorf("mkosi build: %w", err)
+		}
+		return nil
+	}()
+	step.End(err)
+	return err
 }
 
 // install assembles image img from mkosi's output in out in the new
 // directory dir and moves that into the store.
-func (s Store) install(ctx context.Context, img Image, out, dir string) error {
+func (s Store) install(ctx context.Context, img Image, out, dir string) (err error) {
+	ctx, step := progress.Start(ctx, progress.KindStep, "install image")
+	defer func() { step.End(err) }()
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		return err
 	}
@@ -419,20 +436,27 @@ func lock(ctx context.Context, dir string, log io.Writer) (unlock func(), err er
 	if err != nil {
 		return nil, err
 	}
+	var wait *progress.Span // nil until the lock is contested
 	for waiting := false; ; waiting = true {
 		err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
+			wait.End(nil)
 			return func() { _ = f.Close() }, nil
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) {
+			wait.End(err)
 			_ = f.Close()
 			return nil, fmt.Errorf("locking %s: %w", dir, err)
 		}
-		if !waiting && log != nil {
-			fmt.Fprintln(log, "Waiting for another image build to finish...")
+		if !waiting {
+			if log != nil {
+				fmt.Fprintln(log, "Waiting for another image build to finish...")
+			}
+			_, wait = progress.Start(ctx, progress.KindWait, "wait for another image build")
 		}
 		select {
 		case <-ctx.Done():
+			wait.End(context.Cause(ctx))
 			_ = f.Close()
 			return nil, context.Cause(ctx)
 		case <-time.After(time.Second):
