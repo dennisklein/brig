@@ -84,11 +84,20 @@ VM, user `agent` owns what you own there, and what it writes is yours; the
 VM's other users map to your subordinate IDs, which need entries in
 `/etc/subuid` and `/etc/subgid` (Fedora adds them for new users). With
 `sandbox`, OpenShell sandboxes can attach the directory read-only as a Podman
-volume named after the mount's tag, which `brig show` lists (e.g. `brig0`);
-the guide has an
-[example](docs/openshell.md#developing-plugins-without-rebuilding). `brig
-update --add-mount` and `--remove-mount` change the mounts of a running VM at
-once.
+volume named after the mount's tag, which `brig show` lists (e.g. `brig0`).
+`brig update --add-mount` and `--remove-mount` change the mounts of a running
+VM at once.
+
+`brig sandbox create` does all of this in one step: it gives the VM a sandbox
+mount of each directory it lacks one of and runs `openshell sandbox create`
+on the VM's gateway with the volumes attached, passing on what follows `--`:
+
+```sh
+brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit -- --name kit
+```
+
+The guide has an
+[example](docs/openshell.md#developing-plugins-without-rebuilding).
 
 ## Shell integration
 
@@ -162,6 +171,7 @@ starts with `brig-`.
 | `delete NAME` | delete the VM, its disks and its gateway registration |
 | `ssh NAME`, `console NAME` | shell (`--root` for root), serial console |
 | `use NAME` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)) |
+| `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`); NAME defaults to the VM that `brig use` selected |
 | `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
@@ -177,8 +187,9 @@ Commands that take a while, such as `create`, `start`, `stop`, `upgrade`,
 `delete` and `image build`, show what they are doing on standard error, so
 standard output stays clean for scripts. Steps that the command goes on
 without, such as a gateway that does not answer at `brig start`, end as
-skipped with the reason. `ssh`, `console`, `env`, `use` and `shell-init` show
-no progress, since they own the terminal or must print exactly their output.
+skipped with the reason. `ssh`, `console`, `env`, `use`, `shell-init` and
+`sandbox create` show no progress, since they own the terminal or must print
+exactly their output.
 
 `--progress MODE` (or `BRIG_PROGRESS`) picks the display: `auto` (the
 default) chooses from where standard error goes, `tty` redraws a tree of
