@@ -28,7 +28,10 @@ Environment=MKOSI_CHROOT_SUPPRESS_CHOWN=1
 Bootable=yes
 # Unsigned UKIs: the VMs boot with UEFI Secure Boot disabled.
 Bootloader=systemd-boot
-KernelCommandLine=console=ttyS0 rw systemd.firstboot=no
+# fsck.repair=yes: a data disk whose damage the default preen mode would
+# leave to a root shell, which the locked root account refuses, is
+# repaired, so the VM still boots.
+KernelCommandLine=console=ttyS0 rw systemd.firstboot=no fsck.repair=yes
 Locale=C.UTF-8
 Keymap=us
 Timezone=UTC

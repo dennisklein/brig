@@ -998,6 +998,7 @@ Podman refuses to remove an image a container still uses.
 | Writes to `~` fail in the sandbox | Only the workspace and `/tmp` are writable | Point config at `/sandbox`: `PI_CODING_AGENT_DIR`, `GH_CONFIG_DIR`, `GIT_CONFIG_GLOBAL` |
 | `brig sync` says a secret is missing | No keyring entry with exactly those attributes | `secret-tool lookup service github.com user alice` on the host; store it again |
 | `brig start` says it held back a profile change | The change adds endpoints to a credential already in the gateway | Review with `brig sync dev --dry-run`, then `brig sync dev` |
+| Files in `~` are missing after a host crash or disk error | The VM's boot repaired its data disk and moved what it could not place | Look in `/home/agent/lost+found` (`brig ssh dev -- ls -la lost+found`) and in the boot log (`brig ssh dev --root -- journalctl -b -u 'systemd-fsck@*'`) |
 | `--driver-config-json` is rejected | The VM has no `sandbox` mount, so driver config is off | `brig update dev --add-mount DIR:/x:ro,sandbox`, restart the VM |
 | Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --force` after reading the release notes, or `sudo dnf downgrade openshell` |
 
