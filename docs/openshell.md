@@ -935,7 +935,8 @@ Upgrade in this order:
 dnf in the VM does not upgrade OpenShell: its packages are excluded in the
 image, so `brig upgrade` is the only way to move the gateway.
 
-`brig image prune` then removes base images no VM uses, keeping the newest.
+`brig image prune` then removes base images no VM uses, keeping the newest,
+and the packages that mkosi cached for builds in `~/.cache/brig/mkosi`.
 
 ### Sandbox image
 

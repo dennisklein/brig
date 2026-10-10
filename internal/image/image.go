@@ -440,6 +440,47 @@ func lock(ctx context.Context, dir string, log io.Writer) (unlock func(), err er
 	}
 }
 
+// ClearPackageCache empties cacheDir, mkosi's package cache, which keeps
+// every package that a build downloads. It waits for a running build to
+// finish, and reports how many bytes it removed.
+func (s Store) ClearPackageCache(ctx context.Context, cacheDir string, log io.Writer) (int64, error) {
+	entries, err := os.ReadDir(cacheDir)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err := paths.EnsurePrivate(s.root); err != nil {
+		return 0, err
+	}
+	unlock, err := lock(ctx, s.root, log)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	// A build that held the lock may have added to the cache.
+	if entries, err = os.ReadDir(cacheDir); err != nil {
+		return 0, err
+	}
+	var size int64
+	for _, e := range entries {
+		path := filepath.Join(cacheDir, e.Name())
+		_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				if fi, err := d.Info(); err == nil {
+					size += fi.Size()
+				}
+			}
+			return nil
+		})
+		if err := removeAll(path); err != nil {
+			return size, err
+		}
+	}
+	return size, nil
+}
+
 // removeStaleBuilds removes the build directories of builds that died
 // without cleaning up. Only call it while holding the lock.
 func (s Store) removeStaleBuilds() {

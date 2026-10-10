@@ -174,7 +174,7 @@ func newImageRemoveCmd() *cobra.Command {
 func newImagePruneCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "prune",
-		Short: "Remove all base images except the newest and those in use",
+		Short: "Remove base images except the newest and those in use, and mkosi's package cache",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			a, err := newApp()
@@ -203,7 +203,11 @@ func newImagePruneCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Removed image %s.\n", img.ID)
 			}
-			return nil
+			size, err := a.images.ClearPackageCache(cmd.Context(), a.dirs.MkosiCacheDir(), cmd.ErrOrStderr())
+			if size > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed %.1f MiB of cached packages from %s.\n", float64(size)/(1<<20), a.dirs.MkosiCacheDir())
+			}
+			return err
 		},
 	}
 }

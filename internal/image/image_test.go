@@ -473,3 +473,55 @@ func TestRemoveAllReadOnlyTree(t *testing.T) {
 		t.Fatalf("tree still exists: %v", err)
 	}
 }
+
+func TestClearPackageCache(t *testing.T) {
+	s := NewStore(paths.Dirs{Data: t.TempDir()})
+	cache := filepath.Join(t.TempDir(), "mkosi")
+	if n, err := s.ClearPackageCache(context.Background(), cache, nil); n != 0 || err != nil {
+		t.Fatalf("missing cache: %d, %v", n, err)
+	}
+	pkgs := filepath.Join(cache, "fedora", "packages")
+	if err := os.MkdirAll(pkgs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, size := range map[string]int{"kernel-core.rpm": 3000, "systemd.rpm": 1000} {
+		if err := os.WriteFile(filepath.Join(pkgs, name), make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// mkosi may leave read-only directories behind.
+	if err := os.Chmod(pkgs, 0o500); err != nil { //nolint:gosec // G302 targets files; directories need the execute bit
+		t.Fatal(err)
+	}
+	n, err := s.ClearPackageCache(context.Background(), cache, nil)
+	if err != nil || n != 4000 {
+		t.Fatalf("ClearPackageCache = %d, %v; want 4000", n, err)
+	}
+	if entries, err := os.ReadDir(cache); err != nil || len(entries) != 0 {
+		t.Errorf("cache after clearing: %v, %v", entries, err)
+	}
+}
+
+func TestClearPackageCacheWaitsForBuilds(t *testing.T) {
+	s := NewStore(paths.Dirs{Data: t.TempDir()})
+	cache := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cache, "x.rpm"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lock(context.Background(), s.root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := s.ClearPackageCache(ctx, cache, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("ClearPackageCache during a build = %v, want it to wait", err)
+	}
+	if _, err := os.Stat(filepath.Join(cache, "x.rpm")); err != nil {
+		t.Errorf("the cache changed during a build: %v", err)
+	}
+}
