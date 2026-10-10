@@ -75,6 +75,12 @@ func TestDomainXML(t *testing.T) {
 		f[1] != (libvirtxml.DomainCPUFeature{Policy: "disable", Name: "svm"}) {
 		t.Errorf("cpu features = %+v, want vmx and svm disabled", f)
 	}
+	if f := d.Features; f.PS2 == nil || f.PS2.State != "off" || f.VMPort == nil || f.VMPort.State != "off" {
+		t.Errorf("ps2 %+v, vmport %+v", f.PS2, f.VMPort)
+	}
+	if c := d.Devices.Controllers; len(c) != 1 || c[0].Type != "usb" || c[0].Model != "none" {
+		t.Errorf("controllers %+v", c)
+	}
 	if d.OnPoweroff != "destroy" || d.OnReboot != "restart" || d.OnCrash != "destroy" {
 		t.Errorf("lifecycle = %s %s %s", d.OnPoweroff, d.OnReboot, d.OnCrash)
 	}

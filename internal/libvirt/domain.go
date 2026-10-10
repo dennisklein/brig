@@ -109,6 +109,11 @@ func DomainXML(s DomainSpec) (string, error) {
 		Features: &libvirtxml.DomainFeatureList{
 			ACPI: &libvirtxml.DomainFeature{},
 			APIC: &libvirtxml.DomainFeatureAPIC{},
+			// The guest is headless. Without these, libvirt and QEMU
+			// add a PS/2 controller, the VMware backdoor port and
+			// vmmouse, which the guest could drive for no gain.
+			PS2:    &libvirtxml.DomainFeatureState{State: "off"},
+			VMPort: &libvirtxml.DomainFeatureState{State: "off"},
 		},
 		// Nested virtualization is off: nothing in the guest needs it, and it
 		// would expose the host kernel's VMX/SVM emulation to root in the VM.
@@ -169,8 +174,10 @@ func devices(s DomainSpec) *libvirtxml.DomainDeviceList {
 	}
 
 	devs := &libvirtxml.DomainDeviceList{
-		Disks:      []libvirtxml.DomainDisk{root, data},
-		Interfaces: []libvirtxml.DomainInterface{nic(s)},
+		// Without this, libvirt adds a USB controller that nothing uses.
+		Controllers: []libvirtxml.DomainController{{Type: "usb", Model: "none"}},
+		Disks:       []libvirtxml.DomainDisk{root, data},
+		Interfaces:  []libvirtxml.DomainInterface{nic(s)},
 		// libvirt adds the matching <console> itself.
 		Serials: []libvirtxml.DomainSerial{serial},
 		Channels: []libvirtxml.DomainChannel{{
