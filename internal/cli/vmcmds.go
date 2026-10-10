@@ -101,7 +101,7 @@ openshell.configs in config.yaml.`,
 				return err
 			}
 			for _, arg := range mounts {
-				m, err := vm.ParseMount(arg)
+				m, err := parseMount(arg)
 				if err != nil {
 					return err
 				}
@@ -516,7 +516,7 @@ func newUpdateCmd() *cobra.Command {
 			v.Mounts = append(v.Mounts[:i:i], v.Mounts[i+1:]...)
 		}
 		for _, arg := range addMounts {
-			m, err := vm.ParseMount(arg)
+			m, err := parseMount(arg)
 			if err != nil {
 				return err
 			}

@@ -140,12 +140,32 @@ func checkVM(v *vm.VM) error {
 	return checkMounts(v.Mounts)
 }
 
+// parseMount parses a --mount argument and resolves symbolic links in its
+// source, which checkMounts then expects to find none in.
+func parseMount(arg string) (vm.Mount, error) {
+	m, err := vm.ParseMount(arg)
+	if err != nil {
+		return m, err
+	}
+	// checkMounts reports a source that does not exist.
+	if resolved, err := filepath.EvalSymlinks(m.Source); err == nil {
+		m.Source = resolved
+	}
+	return m, nil
+}
+
 // checkMounts checks that mounts share host directories, at targets that
-// brig allows in the VM.
+// brig allows in the VM. virtiofsd follows symbolic links in a source each
+// time the VM starts, so a source must not have become one, or moved under
+// one: a VM that can write to a parent directory, through another mount,
+// could otherwise point the mount anywhere.
 func checkMounts(mounts []vm.Mount) error {
 	for _, m := range mounts {
 		if fi, err := os.Stat(m.Source); err != nil || !fi.IsDir() {
 			return fmt.Errorf("mount source %s is not a directory", m.Source)
+		}
+		if resolved, err := filepath.EvalSymlinks(m.Source); err != nil || resolved != m.Source {
+			return fmt.Errorf("mount source %s now leads to %s through a symbolic link; if that is intended, replace the mount with `brig update --remove-mount %s --add-mount %s:%s`", m.Source, resolved, m.Target, resolved, m.Target)
 		}
 	}
 	return guest.CheckMounts(mounts)
