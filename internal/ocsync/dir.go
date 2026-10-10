@@ -273,7 +273,55 @@ func loadProfile(path string) (ProfileFile, error) {
 	if !nameRE.MatchString(doc.ID) {
 		return ProfileFile{}, fmt.Errorf("%s: invalid or missing profile id %q", path, doc.ID)
 	}
+	if err := checkPortSpelling(data); err != nil {
+		return ProfileFile{}, fmt.Errorf("%s: %w", path, err)
+	}
 	return ProfileFile{ID: doc.ID, Path: path, Data: data, Endpoints: doc.Endpoints}, nil
+}
+
+// leadingZeroRE matches a number that yaml.v3 reads as octal, which OpenShell's
+// YAML 1.2 parser reads as decimal.
+var leadingZeroRE = regexp.MustCompile(`^[+-]?0[0-9_]+$`)
+
+// checkPortSpelling rejects endpoint ports written with a leading zero, like
+// 0673. brig compares the endpoints it decodes (443) but sends the file as
+// written, and OpenShell would enforce port 673, so a new port could slip past
+// the hold on new endpoints. Aliases are followed, because an alias can pull the
+// number in from an anchor anywhere in the file.
+func checkPortSpelling(data []byte) error {
+	var doc struct {
+		Endpoints []struct {
+			Port  yaml.Node `yaml:"port"`
+			Ports yaml.Node `yaml:"ports"`
+		} `yaml:"endpoints"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	for _, e := range doc.Endpoints {
+		for _, n := range append([]*yaml.Node{resolveAlias(&e.Port)}, sequenceItems(&e.Ports)...) {
+			n = resolveAlias(n)
+			if n.Kind == yaml.ScalarNode && leadingZeroRE.MatchString(n.Value) {
+				return fmt.Errorf("endpoint port %s has a leading zero, which YAML parsers read differently; write it in decimal without one", n.Value)
+			}
+		}
+	}
+	return nil
+}
+
+func resolveAlias(n *yaml.Node) *yaml.Node {
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	return n
+}
+
+func sequenceItems(n *yaml.Node) []*yaml.Node {
+	n = resolveAlias(n)
+	if n.Kind != yaml.SequenceNode {
+		return nil
+	}
+	return n.Content
 }
 
 func loadProvider(path string) (Provider, error) {

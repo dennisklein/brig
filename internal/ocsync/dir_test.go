@@ -95,6 +95,21 @@ func TestLoadRejects(t *testing.T) {
 		"profile id": {func(dir string) {
 			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "display_name: X\n")
 		}, "profile id"},
+		"octal port": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "id: x\nendpoints:\n  - host: github.com\n    port: 0673\n")
+		}, "leading zero"},
+		"octal ports": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "id: x\nendpoints:\n  - host: github.com\n    ports: [443, 0673]\n")
+		}, "leading zero"},
+		"aliased port": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "id: x\nextra: &p 0673\nendpoints:\n  - host: github.com\n    port: *p\n")
+		}, "leading zero"},
+		"aliased ports entry": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "id: x\nextra: &p 0673\nendpoints:\n  - host: github.com\n    ports: [443, *p]\n")
+		}, "leading zero"},
+		"aliased ports list": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "id: x\nextra: &p [0673]\nendpoints:\n  - host: github.com\n    ports: *p\n")
+		}, "leading zero"},
 		"duplicate profile": {func(dir string) {
 			writeFile(t, filepath.Join(dir, "profiles", "a.yaml"), githubProfile)
 			writeFile(t, filepath.Join(dir, "profiles", "b.yaml"), githubProfile)
