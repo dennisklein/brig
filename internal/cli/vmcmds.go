@@ -342,7 +342,7 @@ func newDeleteCmd() *cobra.Command {
 		}
 		// By now the VM is gone, so Ctrl-C must not leave its gateway behind.
 		if err := a.forgetGateway(context.WithoutCancel(ctx), v); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", err)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", termtext.Escape(err.Error()))
 		}
 		if err := a.vms.Remove(v.Name); err != nil {
 			return err
@@ -420,7 +420,7 @@ func newListCmd() *cobra.Command {
 			}
 			vms, err := a.status(cmd.Context())
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", err)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", termtext.Escape(err.Error()))
 			}
 			if format == "json" {
 				if vms == nil {
