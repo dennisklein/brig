@@ -59,3 +59,35 @@ func TestMountSourcesMustNotTurnIntoSymlinks(t *testing.T) {
 		t.Fatalf("checkMounts after the swap = %v, want a refusal", err)
 	}
 }
+
+func TestNestedMountPointMustExist(t *testing.T) {
+	home := t.TempDir()
+	proj, data := filepath.Join(home, "proj"), filepath.Join(home, "datasets")
+	for _, d := range []string{filepath.Join(proj, "lib"), data} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mounts := []vm.Mount{
+		{Source: proj, Target: "/work", ReadOnly: true, Tag: "brig0"},
+		{Source: data, Target: "/work/lib/data", ReadOnly: true, Sandbox: true, Tag: "brig1"},
+		// Not nested: only a common prefix.
+		{Source: data, Target: "/workdata", ReadOnly: true, Tag: "brig2"},
+	}
+	err := checkMounts(mounts)
+	if want := filepath.Join(proj, "lib", "data"); err == nil || !strings.Contains(err.Error(), "mkdir -p '"+want+"'") {
+		t.Fatalf("checkMounts = %v, want a request to create %s", err, want)
+	}
+	if err := os.Mkdir(filepath.Join(proj, "lib", "data"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkMounts(mounts); err != nil {
+		t.Fatal(err)
+	}
+	// The mount point lies in the innermost enclosing mount.
+	mounts = append(mounts, vm.Mount{Source: home, Target: "/work/lib/data/x", Tag: "brig3"})
+	err = checkMounts(mounts)
+	if want := filepath.Join(data, "x"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("checkMounts = %v, want a request to create %s", err, want)
+	}
+}

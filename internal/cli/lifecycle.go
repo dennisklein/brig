@@ -187,7 +187,33 @@ func checkMounts(mounts []vm.Mount) error {
 			return fmt.Errorf("mount source %s now leads to %s through a symbolic link; if that is intended, replace the mount with `brig update --remove-mount %s --add-mount %s:%s`", m.Source, resolved, m.Target, resolved, m.Target)
 		}
 	}
-	return guest.CheckMounts(mounts)
+	if err := guest.CheckMounts(mounts); err != nil {
+		return err
+	}
+	return checkNestedMounts(mounts)
+}
+
+// checkNestedMounts checks that the mount point of each mount inside another
+// mount's target exists in that mount's source. The VM cannot create it in a
+// read-only mount, so the inner mount would fail, which nofail hides, and it
+// would create it in the host directory through a read-write one.
+func checkNestedMounts(mounts []vm.Mount) error {
+	for _, m := range mounts {
+		var outer *vm.Mount
+		for i, o := range mounts {
+			if strings.HasPrefix(m.Target, o.Target+"/") && (outer == nil || len(o.Target) > len(outer.Target)) {
+				outer = &mounts[i]
+			}
+		}
+		if outer == nil {
+			continue
+		}
+		dir := filepath.Join(outer.Source, strings.TrimPrefix(m.Target, outer.Target+"/"))
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			return fmt.Errorf("mount %s lies inside mount %s, so its mount point %s must be a directory; create it with mkdir -p %s", m, outer, dir, shellQuote(dir))
+		}
+	}
+	return nil
 }
 
 // define (re)defines the VM's libvirt domain from its record.
