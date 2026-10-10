@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/version"
@@ -23,14 +24,19 @@ func Execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
-	if err := newRootCmd().ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
+	var p progressRun
+	err := newRootCmd(&p).ExecuteContext(ctx)
+	// End the display before the error line, which it would tear.
+	p.end(err)
+	if err != nil {
+		// An error can carry text from a guest, an image or libvirt.
+		fmt.Fprintln(os.Stderr, "Error:", termtext.Escape(err.Error()))
 		return 1
 	}
 	return 0
 }
 
-func newRootCmd() *cobra.Command {
+func newRootCmd(p *progressRun) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "brig",
 		Short: "Manage agent-sandbox VMs running NVIDIA OpenShell on Fedora",
@@ -44,6 +50,9 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	var f progressFlags
+	f.register(cmd)
+	cmd.PersistentPreRunE = func(c *cobra.Command, args []string) error { return p.start(c, args, &f) }
 	cmd.AddGroup(
 		&cobra.Group{ID: "vm", Title: "VM commands:"},
 		&cobra.Group{ID: "host", Title: "Host commands:"},
@@ -60,5 +69,14 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 		cmd.AddCommand(c)
 	}
 	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
+	// These own the terminal, or must keep standard output exactly as is.
+	for _, name := range []string{"ssh", "console", "env", "use", "shell-init", "version", "net-helper"} {
+		if c, _, err := cmd.Find([]string{name}); err == nil && c != cmd {
+			if c.Annotations == nil {
+				c.Annotations = map[string]string{}
+			}
+			c.Annotations[noProgress] = "true"
+		}
+	}
 	return cmd
 }

@@ -30,6 +30,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/GSI-HPC/go-clikit/progress"
+
 	"github.com/dennisklein/brig/internal/bytesize"
 )
 
@@ -232,14 +234,16 @@ func checkSnapshotName(name string) error {
 // run runs a qemu-img subcommand and returns its standard output. Errors
 // carry qemu-img's error message, or the context's error if ctx ended the
 // run.
-func run(ctx context.Context, args ...string) ([]byte, error) {
+func run(ctx context.Context, args ...string) (out []byte, err error) {
+	ctx, call := progress.Start(ctx, progress.KindCall, "qemu-img "+args[0])
+	defer func() { call.End(err) }()
 	cmd := exec.CommandContext(ctx, binary, args...)
 	// Keep the terminal's Ctrl-C from qemu-img: ctx decides when it stops,
 	// so that a rollback that ignores Ctrl-C can finish.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	cmd.Stderr = progress.Tee(ctx, &stderr, progress.Stderr, nil)
+	out, err = cmd.Output()
 	switch {
 	case err == nil:
 		return out, nil
