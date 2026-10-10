@@ -63,18 +63,14 @@ is a comma-separated list of `ro` (the default), `rw` and `sandbox`. With
 `sandbox`, OpenShell sandboxes can attach the directory read-only as a Podman
 volume named after the mount's tag, which `brig show` lists (e.g. `brig0`);
 the guide has an
-[example](docs/openshell.md#developing-plugins-without-rebuilding). A `rw`
-mount cannot target `/tmp`, `/srv` or `/var` and its `log`, `cache`, `lib`,
-`spool` and `tmp` directories: the image's tmpfiles rules would change the
-mode of the host directory and delete its old files.
+[example](docs/openshell.md#developing-plugins-without-rebuilding).
 
 ## How it works
 
 - **VMs** run rootless in your libvirt user session (`qemu:///session`) with
   UEFI, KVM and passt user-mode networking. They show up in virt-manager as
   `brig-<vm>`, but start them with `brig start`, which also starts their
-  network. Snapshots made with virt-manager or virsh are not supported: brig
-  refuses to redefine a VM whose disks a snapshot has moved to overlay files.
+  network.
 - **Base images** are built on your laptop with
   [mkosi](https://github.com/systemd/mkosi), without root: minimal Fedora plus
   OpenShell from brig's package repository.
@@ -226,9 +222,11 @@ Two workflows keep the [package repository](#package-repository) current:
   `openshell-gateway`, `openshell-prover` and `python3-openshell` from the
   release's source, signs them, smoke-tests the repository and only then
   publishes it, keeping the previous version and the newest one of the previous
-  minor line, so `--openshell` can still pin it. A push republishes the site
-  even when nothing needs building. The version, the gateway's systemd unit and
-  the SDK's protobuf modules follow upstream by themselves; the rest of
+  minor line, so `--openshell` can still pin it. It skips a release that the
+  repository would not keep, such as an older backport, unless rebuild is
+  requested. A push republishes the site even when nothing needs building. The
+  version, the gateway's systemd unit and the SDK's protobuf modules follow
+  upstream by themselves; the rest of
   [`openshell.spec`](packaging/openshell/openshell.spec), such as file lists
   and dependencies, does not. To republish a version after changing the spec,
   bump its `baserelease`.

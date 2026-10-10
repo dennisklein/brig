@@ -7,9 +7,12 @@
 # Env:  PAGES_URL      published repository site
 #       INPUT_TAG      OpenShell release tag; empty means the latest release
 #       REBUILD        "true" rebuilds even if the packages are published
+#                      or the repository would not keep the release
 #       GITHUB_REF     only refs/heads/main may publish
 #       GITHUB_EVENT_NAME  "push" republishes the site even if nothing needs
 #                      building, so that changes to it go live
+#       KEEP_VERSIONS  versions kept per package (default 2); a release that
+#                      publish.sh would prune is not built
 # Writes tag, version, fedora (JSON list), build (true|false) and
 # publish (real|dry-run|none) to $GITHUB_OUTPUT (stdout when unset).
 set -euo pipefail
@@ -48,11 +51,60 @@ published() {
   exit 1
 }
 
+# superseded reports whether publish.sh would prune this version at once for
+# Fedora release $1, as it keeps only the KEEP_VERSIONS newest versions and
+# the newest of the previous major.minor line (see prune-repo.py); the next
+# run would then build it again.
+listing=
+superseded() {
+  local out status v kept=() line top_line
+  if [ -z "$listing" ]; then
+    out=$(curl -sSL --retry 3 -w '\n%{http_code}' "$PAGES_URL/packages.sha256") || out=$'\nfailed'
+    status=${out##*$'\n'}
+    case $status in
+      200) listing=${out%$'\n'*} ;;
+      404) listing=none ;;
+      *)
+        echo "::error::fetching $PAGES_URL/packages.sha256 failed ($status)" >&2
+        exit 1 ;;
+    esac
+  fi
+  local versions
+  versions=$( {
+    echo "$version"
+    sed -n "s|^.* rpm/fedora/$1/x86_64/openshell-gateway-\\([0-9][^-/]*\\)-[^/]*\\.fc$1\\.x86_64\\.rpm\$|\\1|p" <<<"$listing"
+  } | sort -Vru)
+  top_line=
+  while read -r v; do
+    line=$(cut -d. -f1-2 <<<"$v")
+    [ -n "$top_line" ] || top_line=$line
+    if [ "${#kept[@]}" -lt "${KEEP_VERSIONS:-2}" ]; then
+      kept+=("$v")
+    elif [ "$line" != "$top_line" ]; then
+      kept+=("$v")
+      break
+    fi
+    if [ "$line" != "$top_line" ]; then
+      break
+    fi
+  done <<<"$versions"
+  for v in "${kept[@]}"; do
+    [ "$v" != "$version" ] || return 1
+  done
+  return 0
+}
+
 build=false
 release_missing=false
 for f in "${releases[@]}"; do
   dir=rpm/fedora/$f/x86_64
-  published "$dir/openshell-gateway-$version-$baserelease.fc$f.x86_64.rpm" || build=true
+  if ! published "$dir/openshell-gateway-$version-$baserelease.fc$f.x86_64.rpm"; then
+    if superseded "$f"; then
+      echo "::notice::the repository would not keep $tag next to the published versions for Fedora $f; not building it" >&2
+    else
+      build=true
+    fi
+  fi
   published "$dir/brig-release-$rel_version-$rel_release.noarch.rpm" || release_missing=true
 done
 if [ "${REBUILD:-false}" = true ]; then
