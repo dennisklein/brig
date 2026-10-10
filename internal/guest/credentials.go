@@ -265,14 +265,21 @@ func (c BootConfig) fstab() string {
 	}
 	fmt.Fprintf(&b, "/dev/disk/by-id/virtio-%s %s ext4 %s 0 2\n", DataDiskSerial, home, opts)
 	for _, m := range c.Mounts {
-		opts := "rw,nofail"
-		if m.ReadOnly {
-			opts = "ro,nofail"
-		}
-		if m.Sandbox {
-			opts += ",context=" + sandboxMountLabel
-		}
-		fmt.Fprintf(&b, "%s %s virtiofs %s 0 0\n", m.Tag, m.Target, opts)
+		fmt.Fprintf(&b, "%s %s virtiofs %s 0 0\n", m.Tag, m.Target, mountOptions(m, "nofail"))
 	}
 	return b.String()
+}
+
+// mountOptions returns the options with which the VM mounts m, followed by
+// extra.
+func mountOptions(m vm.Mount, extra ...string) string {
+	opts := []string{"rw"}
+	if m.ReadOnly {
+		opts[0] = "ro"
+	}
+	opts = append(opts, extra...)
+	if m.Sandbox {
+		opts = append(opts, "context="+sandboxMountLabel)
+	}
+	return strings.Join(opts, ",")
 }

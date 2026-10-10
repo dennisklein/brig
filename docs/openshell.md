@@ -457,7 +457,6 @@ volume (`brig show dev` names it, here `brig0`), and attach it to a sandbox:
 
 ```sh
 brig update dev --add-mount ~/src/pi-kit:/pi-kit:ro,sandbox
-brig stop dev && brig start dev     # mounts change at boot
 openshell sandbox create --name kit-dev --from localhost/pi-agent:2026-10-08 \
   --provider llm --driver-config-json \
   '{"podman":{"mounts":[{"type":"volume","source":"brig0","target":"/usr/local/share/pi-kit-dev"}]}}'
