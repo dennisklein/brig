@@ -152,8 +152,12 @@ jobs:
 
   publish:
     needs: [plan, srpm, rpm, release-rpm]
+    # A build job that timed out ends cancelled, which !failure() misses.
     if: >-
-      !cancelled() && !failure() && needs.plan.outputs.publish == 'real'
+      !cancelled() && needs.plan.outputs.publish == 'real' &&
+      contains(fromJSON('["success","skipped"]'), needs.srpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.rpm.result) &&
+      needs.release-rpm.result == 'success'
     runs-on: ubuntu-latest
     environment: rpm-signing
     permissions:
@@ -177,13 +181,21 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+      # For the smoke test, which installs from it before it goes live.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: site
+          if-no-files-found: error
+          retention-days: 7
 
   deploy:
-    needs: publish
+    needs: [publish, smoke-test]
     # A publish without a build skips srpm and rpm, and the default
     # condition would skip this job with them.
     if: >-
-      !cancelled() && needs.publish.result == 'success'
+      !cancelled() && needs.publish.result == 'success' &&
+      needs.smoke-test.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -200,7 +212,9 @@ jobs:
   dry-run:
     needs: [plan, srpm, rpm]
     if: >-
-      !cancelled() && !failure() && needs.plan.outputs.publish == 'dry-run'
+      !cancelled() && needs.plan.outputs.publish == 'dry-run' &&
+      contains(fromJSON('["success","skipped"]'), needs.srpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.rpm.result)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -234,16 +248,18 @@ jobs:
           packaging/publish.sh incoming site
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: site-dry-run
+          name: site
           path: site
           if-no-files-found: error
           retention-days: 7
 
+  # Installs from the assembled site, real or dry run, before a real one is
+  # deployed.
   smoke-test:
-    needs: [plan, deploy, dry-run]
+    needs: [plan, publish, dry-run]
     if: >-
-      !cancelled() && !failure() &&
-      (needs.plan.outputs.build == 'true' || needs.plan.outputs.publish == 'real')
+      !cancelled() &&
+      (needs.publish.result == 'success' || needs.dry-run.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -258,19 +274,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.plan.outputs.publish == 'dry-run'
         with:
-          name: site-dry-run
+          name: site
           path: site
       - name: Install from the repository
-        env:
-          PUBLISH: ${{ needs.plan.outputs.publish }}
         run: |
-          if [ "$PUBLISH" = dry-run ]; then
-            dnf -y install python3
-            python3 -m http.server --directory site 8080 > /dev/null 2>&1 &
-            sleep 2
-            packaging/smoke-test.sh http://127.0.0.1:8080
-          else
-            packaging/smoke-test.sh "$PAGES_URL"
-          fi
+          dnf -y install python3
+          python3 -m http.server --directory site 8080 > /dev/null 2>&1 &
+          sleep 2
+          packaging/smoke-test.sh http://127.0.0.1:8080

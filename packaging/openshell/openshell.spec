@@ -217,6 +217,14 @@ grep -q '%{name}-gateway-migrate-config' %{buildroot}%{_userunitdir}/%{name}-gat
 grep -q '^ExecStart=' %{buildroot}%{_userunitdir}/%{name}-gateway.service
 # Upstream's unit may use a macro that only upstream's spec defines.
 if grep -F '%%{' %{buildroot}%{_userunitdir}/%{name}-gateway.service; then exit 1; fi
+# The unit follows upstream by itself, the file lists do not: every file of
+# ours that it runs or reads must be packaged.
+for f in $(grep -E '^Exec' %{buildroot}%{_userunitdir}/%{name}-gateway.service | grep -oE '/usr/[^ ;"]*%{name}[^ ;"]*'); do
+  if [ ! -e "%{buildroot}$f" ]; then
+    echo "the gateway unit names $f, which this package does not install" >&2
+    exit 1
+  fi
+done
 
 %post gateway
 %systemd_user_post %{name}-gateway.service
