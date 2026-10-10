@@ -102,7 +102,7 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 	}
 	if err == nil {
 		fmt.Fprintf(w, "Booting %s on image %s...\n", v.Name, id)
-		err = a.start(ctx, conn, v, w)
+		err = a.startVM(ctx, conn, v, w, true)
 	}
 	if err != nil {
 		// Roll back even when ctx was cancelled, e.g. by Ctrl-C during the
@@ -143,7 +143,9 @@ func (a *app) upgrade(ctx context.Context, conn *libvirt.Conn, v *vm.VM, id stri
 // data disk as of snapshot. Its errors say what is left to restore by hand.
 func (a *app) rollback(ctx context.Context, conn *libvirt.Conn, v *vm.VM, oldImage, snapshot string) error {
 	root, prev, data := a.vmFile(v, rootDiskFile), a.vmFile(v, rootDiskFile+".prev"), a.vmFile(v, dataDiskFile)
-	kept := fmt.Sprintf("the old root disk is %s and the data disk keeps the snapshot %s", prev, snapshot)
+	// The record names the new image until the rollback saves it again, and
+	// the domain backs the root disk with the image the record names.
+	kept := fmt.Sprintf("the old root disk is %s, an overlay of image %s, which the VM's record must name again before that disk is used; the data disk keeps the snapshot %s", prev, oldImage, snapshot)
 	if err := conn.Undefine(v.DomainName()); err != nil {
 		return fmt.Errorf("%w (%s)", err, kept)
 	}

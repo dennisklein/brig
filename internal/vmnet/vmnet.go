@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dennisklein/brig/internal/config"
@@ -279,7 +280,11 @@ func journal(unit string) string {
 // own when the VM shuts down.
 func Stop(ctx context.Context, vm string) {
 	unit := UnitName(vm)
-	// Errors only mean that the unit is not loaded.
-	_ = exec.CommandContext(ctx, "systemctl", "--user", "stop", unit).Run()
-	_ = exec.CommandContext(ctx, "systemctl", "--user", "reset-failed", unit).Run()
+	// Errors only mean that the unit is not loaded. Like qemu-img's, these
+	// commands are kept from the terminal's Ctrl-C, for rollbacks.
+	for _, args := range [][]string{{"stop", unit}, {"reset-failed", unit}} {
+		cmd := exec.CommandContext(ctx, "systemctl", append([]string{"--user"}, args...)...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		_ = cmd.Run()
+	}
 }

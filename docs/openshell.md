@@ -897,8 +897,8 @@ Upgrade in this order:
 
 1. `brig image build` builds a base image with the newest Fedora packages and
    OpenShell; pin with `--openshell 0.1.2` to wait.
-2. `brig upgrade dev` moves the VM onto it and rolls back if it fails to come
-   up. The data disk, and with it every provider, template, image and
+2. `brig upgrade dev` moves the VM onto it and rolls back if its gateway does
+   not answer, or on Ctrl-C. The data disk, and with it every provider, template, image and
    workspace, stays. If OpenShell's minor version changes, brig refuses
    without `--force`: read the release notes first, since sandboxes may need
    to be recreated and the profile or policy schema may have changed.

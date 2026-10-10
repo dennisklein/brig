@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/dennisklein/brig/internal/bytesize"
 )
@@ -233,6 +234,9 @@ func checkSnapshotName(name string) error {
 // run.
 func run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
+	// Keep the terminal's Ctrl-C from qemu-img: ctx decides when it stops,
+	// so that a rollback that ignores Ctrl-C can finish.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

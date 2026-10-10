@@ -167,6 +167,12 @@ func (a *app) define(conn *libvirt.Conn, v *vm.VM) error {
 // start boots a stopped VM and connects its gateway to the host's openshell
 // CLI. A running VM is only reconnected.
 func (a *app) start(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Writer) error {
+	return a.startVM(ctx, conn, v, w, false)
+}
+
+// startVM is start; with check, it fails unless the VM's gateway answers,
+// as an upgrade's check boot needs.
+func (a *app) startVM(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Writer, check bool) error {
 	state, err := conn.State(v.DomainName())
 	if err != nil {
 		return err
@@ -204,7 +210,11 @@ func (a *app) start(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Writ
 	if err := a.sshTarget(v, false).WaitReady(wctx); err != nil {
 		return fmt.Errorf("%s is not reachable over SSH (boot log: %s): %w", v.Name, a.vmFile(v, consoleLogFile), err)
 	}
-	return a.connectGateway(ctx, v, w)
+	if err := a.connectGateway(ctx, v, w, check); err != nil {
+		return err
+	}
+	// Steps that only warn above may have been cut short.
+	return ctx.Err()
 }
 
 // reservePorts moves forwarded ports that another program took meanwhile,
@@ -254,8 +264,9 @@ func openshellConfigHome() (string, error) {
 }
 
 // connectGateway copies the gateway's client certificate bundle to the host
-// and registers the gateway with the host's openshell CLI.
-func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer) error {
+// and registers the gateway with the host's openshell CLI. With check, it
+// fails unless the gateway answers.
+func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check bool) error {
 	t := a.sshTarget(v, false)
 	cfgHome, err := openshellConfigHome()
 	if err != nil {
@@ -275,6 +286,16 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer) error {
 	cli, err := openshell.Find()
 	if errors.Is(err, openshell.ErrNotInstalled) {
 		fmt.Fprintf(w, "The openshell CLI is not installed, so the gateway is not registered. %v\n", err)
+		if check {
+			// Without the CLI, the gateway's service must at least run.
+			return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
+				_, err := t.Output(ctx, "systemctl --user is-active --quiet openshell-gateway.service")
+				if err != nil {
+					return fmt.Errorf("the OpenShell gateway in %s is not running: %w", v.Name, err)
+				}
+				return nil
+			})
+		}
 		return nil
 	}
 	if err != nil {
@@ -284,6 +305,9 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer) error {
 		return fmt.Errorf("registering the gateway: %w", err)
 	}
 	answers := a.checkVersions(ctx, cli, v, sync, w)
+	if check && !answers {
+		return fmt.Errorf("the OpenShell gateway in %s does not answer; check `brig ssh %s -- journalctl --user -u openshell-gateway`", v.Name, v.Name)
+	}
 	fmt.Fprintf(w, "OpenShell gateway registered as %[1]s. Use it with `eval \"$(brig env %[2]s)\"`, which also sets the default sandbox policy, or `openshell -g %[1]s ...`.\n", v.GatewayName(), v.Name)
 	if len(v.OpenShellConfigs) > 0 {
 		if !answers {

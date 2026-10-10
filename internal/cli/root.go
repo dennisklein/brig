@@ -18,7 +18,9 @@ import (
 
 // Execute runs the brig command line and returns the process exit code.
 func Execute() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// A closed terminal sends SIGHUP; like Ctrl-C, it cancels the command so
+	// that it cleans up or rolls back.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	if err := newRootCmd().ExecuteContext(ctx); err != nil {
