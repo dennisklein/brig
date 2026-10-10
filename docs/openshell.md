@@ -940,9 +940,13 @@ image, so `brig upgrade` is the only way to move the gateway.
 ### Sandbox image
 
 Rebuild on a schedule, say weekly, with `--pull` for the base image's security
-fixes. Change versions on purpose: bump `PI_VERSION` or `CLAUDE_VERSION` and
-each pinned package in the Containerfile, so a rebuild without edits only
-refreshes the OS layer.
+fixes. The version pins cover only the packages the Containerfile names. Pi
+1.1.0 ships no `npm-shrinkwrap.json`, so npm resolves its own core packages,
+`@earendil-works/pi-ai`, `pi-agent-core` and others, from `^1.1.0` ranges on
+every build. With `--pull`, a new base image also reruns the npm install, so a
+rebuild without edits can install newer Pi core packages. Change versions on
+purpose: bump `PI_VERSION` or `CLAUDE_VERSION` in the Containerfile, and read
+Pi's changelog before you move sandboxes to the new image.
 
 ```sh
 tag=$(date +%F)
