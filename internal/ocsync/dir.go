@@ -311,7 +311,7 @@ func loadProfile(path string) (ProfileFile, error) {
 	if !nameRE.MatchString(doc.ID) {
 		return ProfileFile{}, fmt.Errorf("%s: invalid or missing profile id %q", path, doc.ID)
 	}
-	if err := checkPortSpelling(data); err != nil {
+	if err := checkPortSpelling(src); err != nil {
 		return ProfileFile{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return ProfileFile{ID: doc.ID, Path: path, Data: data, Endpoints: doc.Endpoints}, nil
