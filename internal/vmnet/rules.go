@@ -48,6 +48,13 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []net
 	w("\t\ttype filter hook output priority filter; policy drop;")
 	w("\t\toif \"lo\" accept")
 	w("\t\tct state established,related accept")
+	if p.IPv6 {
+		// Neighbour discovery is untracked by conntrack, and the
+		// namespace's kernel needs it to reach the gateway even
+		// when the multicast and gateway rules below drop it.
+		// pasta answers on the tap; nothing is forwarded.
+		w("\t\ticmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept")
+	}
 	if p.Internet || p.LAN || p.Host {
 		w("\t\tip daddr %s meta l4proto { tcp, udp } th dport 53 accept", DNSAddr)
 	}

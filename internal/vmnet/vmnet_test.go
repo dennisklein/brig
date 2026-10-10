@@ -41,11 +41,12 @@ func TestRulesetHostAddrs(t *testing.T) {
 				"ip daddr { 140.181.2.3, 192.168.1.10, 140.181.7.7 } drop\n",
 				"ip daddr { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 255.255.255.255/32, 140.181.0.0/16 } drop\n",
 			},
-			notWant: []string{"ip6 daddr {"},
+			notWant: []string{"ip6 daddr {", "icmpv6"},
 		},
 		"ipv6 internet": {
 			profile: config.NetworkProfile{Internet: true, IPv6: true},
 			want: []string{
+				"icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept\n",
 				"ip6 daddr { 2001:db8:1::abcd, 2001:db8:1::1234, fe80::5 } drop\n",
 				"ip6 daddr { fc00::/7, fe80::/10, ff00::/8, 2001:db8:1::/64 } drop\n",
 			},
