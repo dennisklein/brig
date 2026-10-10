@@ -271,6 +271,7 @@ FROM registry.fedoraproject.org/fedora-minimal:44
 ARG PI_VERSION=1.1.0
 RUN dnf -y install --setopt=install_weak_deps=False \
       fd-find gh git-core jq nodejs24 nodejs24-bin nodejs24-npm-bin ripgrep \
+      tar \
  && dnf clean all \
  && useradd --create-home --uid 1000 pi
 # glab: add it to the list if your Fedora release packages it, or install the
@@ -493,7 +494,7 @@ claude-image/
 FROM registry.fedoraproject.org/fedora-minimal:44
 
 ARG CLAUDE_VERSION=2.1.295
-RUN dnf -y install --setopt=install_weak_deps=False gh git-core jq ripgrep \
+RUN dnf -y install --setopt=install_weak_deps=False gh git-core jq ripgrep tar \
  && dnf clean all
 # The native installer installs into $HOME; keep only its single binary.
 RUN curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude bash -s "$CLAUDE_VERSION" \
