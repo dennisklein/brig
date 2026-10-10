@@ -278,8 +278,8 @@ FROM registry.fedoraproject.org/fedora-minimal:44
 
 ARG PI_VERSION=1.1.0
 RUN dnf -y install --setopt=install_weak_deps=False \
-      fd-find gh git-core jq nodejs24 nodejs24-bin nodejs24-npm-bin ripgrep \
-      tar \
+      fd-find gh git-core jq nodejs24 nodejs24-bin nodejs24-full-i18n \
+      nodejs24-npm-bin ripgrep tar \
  && dnf clean all \
  && useradd --create-home --uid 1000 pi
 # glab: add it to the list if your Fedora release packages it, or install the
@@ -312,7 +312,11 @@ ENV PI_CODING_AGENT_DIR=/sandbox/.pi/agent \
 The image builds on Fedora minimal, like the VMs: glibc, so whatever an agent
 installs or downloads runs, and current packages, such as Node 24. `fd` and
 `ripgrep` are in the image because Pi otherwise downloads them on first use,
-which the sandbox blocks. The `PI_*` switches stop Pi's own update
+which the sandbox blocks. `nodejs24-full-i18n` holds the Unicode data that Pi's
+terminal UI needs: without it, Node crashes on `Intl.Segmenter`, and Pi dies
+with a segmentation fault (exit 139) right after it starts, leaving mouse
+tracking on and flooding the shell with the terminal's replies to Pi's colour
+queries. The `PI_*` switches stop Pi's own update
 checks and telemetry, which would only show up as denials. Do not put files
 under `/sandbox` in the image: Podman copies them into a sandbox's workspace
 once, at creation, and image updates never reach them again.
