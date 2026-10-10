@@ -195,6 +195,16 @@ func (c *Conn) start(dom golibvirt.Domain) error {
 	return err
 }
 
+// resume resumes dom if it is paused. A managed-save image of a domain that
+// was paused when it was saved restores paused.
+func (c *Conn) resume(dom golibvirt.Domain) error {
+	raw, _, err := c.c.DomainGetState(dom, 0)
+	if err == nil && golibvirt.DomainState(raw) == golibvirt.DomainPaused {
+		err = c.c.DomainResume(dom)
+	}
+	return err
+}
+
 // Shutdown asks the guest to power off, via the guest agent if it runs or
 // else via the ACPI power button, and waits up to timeout for the domain
 // to shut off before it destroys the domain. It resumes a paused domain
@@ -220,7 +230,7 @@ func (c *Conn) Shutdown(ctx context.Context, name string, timeout time.Duration)
 	case st == StateOther:
 		return c.Destroy(name)
 	case st == StatePaused:
-		if c.start(dom) != nil {
+		if c.start(dom) != nil || c.resume(dom) != nil {
 			return c.Destroy(name)
 		}
 	}

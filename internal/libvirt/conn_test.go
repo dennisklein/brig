@@ -27,6 +27,9 @@ type fakeDomain struct {
 	// unrestorable makes restoring the managed-save image fail, as when
 	// QEMU cannot connect to the network backend's socket.
 	unrestorable bool
+	// restoresPaused makes restoring the managed-save image leave the
+	// domain paused, as when it was paused when it was saved.
+	restoresPaused bool
 	// disks maps target names to capacities in bytes.
 	disks map[string]uint64
 	// offAfter is the number of state queries after a shutdown request
@@ -187,6 +190,9 @@ func (f *fakeClient) DomainCreateWithFlags(d golibvirt.Domain, flags uint32) (go
 		return d, libvirtErr(golibvirt.ErrOperationFailed, "Failed to connect to net.sock")
 	}
 	fd.state, fd.saved = golibvirt.DomainRunning, false // restores a saved domain
+	if fd.restoresPaused {
+		fd.state = golibvirt.DomainPaused
+	}
 	return d, nil
 }
 
@@ -486,6 +492,13 @@ func TestShutdown(t *testing.T) {
 		if d := f.domain("brig-a"); d.saved || d.state != golibvirt.DomainShutoff {
 			t.Errorf("domain after Shutdown = %+v", d)
 		}
+	})
+	t.Run("saved while paused", func(t *testing.T) {
+		c, f := newFake(map[string]*fakeDomain{"brig-a": {state: golibvirt.DomainShutoff, saved: true, restoresPaused: true}})
+		if err := c.Shutdown(context.Background(), "brig-a", time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		checkCalls(t, f, "create brig-a 0", "resume brig-a", request)
 	})
 	t.Run("saved, cannot restore", func(t *testing.T) {
 		c, f := newFake(map[string]*fakeDomain{"brig-a": {state: golibvirt.DomainShutoff, saved: true, unrestorable: true}})
