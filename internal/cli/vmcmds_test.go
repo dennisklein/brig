@@ -5,11 +5,13 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -344,7 +346,7 @@ func TestVMStatuses(t *testing.T) {
 		{"states", state, []string{"running", "unknown", "shut off"}},
 		{"no connection", nil, []string{"unknown", "unknown", "unknown"}},
 	} {
-		got := vmStatuses(vms, tc.state)
+		got := vmStatuses(t.Context(), vms, tc.state)
 		if len(got) != len(vms) {
 			t.Fatalf("%s: got %d statuses, want %d", tc.name, len(got), len(vms))
 		}
@@ -353,6 +355,62 @@ func TestVMStatuses(t *testing.T) {
 				t.Errorf("%s: status %d = {%s %q %q}, want {%s %q %q}", tc.name, i,
 					s.Name, s.State, s.Gateway, vms[i].Name, tc.want[i], "brig-"+vms[i].Name)
 			}
+		}
+	}
+}
+
+func TestVMStatusesRunInParallel(t *testing.T) {
+	vms := make([]*vm.VM, 40)
+	for i := range vms {
+		vms[i] = &vm.VM{Name: fmt.Sprintf("vm%02d", i)}
+	}
+	var (
+		mu         sync.Mutex
+		running    int
+		maxRunning int
+		seen       = map[string]bool{}
+		full       = make(chan struct{})
+		fill       sync.Once
+	)
+	state := func(domain string) (libvirt.State, error) {
+		mu.Lock()
+		running++
+		maxRunning = max(maxRunning, running)
+		seen[domain] = true
+		if running == statusLimit {
+			fill.Do(func() { close(full) })
+		}
+		mu.Unlock()
+		// Wait until the limit is reached, then give the lookups beyond it
+		// a chance to show, and finish out of order.
+		select {
+		case <-full:
+		case <-time.After(10 * time.Second):
+			return 0, errors.New("limit not reached")
+		}
+		time.Sleep(time.Duration(len(domain)-int(domain[len(domain)-1])%5) * time.Millisecond)
+		mu.Lock()
+		running--
+		mu.Unlock()
+		switch domain[len(domain)-1] % 3 {
+		case 0:
+			return libvirt.StateRunning, nil
+		case 1:
+			return libvirt.StateShutoff, nil
+		}
+		return 0, errors.New("boom")
+	}
+	got := vmStatuses(t.Context(), vms, state)
+	if maxRunning != statusLimit {
+		t.Errorf("%d lookups ran at once, want %d", maxRunning, statusLimit)
+	}
+	if len(seen) != len(vms) {
+		t.Errorf("looked up %d domains, want %d", len(seen), len(vms))
+	}
+	for i, s := range got {
+		want := [...]string{"running", "shut off", "unknown"}[vms[i].Name[len(vms[i].Name)-1]%3]
+		if s.VM != vms[i] || s.State != want {
+			t.Errorf("status %d = {%s %q}, want {%s %q}", i, s.Name, s.State, vms[i].Name, want)
 		}
 	}
 }
