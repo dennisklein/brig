@@ -253,12 +253,14 @@ done
 %license LICENSE
 %license LICENSE.dependencies
 %license cargo-vendor.txt
+%dir %{_docdir}/%{name}-gateway
 %doc %{_docdir}/%{name}-gateway/QUICKSTART.md
 %doc %{_docdir}/%{name}-gateway/CONFIGURATION.md
 %doc %{_docdir}/%{name}-gateway/TROUBLESHOOTING.md
 %{_bindir}/%{name}-gateway
 %{_userunitdir}/%{name}-gateway.service
 %{_libexecdir}/%{name}-gateway-migrate-config
+%dir %{_datadir}/%{name}-gateway
 %{_datadir}/%{name}-gateway/gateway.toml.default
 %{_datadir}/%{name}-gateway/gateway.toml.default.v1
 %{_mandir}/man8/openshell-gateway.8*
