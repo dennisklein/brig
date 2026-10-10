@@ -51,6 +51,7 @@ env:
 
 jobs:
   plan:
+    name: Plan what to build and publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,6 +88,7 @@ jobs:
   # without repository activity, which would stop this workflow and
   # openshell-releases quietly. Enabling a workflow resets its counter.
   keepalive:
+    name: Keep the scheduled workflows enabled
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
@@ -100,7 +102,8 @@ jobs:
           gh workflow enable packages.yaml
           gh workflow enable openshell-releases.yaml
 
-  srpm:
+  openshell-srpm:
+    name: OpenShell ${{ needs.plan.outputs.tag }} source RPM
     needs: plan
     if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
@@ -124,14 +127,15 @@ jobs:
         run: packaging/openshell/make-srpm.sh "$TAG" out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: srpm
+          name: srpm-openshell
           path: out/*.src.rpm
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
 
-  rpm:
-    needs: [plan, srpm]
+  openshell-rpm:
+    name: OpenShell ${{ needs.plan.outputs.tag }} for Fedora ${{ matrix.fedora }}
+    needs: [plan, openshell-srpm]
     runs-on: ubuntu-latest
     permissions: {}
     strategy:
@@ -144,7 +148,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: srpm
+          name: srpm-openshell
       - name: Install build dependencies
         run: |
           dnf -y install rpm-build dnf5-plugins
@@ -163,13 +167,14 @@ jobs:
           for pkg in out/*.rpm; do rpm -qp --requires "$pkg" | sed "s|^|${pkg##*/}: |"; done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: rpm-fc${{ matrix.fedora }}
+          name: rpm-openshell-fc${{ matrix.fedora }}
           path: out/*.rpm
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
 
   brig-srpm:
+    name: brig ${{ needs.plan.outputs.brig_tag }} source RPM
     needs: plan
     if: needs.plan.outputs.brig_build == 'true'
     runs-on: ubuntu-latest
@@ -190,13 +195,14 @@ jobs:
         run: packaging/brig/make-srpm.sh "$TAG" out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: brig-srpm
+          name: srpm-brig
           path: out/*.src.rpm
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
 
   brig-rpm:
+    name: brig ${{ needs.plan.outputs.brig_tag }} for Fedora ${{ matrix.fedora }}
     needs: [plan, brig-srpm]
     runs-on: ubuntu-latest
     permissions: {}
@@ -210,7 +216,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: brig-srpm
+          name: srpm-brig
       - name: Install build dependencies
         run: |
           dnf -y install rpm-build dnf5-plugins
@@ -233,7 +239,8 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-  release-rpm:
+  brig-release-rpm:
+    name: brig-release RPM
     needs: plan
     if: needs.plan.outputs.publish == 'real'
     runs-on: ubuntu-latest
@@ -251,22 +258,23 @@ jobs:
           packaging/brig-release/build.sh out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: rpm-release
+          name: rpm-brig-release
           path: out/*.rpm
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    needs: [plan, srpm, rpm, brig-srpm, brig-rpm, release-rpm]
+    name: Sign and assemble the repository
+    needs: [plan, openshell-srpm, openshell-rpm, brig-srpm, brig-rpm, brig-release-rpm]
     # A build job that timed out ends cancelled, which !failure() misses.
     # Without a build, the published packages are restored.
     if: >-
       !cancelled() && needs.plan.outputs.publish == 'real' &&
-      contains(fromJSON('["success","skipped"]'), needs.srpm.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.rpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.openshell-srpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.openshell-rpm.result) &&
       contains(fromJSON('["success","skipped"]'), needs.brig-srpm.result) &&
       contains(fromJSON('["success","skipped"]'), needs.brig-rpm.result) &&
-      needs.release-rpm.result == 'success'
+      needs.brig-release-rpm.result == 'success'
     runs-on: ubuntu-latest
     environment: rpm-signing
     permissions:
@@ -300,8 +308,9 @@ jobs:
           retention-days: 7
 
   deploy:
+    name: Deploy to GitHub Pages
     needs: [publish, smoke-test]
-    # A publish without a build skips srpm and rpm, and the default
+    # A publish without a build skips the build jobs, and the default
     # condition would skip this job with them.
     if: >-
       !cancelled() && needs.publish.result == 'success' &&
@@ -320,12 +329,13 @@ jobs:
   # Assembles the repository with a throwaway key, so packaging changes are
   # verified end to end (see smoke-test) without the real key or a deploy.
   dry-run:
-    needs: [plan, srpm, rpm, brig-srpm, brig-rpm]
+    name: Assemble the repository with a throwaway key
+    needs: [plan, openshell-srpm, openshell-rpm, brig-srpm, brig-rpm]
     # The plan builds brig for a dry run, as it restores nothing.
     if: >-
       !cancelled() && needs.plan.outputs.publish == 'dry-run' &&
-      contains(fromJSON('["success","skipped"]'), needs.srpm.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.rpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.openshell-srpm.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.openshell-rpm.result) &&
       contains(fromJSON('["success","skipped"]'), needs.brig-srpm.result) &&
       contains(fromJSON('["success","skipped"]'), needs.brig-rpm.result)
     runs-on: ubuntu-latest
@@ -369,6 +379,7 @@ jobs:
   # Installs from the assembled site, real or dry run, before a real one is
   # deployed.
   smoke-test:
+    name: Smoke test on Fedora ${{ matrix.fedora }}
     needs: [plan, publish, dry-run]
     if: >-
       !cancelled() &&
