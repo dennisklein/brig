@@ -189,16 +189,28 @@ func (c BootConfig) tmpfiles() string {
 	for _, d := range c.mountParents() {
 		dir(d, User)
 	}
-	var env, volumes string
-	for _, m := range c.Mounts {
+	// Every gateway accepts sandbox volumes, so that a sandbox mount added
+	// to a running VM needs no gateway restart. Its resource admission
+	// admits only the volumes that brig labels.
+	file(gatewayEnv, "0600", User, "OPENSHELL_GATEWAY_CONFIG="+gatewayMountsConfig+"\n")
+	file(sandboxVolumes, "0600", User, sandboxVolumeList(c.Mounts))
+	return b.String()
+}
+
+// gatewayMountsConfig is the gateway configuration in the image that lets
+// sandboxes attach the volumes of sandbox mounts.
+const gatewayMountsConfig = "/usr/share/brig/gateway-mounts.toml"
+
+// sandboxVolumeList returns the content of sandboxVolumes: a "VOLUME
+// DIRECTORY" line per sandbox mount.
+func sandboxVolumeList(mounts []vm.Mount) string {
+	var volumes string
+	for _, m := range mounts {
 		if m.Sandbox {
-			env = "OPENSHELL_GATEWAY_CONFIG=/usr/share/brig/gateway-mounts.toml\n"
 			volumes += m.Tag + " " + m.Target + "\n"
 		}
 	}
-	file(gatewayEnv, "0600", User, env)
-	file(sandboxVolumes, "0600", User, volumes)
-	return b.String()
+	return volumes
 }
 
 // tmpfilesPath returns p as the path field of a tmpfiles.d(5) line. tmpfiles
