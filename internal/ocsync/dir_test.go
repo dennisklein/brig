@@ -157,6 +157,28 @@ func TestLoadDoesNotEchoPlaintextSecrets(t *testing.T) {
 	}
 }
 
+// TestLoadSkipsHiddenFiles checks that an editor's lock file, a dangling
+// symbolic link, and hidden copies of a config file do not make Load fail.
+func TestLoadSkipsHiddenFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	writeFile(t, filepath.Join(dir, "providers", ".github.yaml"), githubProvider)
+	if err := os.Symlink("alice@laptop.12345:1700000000", filepath.Join(dir, "providers", ".#github.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	set, err := Load([]string{dir})
+	if err != nil {
+		t.Fatalf("Load() with hidden files: %v", err)
+	}
+	if len(set.Profiles) != 1 || len(set.Providers) != 1 {
+		t.Errorf("profiles %d, providers %d; want 1 and 1", len(set.Profiles), len(set.Providers))
+	}
+	if want := filepath.Join(dir, "providers", "github.yaml"); set.Providers[0].Path != want {
+		t.Errorf("provider path %q, want %q", set.Providers[0].Path, want)
+	}
+}
+
 func TestLoadReadsOnlyRegularFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "profiles"), 0o700); err != nil {

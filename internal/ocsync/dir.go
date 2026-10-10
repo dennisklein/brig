@@ -182,7 +182,8 @@ func (s *Set) Profile(id string) (ProfileFile, bool) {
 }
 
 // yamlFiles lists the .yaml, .yml and .json files in dir, which may be
-// missing.
+// missing. Hidden files are skipped: an editor's lock file, such as Emacs's
+// ".#github.yaml", is a dangling symbolic link that is not a config file.
 func yamlFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -193,6 +194,9 @@ func yamlFiles(dir string) ([]string, error) {
 	}
 	var files []string
 	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
 		switch filepath.Ext(e.Name()) {
 		case ".yaml", ".yml", ".json":
 			if e.Type().IsRegular() || e.Type()&fs.ModeSymlink != 0 {

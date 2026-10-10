@@ -219,6 +219,7 @@ landlock:
 | `policies/default.yaml` | exported by `eval "$(brig env dev)"` as `OPENSHELL_SANDBOX_POLICY` | read at each `openshell sandbox create` | never; running sandboxes keep their policy |
 
 A profile, provider or default policy defined in two directories is an error.
+Files whose names start with a dot, such as an editor's lock file, are ignored.
 Profiles and providers you created by hand are touched only when a directory
 defines them. A sync does not touch templates, global policies or the policies
 of existing sandboxes.
