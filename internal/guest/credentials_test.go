@@ -128,11 +128,13 @@ func TestCredentialsWithoutSandboxMounts(t *testing.T) {
 	c.AuthorizedKey = "  " + testKey + "\t"
 	data := credentialData(t, c)
 	files := parseTmpfiles(t, data["tmpfiles.extra"])
-	// Truncated, so a mounts configuration from an earlier boot is gone.
-	for _, path := range []string{"/home/agent/.config/brig/gateway.env", "/home/agent/.config/brig/sandbox-volumes"} {
-		if got, want := files[path], (tmpfilesEntry{"f+", "0600", "agent", "agent", ""}); got != want {
-			t.Errorf("%s = %+v, want %+v", path, got, want)
-		}
+	// Truncated, so the volumes of an earlier boot's mounts are gone.
+	if got, want := files["/home/agent/.config/brig/sandbox-volumes"], (tmpfilesEntry{"f+", "0600", "agent", "agent", ""}); got != want {
+		t.Errorf("sandbox-volumes = %+v, want %+v", got, want)
+	}
+	// The gateway accepts sandbox volumes anyway, for mounts added later.
+	if got, want := files["/home/agent/.config/brig/gateway.env"].content, "OPENSHELL_GATEWAY_CONFIG=/usr/share/brig/gateway-mounts.toml\n"; got != want {
+		t.Errorf("gateway.env = %q, want %q", got, want)
 	}
 	if got := files["/home/agent/.ssh/authorized_keys"].content; got != testKey+"\n" {
 		t.Errorf("authorized_keys = %q", got)

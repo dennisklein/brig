@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
 # SPDX-License-Identifier: Apache-2.0
 #
-# gateway.toml for VMs with sandbox mounts: sandboxes may attach the
+# gateway.toml that brig selects at every boot: sandboxes may attach the
 # bind-backed Podman volumes that brig-sandbox-volumes.service keeps for them,
 # e.g. with
 #   --driver-config-json '{"podman":{"mounts":[{"type":"volume","source":"brig0","target":"/sandbox/src"}]}}'
