@@ -87,14 +87,10 @@ for pkg in "$incoming"/*.rpm; do
   rpmsign --define "_gpg_name $fpr" --addsign "$pkg" > /dev/null
   name=${pkg##*/}
   dests=()
-  cpflags=()
   case $name in
     *.src.rpm)
       dests=(rpm/fedora/source) ;;
     brig-release-*.noarch.rpm)
-      # Every publish builds brig-release anew; keep the one published under
-      # the same version, which has the same content.
-      cpflags=(-n)
       for f in "${releases[@]}"; do dests+=("rpm/fedora/$f/x86_64"); done ;;
     *.fc[0-9]*.x86_64.rpm | *.fc[0-9]*.noarch.rpm)
       f=${name##*.fc}
@@ -105,7 +101,11 @@ for pkg in "$incoming"/*.rpm; do
   esac
   for d in "${dests[@]}"; do
     mkdir -p "$site/$d"
-    cp "${cpflags[@]}" "$pkg" "$site/$d/"
+    # A rebuild, such as for a newly added Fedora release, signs every
+    # package anew. Keep the one published under the same name, so that its
+    # bytes and its listed date stay put; a changed package needs a new
+    # version or baserelease.
+    cp -n "$pkg" "$site/$d/"
   done
 done
 
