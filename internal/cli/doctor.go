@@ -6,6 +6,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -31,7 +32,8 @@ func newDoctorCmd() *cobra.Command {
 			for _, r := range results {
 				if r.Hint != "" && !hints[r.Hint] {
 					hints[r.Hint] = true
-					fmt.Fprintf(cmd.OutOrStdout(), "\nTo fix %s: %s\n", r.Name, r.Hint)
+					// Indent the continuation lines of a multi-line hint.
+					fmt.Fprintf(cmd.OutOrStdout(), "\nTo fix %s: %s\n", r.Name, strings.ReplaceAll(r.Hint, "\n", "\n    "))
 				}
 			}
 			if doctor.Worst(results) == doctor.Fail {
