@@ -63,6 +63,7 @@ func TestCreateChecksOpenShellConfigsBeforeBuildingAnImage(t *testing.T) {
 }
 
 func TestEnvExportsTheDefaultPolicy(t *testing.T) {
+	t.Setenv("SHELL", "/bin/bash")
 	a := testApp(t)
 	testVM(t, a, "plain")
 	v := testVM(t, a, "dev")
@@ -92,6 +93,59 @@ func TestEnvExportsTheDefaultPolicy(t *testing.T) {
 	}
 	if want := "brig-dev|" + policy + "|brig-plain|unset|"; string(got) != want {
 		t.Errorf("shell saw %q, want %q", got, want)
+	}
+}
+
+func TestEnvForFish(t *testing.T) {
+	t.Setenv("SHELL", "/usr/bin/fish")
+	a := testApp(t)
+	testVM(t, a, "plain")
+	v := testVM(t, a, "dev")
+	// fish takes backslashes in single quotes as escapes.
+	dir := filepath.Join(t.TempDir(), `it's a\dir`)
+	if err := os.CopyFS(dir, os.DirFS(configDir(t))); err != nil {
+		t.Fatal(err)
+	}
+	v.OpenShellConfigs = []string{dir}
+	if err := a.vms.Save(v); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(dir, "policies", "default.yaml")
+	var outs []string
+	for _, name := range []string{"dev", "plain"} {
+		out, err := run(t, "env", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outs = append(outs, out)
+	}
+	if want := "set -gx OPENSHELL_GATEWAY brig-dev\nset -gx OPENSHELL_SANDBOX_POLICY " + fishQuote(policy) + "\n"; outs[0] != want {
+		t.Errorf("env dev = %q, want %q", outs[0], want)
+	}
+	if want := "set -gx OPENSHELL_GATEWAY brig-plain\nset -e OPENSHELL_SANDBOX_POLICY\n"; outs[1] != want {
+		t.Errorf("env plain = %q, want %q", outs[1], want)
+	}
+	if out, err := run(t, "env", "dev", "--shell", "sh"); err != nil || !strings.HasPrefix(out, "export ") {
+		t.Errorf("env --shell sh = %q, %v", out, err)
+	}
+	if _, err := run(t, "env", "dev", "--shell", "csh"); err == nil || !strings.Contains(err.Error(), "sh or fish") {
+		t.Errorf("env --shell csh: %v", err)
+	}
+
+	fish, err := exec.LookPath("fish")
+	if err != nil {
+		return
+	}
+	script := ""
+	for _, out := range outs {
+		script += "eval " + fishQuote(out) + `; printf '%s|%s|' "$OPENSHELL_GATEWAY" (set -q OPENSHELL_SANDBOX_POLICY; and echo $OPENSHELL_SANDBOX_POLICY; or echo unset)` + "\n"
+	}
+	got, err := exec.Command(fish, "--no-config", "-c", script).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "brig-dev|" + policy + "|brig-plain|unset|"; string(got) != want {
+		t.Errorf("fish saw %q, want %q", got, want)
 	}
 }
 

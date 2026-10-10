@@ -109,7 +109,7 @@ the guide has an
 | `upgrade NAME` | move onto the newest base image, keeping the data disk and rolling back on failure |
 | `delete NAME` | delete the VM, its disks and its gateway registration |
 | `ssh NAME`, `console NAME` | shell (`--root` for root), serial console |
-| `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY`; use as `eval "$(brig env NAME)"` |
+| `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
 | `doctor`, `print-fedora-deps` | check host prerequisites, list the Fedora packages they need |

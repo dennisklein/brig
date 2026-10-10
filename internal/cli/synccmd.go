@@ -160,6 +160,12 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// fishQuote quotes s for fish, which takes \\ and \' in single quotes as
+// escapes.
+func fishQuote(s string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
+}
+
 // completeConfigDirs completes the OpenShell config directories of the VM
 // named by the first argument.
 func completeConfigDirs(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {

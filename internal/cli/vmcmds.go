@@ -718,7 +718,18 @@ func newConsoleCmd() *cobra.Command {
 }
 
 func newEnvCmd() *cobra.Command {
+	var shell string
 	cmd := vmCommand("env NAME", "Print shell commands that point the openshell CLI at a VM", func(_ context.Context, cmd *cobra.Command, _ *app, v *vm.VM) error {
+		sh := shell
+		if sh == "" {
+			sh = "sh"
+			if filepath.Base(os.Getenv("SHELL")) == "fish" {
+				sh = "fish"
+			}
+		}
+		if sh != "sh" && sh != "fish" {
+			return fmt.Errorf("--shell must be sh or fish, not %q", sh)
+		}
 		// A config directory that does not load is an error, not a VM
 		// without a default policy. Nothing is printed then, so the shell
 		// keeps its variables, and the error is shown as create and sync
@@ -732,8 +743,17 @@ func newEnvCmd() *cobra.Command {
 			policy = set.DefaultPolicy
 		}
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
 		// Unset a default policy that another VM's environment exported.
+		if sh == "fish" {
+			fmt.Fprintf(out, "set -gx OPENSHELL_GATEWAY %s\n", v.GatewayName())
+			if policy == "" {
+				fmt.Fprintln(out, "set -e OPENSHELL_SANDBOX_POLICY")
+			} else {
+				fmt.Fprintf(out, "set -gx OPENSHELL_SANDBOX_POLICY %s\n", fishQuote(policy))
+			}
+			return nil
+		}
+		fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
 		if policy == "" {
 			fmt.Fprintln(out, "unset OPENSHELL_SANDBOX_POLICY")
 		} else {
@@ -747,7 +767,12 @@ OpenShell config directories has a policies/default.yaml (else it is
 unset, so that no other VM's default policy applies). It fails, and
 prints nothing, if a config directory does not load. Use it as
 eval "$(brig env NAME)"; without the quotes, the shell splits paths
-that contain spaces.`
+that contain spaces.
+
+The commands are for fish when $SHELL is fish, else for POSIX shells such
+as bash and zsh; --shell picks them instead.`
+	cmd.Flags().StringVar(&shell, "shell", "", "print commands for this shell: sh or fish (default: from $SHELL)")
+	_ = cmd.RegisterFlagCompletionFunc("shell", cobra.FixedCompletions([]string{"sh", "fish"}, cobra.ShellCompDirectiveNoFileComp))
 	return cmd
 }
 
