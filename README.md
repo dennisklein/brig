@@ -9,6 +9,8 @@ host's `openshell` CLI drives each VM's gateway; brig registers it as
 it, from a first sandbox to Git access and daily use.
 
 > **Status:** early development. Expect breaking changes.
+>
+> brig runs on x86_64 Fedora hosts only.
 
 ## Install
 
@@ -84,10 +86,12 @@ the guide has an
   VM cannot lift them: each VM's passt runs in a private network namespace,
   connected to the host by pasta, whose nftables rules brig sets up without
   root privileges. This adds to OpenShell's own per-sandbox egress policy.
-- **Provider secrets** never reach disk or a command line. Your host's
-  `openshell` CLI sends them straight to the VM's gateway, either when you
-  create a provider yourself or when `brig sync` reads them from your keyring
-  and hands them to the CLI in its environment. brig also copies the gateway's
+- **Provider secrets** never reach the host's disk or a command line. Your
+  host's `openshell` CLI sends them straight to the VM's gateway, either when
+  you create a provider yourself or when `brig sync` reads them from your
+  keyring and hands them to the CLI in its environment. The gateway stores
+  them encrypted on the VM's data disk, next to the key that decrypts them,
+  so treat a VM's directory as holding its secrets. brig also copies the gateway's
   mTLS client certificate and key into the CLI's configuration.
 
 ## Commands

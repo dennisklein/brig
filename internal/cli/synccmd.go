@@ -66,8 +66,9 @@ A config directory may hold:
                          eval "$(brig env NAME)" exports as
                          OPENSHELL_SANDBOX_POLICY
 
-Secrets never appear in config directories, on command lines or on disk:
-brig runs "secret-tool lookup ATTRIBUTE VALUE..." (or the program set as
+Secrets never appear in config directories, on command lines or on the
+host's disk (the gateway keeps them encrypted on the VM's data disk): brig
+runs "secret-tool lookup ATTRIBUTE VALUE..." (or the program set as
 openshell.secret_tool in config.yaml) and hands the value to the openshell
 CLI in its environment. A provider is updated only when one of its
 secrets changed. Profiles and providers that brig did not create are

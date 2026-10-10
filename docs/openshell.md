@@ -76,7 +76,7 @@ Six objects do all the work:
 | Gateway | The control plane of one brig VM, registered on the host as `brig-NAME` | Yes, providers' | `brig create` | VM data disk |
 | Workspace | A tenant inside a gateway; brig uses `default` | No | built in | gateway |
 | Provider profile | A type definition: which env vars hold the credential, how it is sent (bearer, header, Basic, query), to which endpoints, from which binaries | No | `openshell profile import -f FILE` (workspace) or `--global` (platform) | gateway |
-| Provider | A named instance of a profile with your actual token | Yes | `openshell provider create --name N --type PROFILE_ID --from-existing` | gateway |
+| Provider | A named instance of a profile with your actual token | Yes | `brig sync` from a [config directory](#openshell-config-directories) | gateway |
 | Policy | Filesystem, process and network rules for one sandbox | No | `--policy FILE` or `OPENSHELL_SANDBOX_POLICY` at create; `openshell policy set` later | sandbox record |
 | Sandbox | A container running your agent image, with workspace `/sandbox` | Placeholders only | `openshell sandbox create --from IMAGE` | Podman in the VM |
 
@@ -88,12 +88,14 @@ executables in your image.
 
 ### Providers and sandboxes are many-to-many
 
-A sandbox can carry several providers (`--provider llm --provider github`),
-and one provider can serve many sandboxes. Attach or detach later
-with `openshell sandbox provider attach SANDBOX PROVIDER`; only processes
-started afterwards see the new variables. Each attached provider also adds a
-network rule named `_provider_<name>` to the sandbox's effective policy, so
-attaching `github` is what opens `api.github.com` and `github.com`.
+A sandbox can carry several providers (`--provider llm --provider github`), and
+one provider can serve many sandboxes. Attach or detach later with `openshell
+sandbox provider attach SANDBOX PROVIDER`; only processes the sandbox starts
+afterwards see the change: a new `openshell sandbox exec` shell, or every
+process after `openshell sandbox stop` and `start`. A program restarted from a
+shell that was already open keeps the old variables. Each attached provider
+also adds a network rule named `_provider_<name>` to the sandbox's effective
+policy, so attaching `github` is what opens `api.github.com` and `github.com`.
 
 ```mermaid
 flowchart TB
@@ -392,31 +394,39 @@ which models it serves:
 ```
 
 Pi sends the placeholder in `LLM_API_KEY` as a bearer token, and the proxy
-swaps in your key only on `node`'s requests to the profile's host. To change
-endpoints, change the host in both files. A server on your LAN or on the host
-also needs its port in the profile and a [network
+swaps in your key on requests to the profile's host. The profile admits only
+`node` there; a rule that lets other programs reach that host lets them use the
+key too. To change endpoints, change the host in both files. A server on your
+LAN or on the host also needs its port in the profile and a [network
 profile](../README.md#configuration) for the VM that allows it, such as
-`ollama`. For a service that Pi knows by name, such as OpenRouter, you can
-drop `models.json` and use the service's own variable (`OPENROUTER_API_KEY`)
-in the profile, so that Pi offers its built-in model list. Do not run Pi's
-`/login` in a sandbox: it would store a real token in `auth.json` there.
+`ollama`. For a service that Pi knows by name, such as OpenRouter, you can drop
+`models.json` and use the service's own variable (`OPENROUTER_API_KEY`) in the
+profile, so that Pi offers its built-in model list. Do not run Pi's `/login` in
+a sandbox: it would store a real token in `auth.json` there.
 
 ### Start it
 
 ```sh
+brig sync dev                     # applies the profiles and providers above
 eval "$(brig env dev)"
 openshell sandbox create --name webapp \
   --from localhost/pi-agent:2026-10-08 \
   --provider llm --provider github
 # now in a login shell inside the sandbox
-git clone https://github.com/alice/webapp && cd webapp
+git clone https://github.com/alice/webapp.git && cd webapp
 pi-sandbox
 ```
+
+Clone with the `.git` suffix: git uses the URL as given, and the push rules
+[below](#grant-push-and-pull-requests-for-one-repository) match it.
 
 Without a trailing command, the sandbox's main process is a login shell and
 the sandbox stays after you leave. Press `Ctrl-P`, `Ctrl-Q` to detach with Pi
 still working; `openshell sandbox connect webapp` reattaches. For a second
-shell, run `openshell sandbox exec -n webapp --tty -- bash -l`.
+shell, run `openshell sandbox exec -n webapp --tty -- bash -l`. These
+commands run your host's `ssh`, which reads `~/.ssh/config`: make sure no
+`Host *` block there turns on `ForwardAgent` or other forwarding, since the
+other end is the VM.
 
 A template saves the image, environment, resources and driver config under a
 name: create it once with `openshell sandbox template create pi --image
@@ -453,10 +463,10 @@ after Pi asks you to trust the project. Package declarations in a repository's
 
 [Claude Code](https://code.claude.com) can run on your Claude Pro or Max
 subscription. `claude setup-token` makes a token for it that is valid for a
-year; the sandbox gets a placeholder, and the proxy adds the real token only
-on Claude Code's requests to `api.anthropic.com`. As with Pi, the image holds
-the program, your instructions and your skills, and `/sandbox` holds what
-Claude Code writes.
+year; the sandbox gets a placeholder, and the proxy adds the real token on
+requests to `api.anthropic.com`, which the profile opens to Claude Code only.
+As with Pi, the image holds the program, your instructions and your skills, and
+`/sandbox` holds what Claude Code writes.
 
 | What | Where | Why |
 | --- | --- | --- |
@@ -549,9 +559,10 @@ secret-tool store --label='Claude Code token (agents)' service claude.ai user al
 
 Copy OpenShell's
 [`providers/claude-code.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/providers/claude-code.yaml)
-into `profiles/` and replace its API key with the subscription token. Keep only
-`api.anthropic.com`: with the image's settings, Claude Code itself needs nothing
-else.
+into `profiles/` and replace its API key with the subscription token. Keep
+`api.anthropic.com`, and add `platform.claude.com` read-only: Claude Code's
+first-run setup checks it and exits when it cannot reach it. With the image's
+settings, Claude Code needs nothing else.
 
 ```yaml
 # profiles/claude-code.yaml: credentials, endpoints and binaries changed
@@ -569,6 +580,11 @@ endpoints:
     port: 443
     protocol: rest
     access: read-write
+    enforcement: enforce
+  - host: platform.claude.com
+    port: 443
+    protocol: rest
+    access: read-only
     enforcement: enforce
 binaries: [/usr/local/bin/claude]
 ```
@@ -593,17 +609,21 @@ token, and the proxy swaps in your token. Three things to know:
   do not work with it. Do not run `/login` in a sandbox: it would store a real
   token in `/sandbox/.claude`.
 - After a year, run `claude setup-token` again, store the new token under the
-  same attributes, `brig sync dev`, and restart Claude Code.
+  same attributes and run `brig sync dev`. Then start Claude Code from a new
+  shell, `openshell sandbox exec -n webapp-claude --tty -- bash -l`, or stop
+  and start the sandbox: a Claude Code restarted in an old shell keeps sending
+  the old token.
 
 ### Start it
 
 ```sh
+brig sync dev                     # applies the profile and provider above
 eval "$(brig env dev)"
 openshell sandbox create --name webapp-claude \
   --from localhost/claude-agent:2026-10-09 \
   --provider claude-code --provider github
 # now in a login shell inside the sandbox
-git clone https://github.com/alice/webapp && cd webapp
+git clone https://github.com/alice/webapp.git && cd webapp
 claude-sandbox
 ```
 
@@ -664,23 +684,20 @@ network_policies:
         protocol: rest
         enforcement: enforce
         rules:
-          - allow: { method: "*", path: "/repos/alice/webapp/**" }
-      - host: api.github.com
-        port: 443
-        path: /graphql
-        protocol: graphql
-        enforcement: enforce
-        rules:
-          - allow: { operation_type: query }
-          - allow: { operation_type: mutation, fields: [createPullRequest] }
+          - allow: { method: POST, path: "/repos/alice/webapp/pulls" }
+          - allow: { method: POST, path: "/repos/alice/webapp/issues/*/comments" }
     binaries:
       - path: /usr/bin/gh
 ```
 
-`gh pr create` uses the GraphQL `createPullRequest` mutation, which the REST
-rule cannot see. That rule is not scoped to one repository; the token's
-repository list limits it. Always set `enforcement: enforce` on your own
-endpoints: on an inspected endpoint, `audit` is the default and only logs.
+The agent opens pull requests and comments on them, but cannot merge, close
+them or change the repository. `gh pr create` uses GraphQL, which the github
+profile keeps read-only in every sandbox, so have the agent use REST:
+`gh api repos/alice/webapp/pulls -f title=TITLE -f head=BRANCH -f base=main`.
+`git-receive-pack` lets it push any branch, `main` included: protect `main`
+on GitHub with a ruleset that requires a pull request, so that only your
+review merges. Always set `enforcement: enforce` on your own endpoints: on an
+inspected endpoint, `audit` is the default and only logs.
 
 ### GitLab with glab
 
@@ -721,8 +738,11 @@ binaries: [/usr/bin/glab, /usr/local/bin/glab, /usr/bin/git, /usr/local/bin/git]
 Without `allow_encoded_slash`, OpenShell's proxy rejects the `%2F` in GitLab's
 project paths, so every `glab` call on a project is denied.
 
-The provider takes a personal or project access token with `api` scope, or
-`read_api` plus `read_repository` while the agent only reads:
+The profile lets sandboxes read anything on the host that the token can, so
+use a project or group access token with the Developer role, limited to the
+projects agents work on: `api` scope, or `read_api` plus `read_repository`
+while the agent only reads. A personal token would also open every other
+project you can see, and the CI/CD variables of those you maintain.
 
 ```sh
 secret-tool store --label='GitLab token (agents)' service gitlab.example.org user alice
@@ -766,14 +786,16 @@ network_policies:
           - allow: { method: GET,  path: "/group/tools.git/info/refs*" }
           - allow: { method: POST, path: "/group/tools.git/git-upload-pack" }
           - allow: { method: POST, path: "/group/tools.git/git-receive-pack" }
-          - allow: { method: "*",  path: "/api/v4/projects/group%2Ftools/**" }
+          - allow: { method: POST, path: "/api/v4/projects/group%2Ftools/merge_requests" }
+          - allow: { method: POST, path: "/api/v4/projects/group%2Ftools/merge_requests/*/notes" }
     binaries:
       - path: /usr/bin/git
       - path: /usr/bin/glab
 ```
 
-The last rule lets `glab mr create`, `glab issue note` and the like write to
-that project. Some `glab` commands look a project up by numeric ID or use
+The last two rules let `glab mr create` and `glab mr note` open merge requests
+and comment on them, but not merge them or change the project. Protect the
+default branch so that the agent's pushes cannot reach it. Some `glab` commands look a project up by numeric ID or use
 GraphQL at `/api/graphql`; if one is denied, take the exact path from
 `openshell logs SANDBOX --source sandbox` and add it. Keep `enforcement:
 enforce` here: an `audit` rule would overlap the provider's `enforce`
@@ -860,7 +882,9 @@ Keep one VM, and one long-lived sandbox per project.
   anything merges.
 - Rotated a token? `secret-tool store` it again under the same attributes and
   run `brig sync dev`; brig notices the change and updates the provider.
-  Restart Pi if its requests fail afterwards.
+  Running agents keep the old token: start them again from a new shell,
+  `openshell sandbox exec -n webapp --tty -- bash -l`, or stop and start the
+  sandbox.
 
 ### End of day
 
@@ -940,7 +964,7 @@ Podman refuses to remove an image a container still uses.
 | New sandbox | `openshell sandbox create --name N --template pi --provider P ...` |
 | Reattach, detach | `openshell sandbox connect N`; `Ctrl-P`, `Ctrl-Q` |
 | Second shell | `openshell sandbox exec -n N --tty -- bash -l` |
-| Attach a provider later | `openshell sandbox provider attach N P`, then restart the agent |
+| Attach a provider later | `openshell sandbox provider attach N P`, then start the agent from a new `sandbox exec` shell |
 | See denials | `openshell logs N --since 10m --source sandbox`, or `openshell term` |
 | Base vs effective policy | `openshell policy get N --base`, `--full` |
 | Add one network rule | `openshell policy update N --rule-name R --binary PATH --add-endpoint HOST:443:read-only:rest:enforce --wait` |
@@ -956,7 +980,7 @@ Podman refuses to remove an image a container still uses.
 | `create` cannot find the image | It is only in the host's Podman | `brig image push dev localhost/IMAGE:TAG`, and use the `localhost/` name |
 | Sandbox stays in `Provisioning` | Invalid policy or provider; condition `ConfigurationInvalid` | `openshell sandbox get N -o json`, fix, then wait; after 300 s it turns to `Error` and needs `sandbox start` |
 | Claude Code says it cannot connect to Anthropic services | `api.anthropic.com` is denied: the provider is not attached, or the profile's `binaries` lacks `/usr/local/bin/claude` | `openshell logs N --since 10m --source sandbox`, fix `profiles/claude-code.yaml`, `brig sync dev` |
-| Claude Code asks you to log in, or bills an API key | The token expired, or an `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the sandbox wins over it | Renew with `claude setup-token` and `brig sync dev`; detach the provider that sets the key |
+| Claude Code asks you to log in, or bills an API key | The token expired, or an `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the sandbox wins over it | Renew with `claude setup-token` and `brig sync dev`, then start Claude Code from a new `sandbox exec` shell; detach the provider that sets the key |
 | Pi gets `policy_denied` from its model endpoint | The profile's `binaries` lacks node's real path (`readlink -f /usr/bin/node` in the sandbox), or its `host` is not the host in `baseUrl` | Fix `profiles/llm.yaml`, `brig sync dev`, restart Pi |
 | Any tool denied although a rule exists | Binary path differs, for example `/usr/local/bin` vs `/usr/bin` | `openshell sandbox exec -n N -- sh -c 'readlink -f "$(command -v TOOL)"'` and list that path |
 | `git push` denied, clone works | Profiles allow fetch only | Add the project's push rule ([GitHub](#grant-push-and-pull-requests-for-one-repository), [GitLab](#grant-push-and-merge-requests-for-one-project)) |
@@ -965,7 +989,7 @@ Podman refuses to remove an image a container still uses.
 | `brig sync` says a secret is missing | No keyring entry with exactly those attributes | `secret-tool lookup service github.com user alice` on the host; store it again |
 | `brig start` says it held back a profile change | The change adds endpoints to a credential already in the gateway | Review with `brig sync dev --dry-run`, then `brig sync dev` |
 | `--driver-config-json` is rejected | The VM has no `sandbox` mount, so driver config is off | `brig update dev --add-mount DIR:/x:ro,sandbox`, restart the VM |
-| Version warning at `brig start` | Host CLI and gateway differ | `sudo dnf upgrade openshell` |
+| Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --force` after reading the release notes, or `sudo dnf downgrade openshell` |
 
 ## Sources
 
