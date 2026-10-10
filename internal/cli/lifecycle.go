@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 
 	"github.com/dennisklein/brig/internal/bytesize"
@@ -218,8 +219,19 @@ func checkNestedMounts(mounts []vm.Mount) error {
 	return nil
 }
 
+// domains is the part of *libvirt.Conn that starting, stopping and upgrading
+// a VM use; tests replace it.
+type domains interface {
+	State(name string) (libvirt.State, error)
+	Define(domainXML string) error
+	Start(name string) error
+	Shutdown(ctx context.Context, name string, timeout time.Duration) error
+	Destroy(name string) error
+	Undefine(name string) error
+}
+
 // define (re)defines the VM's libvirt domain from its record.
-func (a *app) define(conn *libvirt.Conn, v *vm.VM) error {
+func (a *app) define(conn domains, v *vm.VM) error {
 	spec, err := a.domainSpec(v)
 	if err != nil {
 		return err
@@ -233,13 +245,13 @@ func (a *app) define(conn *libvirt.Conn, v *vm.VM) error {
 
 // start boots a stopped VM and connects its gateway to the host's openshell
 // CLI. A running VM is only reconnected.
-func (a *app) start(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Writer) error {
+func (a *app) start(ctx context.Context, conn domains, v *vm.VM, w io.Writer) error {
 	return a.startVM(ctx, conn, v, w, false)
 }
 
 // startVM is start; with check, it fails unless the VM's gateway answers,
 // as an upgrade's check boot needs.
-func (a *app) startVM(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Writer, check bool) error {
+func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, check bool) error {
 	state, err := conn.State(v.DomainName())
 	if err != nil {
 		return err
@@ -255,44 +267,62 @@ func (a *app) startVM(ctx context.Context, conn *libvirt.Conn, v *vm.VM, w io.Wr
 		state = libvirt.StateShutoff
 	}
 	if state != libvirt.StateRunning {
-		if err := a.reservePorts(v); err != nil {
-			return err
-		}
-		if err := a.define(conn, v); err != nil {
-			return err
-		}
-		net, err := a.netConfig(v)
+		err := inSpan(ctx, progress.KindStep, "start the VM", func(ctx context.Context) error {
+			if err := a.reservePorts(v); err != nil {
+				return err
+			}
+			if err := a.define(conn, v); err != nil {
+				return err
+			}
+			net, err := a.netConfig(v)
+			if err != nil {
+				return err
+			}
+			if err := vmnet.Start(ctx, net); err != nil {
+				return fmt.Errorf("starting the network of %s: %w", v.Name, err)
+			}
+			if err := conn.Start(v.DomainName()); err != nil {
+				// QEMU only says that passt's socket refused it.
+				err = errors.Join(err, vmnet.Exited(ctx, v.Name))
+				vmnet.Stop(context.WithoutCancel(ctx), v.Name)
+				return err
+			}
+			fmt.Fprintf(w, "Started %s, waiting for it to boot...\n", v.Name)
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		if err := vmnet.Start(ctx, net); err != nil {
-			return fmt.Errorf("starting the network of %s: %w", v.Name, err)
-		}
-		if err := conn.Start(v.DomainName()); err != nil {
-			// QEMU only says that passt's socket refused it.
-			err = errors.Join(err, vmnet.Exited(ctx, v.Name))
-			vmnet.Stop(context.WithoutCancel(ctx), v.Name)
-			return err
-		}
-		fmt.Fprintf(w, "Started %s, waiting for it to boot...\n", v.Name)
 	}
-	wctx, cancel := context.WithTimeout(ctx, sshReadyTimeout)
-	defer cancel()
-	if err := a.sshTarget(v, false).WaitReady(wctx); err != nil {
-		return fmt.Errorf("%s is not reachable over SSH (boot log: %s): %w", v.Name, a.vmFile(v, consoleLogFile), err)
-	}
-	// SSH logs in as the data disk's owner, so the disk is mounted.
-	if !v.DataDiskReady {
-		v.DataDiskReady = true
-		if err := a.vms.Save(v); err != nil {
-			return err
-		}
+	if err := a.boot(ctx, v); err != nil {
+		return err
 	}
 	if err := a.connectGateway(ctx, v, w, check); err != nil {
 		return err
 	}
 	// Steps that only warn above may have been cut short.
 	return ctx.Err()
+}
+
+// boot waits until the started VM answers over SSH, which it does once it has
+// booted and mounted its data disk.
+func (a *app) boot(ctx context.Context, v *vm.VM) error {
+	return inSpan(ctx, progress.KindStep, "boot the VM", func(ctx context.Context) error {
+		err := inSpan(ctx, progress.KindWait, "wait for SSH", func(ctx context.Context) error {
+			ctx, cancel := context.WithTimeout(ctx, sshReadyTimeout)
+			defer cancel()
+			return a.sshTarget(v, false).WaitReady(ctx)
+		})
+		if err != nil {
+			return fmt.Errorf("%s is not reachable over SSH (boot log: %s): %w", v.Name, a.vmFile(v, consoleLogFile), err)
+		}
+		// SSH logs in as the data disk's owner, so the disk is mounted.
+		if !v.DataDiskReady {
+			v.DataDiskReady = true
+			return a.vms.Save(v)
+		}
+		return nil
+	})
 }
 
 // reservePorts moves forwarded ports that another program took meanwhile,
@@ -344,7 +374,9 @@ func openshellConfigHome() (string, error) {
 // connectGateway copies the gateway's client certificate bundle to the host
 // and registers the gateway with the host's openshell CLI. With check, it
 // fails unless the gateway answers.
-func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check bool) error {
+func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check bool) (err error) {
+	ctx, step := progress.Start(ctx, progress.KindStep, "connect the gateway")
+	defer func() { step.End(err) }()
 	t := a.sshTarget(v, false)
 	cfgHome, err := openshellConfigHome()
 	if err != nil {
@@ -355,7 +387,9 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 		return err
 	}
 	// The gateway creates its PKI when its user service first starts.
-	if err := waitFor(ctx, gatewayReadyTimeout, sync); err != nil {
+	if err := inSpan(ctx, progress.KindWait, "wait for the gateway's certificates", func(ctx context.Context) error {
+		return waitFor(ctx, gatewayReadyTimeout, sync)
+	}); err != nil {
 		if errors.Is(err, openshell.ErrNoBundle) {
 			return fmt.Errorf("the OpenShell gateway in %s did not create its certificates; check `brig ssh %s -- journalctl --user -u openshell-gateway`: %w", v.Name, v.Name, err)
 		}
@@ -366,12 +400,14 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 		fmt.Fprintf(w, "The openshell CLI is not installed, so the gateway is not registered. %s\n", termtext.Escape(err.Error()))
 		if check {
 			// Without the CLI, the gateway's service must at least run.
-			return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
-				_, err := t.Output(ctx, "systemctl --user is-active --quiet openshell-gateway.service")
-				if err != nil {
-					return fmt.Errorf("the OpenShell gateway in %s is not running: %w", v.Name, err)
-				}
-				return nil
+			return inSpan(ctx, progress.KindWait, "wait for the gateway to run", func(ctx context.Context) error {
+				return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
+					_, err := t.Output(ctx, "systemctl --user is-active --quiet openshell-gateway.service")
+					if err != nil {
+						return fmt.Errorf("the OpenShell gateway in %s is not running: %w", v.Name, err)
+					}
+					return nil
+				})
 			})
 		}
 		return nil
@@ -420,11 +456,13 @@ func (a *app) checkVersions(ctx context.Context, cli *openshell.CLI, v *vm.VM, s
 		return false
 	}
 	var gw string
-	_ = waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
-		if gw, err = cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
-			_ = sync(ctx)
-		}
-		return err
+	_ = inSpan(ctx, progress.KindWait, "wait for the gateway to answer", func(ctx context.Context) error {
+		return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
+			if gw, err = cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
+				_ = sync(ctx)
+			}
+			return err
+		})
 	})
 	if gw == "" {
 		fmt.Fprintf(w, "Warning: the gateway %s does not answer yet; check `openshell -g %s status` later.\n", v.GatewayName(), v.GatewayName())
@@ -457,7 +495,7 @@ func waitFor(ctx context.Context, timeout time.Duration, fn func(context.Context
 
 // stop shuts the VM down, gracefully unless force is set, and stops its
 // network.
-func (a *app) stop(ctx context.Context, conn *libvirt.Conn, v *vm.VM, force bool) error {
+func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) error {
 	state, err := conn.State(v.DomainName())
 	if err != nil {
 		return err

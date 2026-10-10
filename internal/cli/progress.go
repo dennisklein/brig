@@ -106,6 +106,15 @@ func commandName(cmd *cobra.Command, args []string) string {
 	return name
 }
 
+// inSpan runs fn in a span of kind k called name, and ends the span with the
+// error of fn.
+func inSpan(ctx context.Context, k progress.Kind, name string, fn func(context.Context) error) error {
+	ctx, span := progress.Start(ctx, k, name)
+	err := fn(ctx)
+	span.End(err)
+	return err
+}
+
 // start runs as the root's PersistentPreRunE.
 func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags) error {
 	if skipsProgress(cmd) {
