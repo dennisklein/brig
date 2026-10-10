@@ -8,7 +8,8 @@
 # - generates an RSA-4096 signing key without passphrase or expiry in a
 #   throwaway GnuPG home
 # - creates the GitHub environment rpm-signing if needed and restricts it to
-#   the main branch, so that only workflow runs on main can read its secrets
+#   the main branch, so that only workflow runs on main can read its secrets;
+#   it removes any other deployment branch or tag policy of that environment
 # - stores the secret key as secret RPM_SIGNING_KEY of that environment via
 #   the gh CLI
 # - writes the public key to packaging/brig-release/RPM-GPG-KEY-brig, to be
@@ -39,15 +40,29 @@ fi
 gh auth status > /dev/null
 
 # Restrict the environment before any key exists. This replaces the
-# environment's protection rules with a deployment branch policy.
+# environment's protection rules with a deployment branch policy and removes
+# every other branch or tag policy an existing environment may have, so that
+# main is the only ref that can read the key.
 gh api --silent --method PUT "repos/$repo/environments/$environment" \
   -F 'deployment_branch_policy[protected_branches]=false' \
   -F 'deployment_branch_policy[custom_branch_policies]=true'
-branches=$(gh api "repos/$repo/environments/$environment/deployment-branch-policies" \
-  --jq '.branch_policies[] | select(.type == "branch") | .name')
-if ! grep -qx main <<< "$branches"; then
-  gh api --silent --method POST "repos/$repo/environments/$environment/deployment-branch-policies" \
-    -f name=main -f type=branch
+policies="repos/$repo/environments/$environment/deployment-branch-policies"
+# Read the listing into a variable first: a failed listing then aborts the
+# script, where one read through process substitution would pass as "no
+# policies".
+list=$(gh api --paginate "$policies" --jq '.branch_policies[] | [.id, .type, .name] | @tsv')
+have_main=
+while IFS=$'\t' read -r id type name; do
+  [ -n "$id" ] || continue
+  if [ "$type" = branch ] && [ "$name" = main ]; then
+    have_main=1
+  else
+    echo "removing $type policy $name from the $environment environment" >&2
+    gh api --silent --method DELETE "$policies/$id"
+  fi
+done <<< "$list"
+if [ -z "$have_main" ]; then
+  gh api --silent --method POST "$policies" -f name=main -f type=branch
 fi
 
 GNUPGHOME=$(mktemp -d)

@@ -248,7 +248,8 @@ One-time setup for maintainers:
 1. Create the signing key on a trusted machine, from a checkout of this
    repository (needs `git`, `gpg` and an authenticated `gh`): `mise run
    signing-key` or `scripts/signing-key.sh`. It restricts the `rpm-signing`
-   environment to the `main` branch, stores the secret key as its secret
+   environment to the `main` branch (removing any other deployment branch or
+   tag policy it finds there), stores the secret key as its secret
    `RPM_SIGNING_KEY` and writes the public key to
    `packaging/brig-release/RPM-GPG-KEY-brig`; commit it. It also leaves an
    unencrypted backup of the secret key and its revocation certificate in
