@@ -14,7 +14,25 @@ it, from a first sandbox to Git access and daily use.
 
 ## Install
 
-With [mise](https://mise.jdx.dev):
+On Fedora, the recommended way is brig's [package
+repository](#package-repository), which also has the `openshell` CLI that must
+match the VMs' OpenShell version:
+
+```sh
+sudo rpm --import https://dennisklein.github.io/brig/RPM-GPG-KEY-brig
+sudo dnf install https://dennisklein.github.io/brig/brig-release.noarch.rpm
+sudo dnf install brig
+brig doctor
+```
+
+The `brig` package requires everything brig needs on the host, including the
+`openshell` CLI and, with SELinux policy, the `brig-selinux` package (see
+[Troubleshooting](#troubleshooting)). It recommends virtiofsd for `--mount`,
+Podman for `brig image push` and libsecret's secret-tool for providers in
+[OpenShell config directories](#openshell-config-directories); `dnf install
+--setopt=install_weak_deps=False brig` skips them.
+
+Or install the binary with [mise](https://mise.jdx.dev):
 
 ```sh
 mise use -g github:dennisklein/brig
@@ -26,9 +44,8 @@ Or with Go 1.26 or newer:
 go install github.com/dennisklein/brig@latest
 ```
 
-Then install what brig needs on the host, including the `openshell` CLI from
-brig's [package repository](#package-repository), which must match the VMs'
-OpenShell version, and check the result:
+With mise or Go, install what brig needs on the host, including the
+`openshell` CLI from the package repository, and check the result:
 
 ```sh
 sudo rpm --import https://dennisklein.github.io/brig/RPM-GPG-KEY-brig
@@ -188,11 +205,11 @@ has a worked example, and `brig sync --help` the rules.
 
 brig's VM images, and your host, get OpenShell from
 <https://dennisklein.github.io/brig/>, a signed dnf repository that the
-[packages workflow](.github/workflows/packages.yaml) fills daily: it builds
-each new OpenShell release from source for the Fedora releases listed in
-[`packaging/fedora-releases`](packaging/fedora-releases). See
-[`packaging/`](packaging/) and [OpenShell package
-updates](#openshell-package-updates).
+[packages workflow](.github/workflows/packages.yaml) fills: it builds each new
+OpenShell release and each new brig release from source for the Fedora
+releases listed in [`packaging/fedora-releases`](packaging/fedora-releases).
+It checks daily and after each brig release. See [`packaging/`](packaging/)
+and [package updates](#package-updates).
 
 ## Troubleshooting
 
@@ -201,14 +218,17 @@ log says `Couldn't write to /proc/N/uid_map: Operation not permitted`.** brig ru
 namespace, so passt needs the `setfcap` capability there to sandbox itself,
 which the SELinux policy of passt 0^20261002 does not grant it. `sudo ausearch
 -m AVC -c passt` shows the denial (`{ setfcap } … tclass=cap_userns`). Until
-the policy allows it, add a local module:
+the policy allows it, the `brig-selinux` package loads a module that does;
+`dnf install brig` installs it with SELinux policy. If you installed brig with
+mise or `go install`, add the module yourself:
 
 ```sh
 echo '(allow passt_t self (cap_userns (setfcap)))' > /tmp/brig-passt.cil
 sudo semodule -i /tmp/brig-passt.cil
 ```
 
-`sudo semodule -r brig-passt` removes it again. The guide covers
+`sudo semodule -r brig-passt` removes it again, which you want once
+`brig-selinux` is installed. The guide covers
 [problems inside the VM](docs/openshell.md#troubleshooting).
 
 ## Development
@@ -232,7 +252,11 @@ git tag -a v0.1.0      # write the release notes in the editor
 git push origin v0.1.0
 ```
 
-### OpenShell package updates
+Once the release is published, the workflow starts the [packages
+workflow](#package-updates), which builds the `brig` and `brig-selinux`
+packages for it. Pre-releases (`v0.2.0-rc.1`) are not packaged.
+
+### Package updates
 
 Two workflows keep the [package repository](#package-repository) current:
 
@@ -250,6 +274,16 @@ Two workflows keep the [package repository](#package-repository) current:
   [`openshell.spec`](packaging/openshell/openshell.spec), such as file lists
   and dependencies, does not. To republish a version after changing the spec,
   bump its `baserelease`.
+
+  The same run builds `brig` and `brig-selinux` from the latest brig release
+  if it is not published for every Fedora release yet; a brig release starts
+  the workflow itself, so that it reaches the repository within minutes. The
+  build is offline, against the Go modules that
+  [`make-srpm.sh`](packaging/brig/make-srpm.sh) vendors from the release tag.
+  [`brig.spec`](packaging/brig/brig.spec) lists the dependencies of `brig
+  print-fedora-deps` by hand, and a test fails when they differ. A run that
+  builds neither keeps the published packages. To republish a version after
+  changing the spec, bump its `baserelease`, too.
 - [`openshell-releases`](.github/workflows/openshell-releases.yaml) runs
   weekly and opens an `openshell-release` issue for each new release, so that
   a maintainer checks the spec and brig against it. Running

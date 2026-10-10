@@ -17,14 +17,18 @@
 </head>
 <body>
 <h1>brig package repository</h1>
-<p>Fedora packages of <a href="https://github.com/NVIDIA/OpenShell">NVIDIA OpenShell</a>,
-built from source and signed by the <a href="https://github.com/dennisklein/brig">brig</a> project.</p>
+<p>Fedora packages of <a href="https://github.com/dennisklein/brig">brig</a> and
+<a href="https://github.com/NVIDIA/OpenShell">NVIDIA OpenShell</a>,
+built from source and signed by the brig project.</p>
 
 <h2>Install</h2>
 <pre><code>sudo rpm --import https://dennisklein.github.io/brig/RPM-GPG-KEY-brig
 sudo dnf install https://dennisklein.github.io/brig/brig-release.noarch.rpm
-sudo dnf install openshell</code></pre>
-<p>The gateway is <code>openshell-gateway</code>; the policy prover is <code>openshell-prover</code>.
+sudo dnf install brig</code></pre>
+<p>brig requires <code>openshell</code> and what it needs on the host, and
+<code>brig-selinux</code> with SELinux policy. To install only OpenShell, use
+<code>sudo dnf install openshell</code>.
+The gateway is <code>openshell-gateway</code>; the policy prover is <code>openshell-prover</code>.
 Source RPMs are in the <code>brig-source</code> repository (disabled by default).</p>
 
 <h2>Signing key</h2>
