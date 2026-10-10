@@ -623,6 +623,13 @@ func newUpdateCmd() *cobra.Command {
 			return fmt.Errorf("VM %s is in an unexpected state (for instance suspended by the guest); stop it first", v.Name)
 		}
 		running := state == libvirt.StateRunning
+		if running {
+			// Mounts change at once, so refuse before anything changes.
+			removed, _ := mountChanges(old.Mounts, v.Mounts)
+			if err := a.checkVolumesUnused(ctx, v, removed); err != nil {
+				return err
+			}
+		}
 		disks := []struct {
 			flag, file, dev string
 			size            bytesize.Size
@@ -660,21 +667,38 @@ func newUpdateCmd() *cobra.Command {
 		}
 		w := cmd.OutOrStdout()
 		fmt.Fprintf(w, "Updated VM %s.\n", v.Name)
-		configFlags := 0
-		for _, name := range []string{"add-openshell-config", "remove-openshell-config"} {
+		// These flags take effect at once on a running VM.
+		liveFlags := 0
+		for _, name := range []string{"add-openshell-config", "remove-openshell-config", "add-mount", "remove-mount"} {
 			if f.Changed(name) {
-				configFlags++
+				liveFlags++
 			}
 		}
-		if running && (f.NFlag() == 0 || f.NFlag() > configFlags) {
+		if running && (f.NFlag() == 0 || f.NFlag() > liveFlags) {
 			// The guest grows its file systems at boot.
 			fmt.Fprintf(w, "The changes, including the space on grown disks, apply when %s next starts: brig stop %[1]s && brig start %[1]s\n", v.Name)
+		}
+		if running {
+			restart, err := a.applyMounts(ctx, conn, v, old.Mounts)
+			if err != nil {
+				return fmt.Errorf("changing the mounts of running VM %s failed, so they change when it next starts (brig stop %[1]s && brig start %[1]s): %w", v.Name, err)
+			}
+			if restart {
+				fmt.Fprintf(w, "Sandboxes can attach the volumes of sandbox mounts once %s restarts: brig stop %[1]s && brig start %[1]s\n", v.Name)
+			}
 		}
 		if running && !slices.Equal(old.OpenShellConfigs, v.OpenShellConfigs) {
 			fmt.Fprintf(w, "Apply the OpenShell config directories now with `brig sync %s`; brig start applies them too.\n", v.Name)
 		}
 		return nil
 	})
+	cmd.Long = `Change a VM's settings.
+
+On a running VM, mounts change at once, and --add-openshell-config and
+--remove-openshell-config take effect with brig sync NAME. CPUs, memory, the
+network profile and the space on grown disks change when the VM next starts.
+A sandbox mount cannot be removed from a running VM while a sandbox uses its
+volume.`
 	f := cmd.Flags()
 	f.IntVar(&cpus, "cpus", 0, "number of virtual CPUs")
 	f.Var(&memory, "memory", "memory size, e.g. 16GiB")

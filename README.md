@@ -86,7 +86,9 @@ VM's other users map to your subordinate IDs, which need entries in
 `sandbox`, OpenShell sandboxes can attach the directory read-only as a Podman
 volume named after the mount's tag, which `brig show` lists (e.g. `brig0`);
 the guide has an
-[example](docs/openshell.md#developing-plugins-without-rebuilding).
+[example](docs/openshell.md#developing-plugins-without-rebuilding). `brig
+update --add-mount` and `--remove-mount` change the mounts of a running VM at
+once.
 
 ## Shell integration
 
@@ -154,7 +156,7 @@ starts with `brig-`.
 | `create NAME` | create and start a VM |
 | `list`, `show NAME` | list VMs (queried in parallel), show one (`-o json`) |
 | `start NAME`, `stop NAME` | boot and re-register the gateway, shut down |
-| `update NAME` | change CPUs, memory, disks, network profile and mounts (at the next boot) and OpenShell config directories |
+| `update NAME` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
 | `sync NAME` | apply the VM's OpenShell config directories to its gateway |
 | `upgrade NAME` | move onto the newest base image, keeping the data disk and rolling back on failure |
 | `delete NAME` | delete the VM, its disks and its gateway registration |
