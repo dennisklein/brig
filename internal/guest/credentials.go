@@ -134,14 +134,18 @@ func Credentials(c BootConfig) ([]sdcred.Credential, error) {
 // f+ lines rewrite files, so changes since the last boot take effect. File
 // contents are base64-encoded (~), which also skips specifier expansion.
 // Explicit d lines keep tmpfiles from creating missing parent directories
-// owned by root. On an existing directory, d fixes mode and owner and
+// owned by root. systemd makes the missing parents of a mount point as root,
+// so d lines also cover the parents of mounts below home, or User could not
+// create e.g. ~/.local/state for the OpenShell gateway. Paths go through
+// tmpfilesPath, as tmpfiles expands specifiers and quotes in them, which
+// fstab does not. On an existing directory, d fixes mode and owner and
 // restores the SELinux label, which a freshly formatted data disk lacks;
 // it does not recurse, so Podman storage with subuid-owned files below home
 // stays untouched.
 func (c BootConfig) tmpfiles() string {
 	var b strings.Builder
 	dir := func(path, owner string) {
-		fmt.Fprintf(&b, "d %s 0700 %s %s -\n", path, owner, owner)
+		fmt.Fprintf(&b, "d %s 0700 %s %s -\n", tmpfilesPath(path), owner, owner)
 	}
 	file := func(path, mode, owner, content string) {
 		if content == "" {
@@ -164,6 +168,9 @@ func (c BootConfig) tmpfiles() string {
 	file(home+"/.ssh/authorized_keys", "0600", User, key)
 	dir(home+"/.config", User)
 	dir(home+"/.config/brig", User)
+	for _, d := range c.mountParents() {
+		dir(d, User)
+	}
 	var env, volumes string
 	for _, m := range c.Mounts {
 		if m.Sandbox {
@@ -174,6 +181,47 @@ func (c BootConfig) tmpfiles() string {
 	file(gatewayEnv, "0600", User, env)
 	file(sandboxVolumes, "0600", User, volumes)
 	return b.String()
+}
+
+// tmpfilesPath returns p as the path field of a tmpfiles.d(5) line. tmpfiles
+// expands % specifiers, which %% escapes, and treats quotes as syntax, so a
+// path with a quote goes in double quotes with \" for each double quote.
+func tmpfilesPath(p string) string {
+	p = strings.ReplaceAll(p, "%", "%%")
+	if !strings.ContainsAny(p, `"'`) {
+		return p
+	}
+	return `"` + strings.ReplaceAll(p, `"`, `\"`) + `"`
+}
+
+// mountParents returns the directories below home that lie between home and
+// a mount target, shallowest first, and that tmpfiles does not already
+// provision. It skips directories inside a mount: d would change the owner
+// and mode of the host directory through virtiofs.
+func (c BootConfig) mountParents() []string {
+	seen := map[string]bool{home + "/.ssh": true, home + "/.config": true, home + "/.config/brig": true}
+	inMount := func(d string) bool {
+		for _, m := range c.Mounts {
+			if d == m.Target || strings.HasPrefix(d, m.Target+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	var dirs []string
+	for _, m := range c.Mounts {
+		var chain []string
+		for d := path.Dir(m.Target); strings.HasPrefix(d, home+"/"); d = path.Dir(d) {
+			chain = append([]string{d}, chain...)
+		}
+		for _, d := range chain {
+			if !seen[d] && !inMount(d) {
+				dirs = append(dirs, d)
+			}
+			seen[d] = true
+		}
+	}
+	return dirs
 }
 
 // fstab returns the fstab(5) lines of the data disk and the virtiofs mounts.

@@ -190,3 +190,46 @@ func TestCredentialsRejectsMountsOverProvisionedPaths(t *testing.T) {
 		t.Errorf("Credentials: %v", err)
 	}
 }
+
+func TestCredentialsProvisionsMountParents(t *testing.T) {
+	c := testBootConfig()
+	c.Mounts = append(c.Mounts,
+		vm.Mount{Source: "/src/x", Target: "/home/agent/.local/state/x/y", Tag: "brig3"},
+		vm.Mount{Source: "/src/y", Target: "/home/agent/.local/bin", ReadOnly: true, Tag: "brig4"},
+		vm.Mount{Source: "/src/z", Target: "/home/agent/.config/gh", Tag: "brig5"},
+		vm.Mount{Source: "/src/w", Target: "/home/agent/p", Tag: "brig6"},
+		vm.Mount{Source: "/src/v", Target: "/home/agent/p/q/r", Tag: "brig7"})
+	files := parseTmpfiles(t, credentialData(t, c)["tmpfiles.extra"])
+	want := tmpfilesEntry{"d", "0700", "agent", "agent", ""}
+	for _, path := range []string{"/home/agent/.local", "/home/agent/.local/state", "/home/agent/.local/state/x"} {
+		if got := files[path]; got != want {
+			t.Errorf("%s = %+v, want %+v", path, got, want)
+		}
+	}
+	// Mount points themselves, and directories inside a mount, are left
+	// to the host.
+	for _, path := range []string{"/home/agent/.local/bin", "/home/agent/.local/state/x/y", "/home/agent/p", "/home/agent/p/q"} {
+		if _, ok := files[path]; ok {
+			t.Errorf("tmpfiles.extra has an entry for %s", path)
+		}
+	}
+}
+
+func TestCredentialsEscapesMountParents(t *testing.T) {
+	c := testBootConfig()
+	c.Mounts = append(c.Mounts,
+		vm.Mount{Source: "/src/x", Target: "/home/agent/100%/a%Hb/x", Tag: "brig3"},
+		vm.Mount{Source: "/src/y", Target: `/home/agent/q"1/it's/y`, Tag: "brig4"})
+	text := credentialData(t, c)["tmpfiles.extra"]
+	// tmpfiles expands % and parses quotes, which fstab does not.
+	for _, line := range []string{
+		"d /home/agent/100%% 0700 agent agent -",
+		"d /home/agent/100%%/a%%Hb 0700 agent agent -",
+		`d "/home/agent/q\"1" 0700 agent agent -`,
+		`d "/home/agent/q\"1/it's" 0700 agent agent -`,
+	} {
+		if !strings.Contains("\n"+text, "\n"+line+"\n") {
+			t.Errorf("tmpfiles.extra lacks %q:\n%s", line, text)
+		}
+	}
+}
