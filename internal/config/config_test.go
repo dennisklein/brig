@@ -82,6 +82,8 @@ func TestLoadErrors(t *testing.T) {
 		"port zero":         {"network_profiles:\n  x:\n    host_ports: [0]\n", "must not contain 0"},
 		"relative tool":     {"openshell:\n  secret_tool: bin/secret-tool\n", "absolute path"},
 		"relative config":   {"openshell:\n  configs: [team]\n", "not an absolute path"},
+		"second document":   {"defaults:\n  cpus: 2\n---\nnetwork_profiles:\n  default: {}\n", "more than one YAML document"},
+		"empty document":    {"---\n---\ndefaults:\n  cpus: 2\n", "more than one YAML document"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, tc.yaml))

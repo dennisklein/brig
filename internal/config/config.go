@@ -109,8 +109,21 @@ func Load(path string) (*Config, error) {
 	var file Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
-	if err := dec.Decode(&file); err != nil && !errors.Is(err, io.EOF) {
+	err = dec.Decode(&file)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err == nil {
+		// Only the first document would be applied, so a second one
+		// (even an empty one after a trailing "---") must not be ignored.
+		var extra yaml.Node
+		switch err := dec.Decode(&extra); {
+		case errors.Is(err, io.EOF):
+		case err != nil:
+			return nil, fmt.Errorf("%s: %w", path, err)
+		default:
+			return nil, fmt.Errorf("%s: more than one YAML document", path)
+		}
 	}
 	if err := file.OpenShell.expandHome(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
