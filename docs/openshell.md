@@ -58,7 +58,9 @@ brig network profile, enforced on the host outside the VM. The proxy adds the
 real token only on requests to the provider's endpoints; the agent's container
 never sees it.
 
-- **Host.** `eval "$(brig env dev)"` points the `openshell` CLI at VM `dev`,
+- **Host.** `brig use dev` (with brig's
+  [shell integration](../README.md#shell-integration); else
+  `eval "$(brig env dev)"`) points the `openshell` CLI at VM `dev`,
   registered as gateway `brig-dev`; `secret-tool` reads your keyring (GNOME
   Keyring or KeePassXC).
 - **VM.** Headless Fedora; the gateway runs as user `agent`, keeps its state
@@ -123,7 +125,7 @@ OpenShell picks the first that exists:
 
 1. A global policy set on the gateway.
 2. The policy given at create: `--policy FILE`, or the file named by
-   `OPENSHELL_SANDBOX_POLICY`, which `brig env` sets from your config
+   `OPENSHELL_SANDBOX_POLICY`, which `brig use` sets from your config
    directory.
 3. `/etc/openshell/policy.yaml` baked into the image.
 4. The built-in default: workdir and `/tmp` writable; `/usr`, `/lib`, `/etc`
@@ -216,7 +218,7 @@ landlock:
 | --- | --- | --- | --- |
 | `profiles/*.yaml` | workspace profile, overriding a `--global` one with the same id | the file changes | only with `--prune`, only if brig created it |
 | `providers/*.yaml` | provider; secrets reach `openshell` only in its environment | a keyed fingerprint of a secret changes, or `--refresh-secrets` | only with `--prune`, only if brig created it |
-| `policies/default.yaml` | exported by `eval "$(brig env dev)"` as `OPENSHELL_SANDBOX_POLICY` | read at each `openshell sandbox create` | never; running sandboxes keep their policy |
+| `policies/default.yaml` | exported by `brig use dev` as `OPENSHELL_SANDBOX_POLICY` | read at each `openshell sandbox create` | never; running sandboxes keep their policy |
 
 A profile, provider or default policy defined in two directories is an error.
 Files whose names start with a dot, such as an editor's lock file, are ignored.
@@ -411,7 +413,7 @@ a sandbox: it would store a real token in `auth.json` there.
 
 ```sh
 brig sync dev                     # applies the profiles and providers above
-eval "$(brig env dev)"
+brig use dev
 openshell sandbox create --name webapp \
   --from localhost/pi-agent:2026-10-08 \
   --provider llm --provider github
@@ -621,7 +623,7 @@ token, and the proxy swaps in your token. Three things to know:
 
 ```sh
 brig sync dev                     # applies the profile and provider above
-eval "$(brig env dev)"
+brig use dev
 openshell sandbox create --name webapp-claude \
   --from localhost/claude-agent:2026-10-09 \
   --provider claude-code --provider github
@@ -865,7 +867,7 @@ Keep one VM, and one long-lived sandbox per project.
 
 1. `brig start dev` boots the VM, re-registers the gateway and syncs your
    config directories; the keyring may ask to be unlocked.
-2. `eval "$(brig env dev)"` in each terminal that runs `openshell`.
+2. `brig use dev` in each terminal that runs `openshell`.
 3. `openshell sandbox list`; start any that are `Stopped` or `Completed` with
    `openshell sandbox start webapp`.
 4. `openshell sandbox connect webapp`, then in the sandbox `cd webapp && git
@@ -969,7 +971,7 @@ Podman refuses to remove an image a container still uses.
 
 | Task | Command |
 | --- | --- |
-| Point the CLI at a VM | `eval "$(brig env dev)"` |
+| Point the CLI at a VM | `brig use dev`, or `eval "$(brig env dev)"` without the [shell integration](../README.md#shell-integration) |
 | Apply config directories | `brig sync dev --dry-run`, then `brig sync dev` |
 | List profiles, providers | `openshell profile list`, `openshell provider list` |
 | New sandbox | `openshell sandbox create --name N --template pi --provider P ...` |

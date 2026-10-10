@@ -65,12 +65,15 @@ or `--with all` for all of them.
 ```sh
 brig create dev                 # builds a base image first if needed
 brig list
-eval "$(brig env dev)"          # point the openshell CLI at the VM's gateway
+brig use dev                    # point this shell's openshell CLI at the VM's gateway
 openshell sandbox create        # a shell in OpenShell's default image
 brig ssh dev                    # a shell in the VM, as the gateway's user
 brig stop dev
 brig delete dev
 ```
+
+`brig use` needs brig's [shell integration](#shell-integration); without it,
+run `eval "$(brig env dev)"` instead.
 
 To run an agent, build an image for it and give it credentials as described in
 [the guide](docs/openshell.md#your-first-agent-sandbox-pi).
@@ -84,6 +87,36 @@ VM's other users map to your subordinate IDs, which need entries in
 volume named after the mount's tag, which `brig show` lists (e.g. `brig0`);
 the guide has an
 [example](docs/openshell.md#developing-plugins-without-rebuilding).
+
+## Shell integration
+
+The `openshell` CLI talks to the gateway that `OPENSHELL_GATEWAY` names, so
+each shell picks its VM. Load brig's shell integration from your shell's
+startup file to switch with `brig use NAME`:
+
+```sh
+eval "$(brig shell-init bash)"    # ~/.bashrc
+eval "$(brig shell-init zsh)"     # ~/.zshrc
+brig shell-init fish | source     # ~/.config/fish/config.fish
+```
+
+It defines a `brig` shell function that runs `brig use NAME` and applies what
+it prints, as `eval "$(brig env NAME)"` would; `brig use --unset` points the
+CLI at no VM. Every other command runs brig as before.
+
+In zsh it also defines a [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
+segment named `brig`, which shows the VM the shell points at, such as `brig
+dev`. Add `brig` to `POWERLEVEL9K_LEFT_PROMPT_ELEMENTS` or
+`POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS` in `~/.p10k.zsh`, and style it like other
+segments, for example:
+
+```zsh
+typeset -g POWERLEVEL9K_BRIG_FOREGROUND=208                   # the default
+typeset -g POWERLEVEL9K_BRIG_VISUAL_IDENTIFIER_EXPANSION='VM'  # instead of brig
+```
+
+Other prompts can show `${OPENSHELL_GATEWAY#brig-}` when `OPENSHELL_GATEWAY`
+starts with `brig-`.
 
 ## How it works
 
@@ -126,10 +159,12 @@ the guide has an
 | `upgrade NAME` | move onto the newest base image, keeping the data disk and rolling back on failure |
 | `delete NAME` | delete the VM, its disks and its gateway registration |
 | `ssh NAME`, `console NAME` | shell (`--root` for root), serial console |
+| `use NAME` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)) |
 | `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
 | `doctor`, `print-fedora-deps` | check host prerequisites, list the Fedora packages they need |
+| `shell-init SHELL` | [shell integration](#shell-integration) for bash, zsh and fish |
 | `completion SHELL` | shell completion for bash, zsh, fish and PowerShell |
 
 `brig COMMAND --help` lists each command's flags.

@@ -50,7 +50,7 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 	)
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
-		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(),
+		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)
@@ -59,6 +59,6 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 		c.GroupID = "host"
 		cmd.AddCommand(c)
 	}
-	cmd.AddCommand(newVersionCmd(), newNetHelperCmd())
+	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
 	return cmd
 }

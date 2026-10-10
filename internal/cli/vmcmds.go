@@ -56,7 +56,7 @@ tag (see brig show).
 
 OpenShell config directories hold provider profiles and providers, which
 brig applies to the VM's gateway at every start, and a default sandbox
-policy, which eval "$(brig env NAME)" exports (see brig sync --help).
+policy, which brig use NAME exports (see brig sync --help).
 Without --openshell-config, the VM gets the directories listed as
 openshell.configs in config.yaml.`,
 		Example: `  brig create dev
@@ -718,8 +718,11 @@ func newConsoleCmd() *cobra.Command {
 }
 
 func newEnvCmd() *cobra.Command {
-	var shell string
-	cmd := vmCommand("env NAME", "Print shell commands that point the openshell CLI at a VM", func(_ context.Context, cmd *cobra.Command, _ *app, v *vm.VM) error {
+	var (
+		shell string
+		unset bool
+	)
+	cmd := envCommand("env [NAME]", "Print shell commands that point the openshell CLI at a VM", &unset, func() (string, error) {
 		sh := shell
 		if sh == "" {
 			sh = "sh"
@@ -728,38 +731,9 @@ func newEnvCmd() *cobra.Command {
 			}
 		}
 		if sh != "sh" && sh != "fish" {
-			return fmt.Errorf("--shell must be sh or fish, not %q", sh)
+			return "", fmt.Errorf("--shell must be sh or fish, not %q", sh)
 		}
-		// A config directory that does not load is an error, not a VM
-		// without a default policy. Nothing is printed then, so the shell
-		// keeps its variables, and the error is shown as create and sync
-		// show theirs.
-		policy := ""
-		if len(v.OpenShellConfigs) > 0 {
-			set, err := ocsync.Load(v.OpenShellConfigs)
-			if err != nil {
-				return err
-			}
-			policy = set.DefaultPolicy
-		}
-		out := cmd.OutOrStdout()
-		// Unset a default policy that another VM's environment exported.
-		if sh == "fish" {
-			fmt.Fprintf(out, "set -gx OPENSHELL_GATEWAY %s\n", v.GatewayName())
-			if policy == "" {
-				fmt.Fprintln(out, "set -e OPENSHELL_SANDBOX_POLICY")
-			} else {
-				fmt.Fprintf(out, "set -gx OPENSHELL_SANDBOX_POLICY %s\n", fishQuote(policy))
-			}
-			return nil
-		}
-		fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
-		if policy == "" {
-			fmt.Fprintln(out, "unset OPENSHELL_SANDBOX_POLICY")
-		} else {
-			fmt.Fprintf(out, "export OPENSHELL_SANDBOX_POLICY=%s\n", shellQuote(policy))
-		}
-		return nil
+		return sh, nil
 	})
 	cmd.Long = `Print shell commands that point the openshell CLI at a VM's gateway:
 OPENSHELL_GATEWAY, and OPENSHELL_SANDBOX_POLICY when one of the VM's
@@ -767,12 +741,125 @@ OpenShell config directories has a policies/default.yaml (else it is
 unset, so that no other VM's default policy applies). It fails, and
 prints nothing, if a config directory does not load. Use it as
 eval "$(brig env NAME)"; without the quotes, the shell splits paths
-that contain spaces.
+that contain spaces. With --unset instead of NAME, it prints commands
+that unset both variables.
 
 The commands are for fish when $SHELL is fish, else for POSIX shells such
-as bash and zsh; --shell picks them instead.`
+as bash and zsh; --shell picks them instead.
+
+brig use NAME does the same without eval, once brig's shell integration
+is loaded (see brig shell-init --help).`
 	cmd.Flags().StringVar(&shell, "shell", "", "print commands for this shell: sh or fish (default: from $SHELL)")
 	_ = cmd.RegisterFlagCompletionFunc("shell", cobra.FixedCompletions([]string{"sh", "fish"}, cobra.ShellCompDirectiveNoFileComp))
+	return cmd
+}
+
+// shellIntegrationEnv names the variable through which the brig function that
+// brig shell-init defines tells brig use the syntax of the shell that
+// evaluates its output.
+const shellIntegrationEnv = "BRIG_SHELL_INTEGRATION"
+
+func newUseCmd() *cobra.Command {
+	var unset bool
+	cmd := envCommand("use [NAME]", "Point the openshell CLI in this shell at a VM", &unset, func() (string, error) {
+		switch sh := os.Getenv(shellIntegrationEnv); sh {
+		case "sh", "fish":
+			return sh, nil
+		case "":
+			shell := filepath.Base(os.Getenv("SHELL"))
+			if !slices.Contains(shellInitShells, shell) {
+				shell = "bash"
+			}
+			return "", fmt.Errorf("brig use needs brig's shell integration: add eval \"$(brig shell-init %s)\" to your shell's startup file (see brig shell-init --help), or run eval \"$(brig env NAME)\" instead", shell)
+		default:
+			return "", fmt.Errorf("%s must be sh or fish, not %q", shellIntegrationEnv, sh)
+		}
+	})
+	cmd.Long = `Point the openshell CLI in this shell at VM NAME's gateway, as
+eval "$(brig env NAME)" does, or stop pointing it at any VM with --unset.
+
+A program cannot change its shell's environment, so brig use needs brig's
+shell integration, which defines a brig shell function that runs brig use
+and evaluates what it prints (see brig shell-init --help).`
+	// What brig use writes to standard output is evaluated by the shell, so
+	// its help goes to standard error.
+	help := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		c.SetOut(c.ErrOrStderr())
+		help(c, args)
+	})
+	return cmd
+}
+
+// envCommand returns a command that prints shell commands that point the
+// openshell CLI at the VM its argument names, or, if *unset is set by the
+// --unset flag it defines, that unset what they set. shell returns the
+// shell to write for, "sh" or "fish".
+func envCommand(use, short string, unset *bool, shell func() (string, error)) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if *unset {
+				return cobra.NoArgs(cmd, args)
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
+		ValidArgsFunction: completeVMs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sh, err := shell()
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if *unset {
+				if sh == "fish" {
+					fmt.Fprintln(out, "set -e OPENSHELL_GATEWAY OPENSHELL_SANDBOX_POLICY")
+				} else {
+					fmt.Fprintln(out, "unset OPENSHELL_GATEWAY OPENSHELL_SANDBOX_POLICY")
+				}
+				return nil
+			}
+			a, err := newApp()
+			if err != nil {
+				return err
+			}
+			v, err := a.vms.Load(args[0])
+			if err != nil {
+				return err
+			}
+			// A config directory that does not load is an error, not a VM
+			// without a default policy. Nothing is printed then, so the
+			// shell keeps its variables, and the error is shown as create
+			// and sync show theirs.
+			policy := ""
+			if len(v.OpenShellConfigs) > 0 {
+				set, err := ocsync.Load(v.OpenShellConfigs)
+				if err != nil {
+					return err
+				}
+				policy = set.DefaultPolicy
+			}
+			// Unset a default policy that another VM's environment exported.
+			if sh == "fish" {
+				fmt.Fprintf(out, "set -gx OPENSHELL_GATEWAY %s\n", v.GatewayName())
+				if policy == "" {
+					fmt.Fprintln(out, "set -e OPENSHELL_SANDBOX_POLICY")
+				} else {
+					fmt.Fprintf(out, "set -gx OPENSHELL_SANDBOX_POLICY %s\n", fishQuote(policy))
+				}
+				return nil
+			}
+			fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
+			if policy == "" {
+				fmt.Fprintln(out, "unset OPENSHELL_SANDBOX_POLICY")
+			} else {
+				fmt.Fprintf(out, "export OPENSHELL_SANDBOX_POLICY=%s\n", shellQuote(policy))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(unset, "unset", false, "unset the variables instead, without a NAME")
 	return cmd
 }
 

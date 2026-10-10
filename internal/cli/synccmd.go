@@ -71,8 +71,8 @@ A config directory may hold:
                                secret_tool:
                                  lookup: [service, github.com, user, alice]
   policies/default.yaml  the default policy for new sandboxes, which
-                         eval "$(brig env NAME)" exports as
-                         OPENSHELL_SANDBOX_POLICY
+                         brig use NAME and eval "$(brig env NAME)"
+                         export as OPENSHELL_SANDBOX_POLICY
 
 Secrets never appear in config directories, on command lines or on the
 host's disk (the gateway keeps them encrypted on the VM's data disk): brig

@@ -384,7 +384,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 	if check && !answers {
 		return fmt.Errorf("the OpenShell gateway in %s does not answer; check `brig ssh %s -- journalctl --user -u openshell-gateway`", v.Name, v.Name)
 	}
-	fmt.Fprintf(w, "OpenShell gateway registered as %[1]s. Use it with `eval \"$(brig env %[2]s)\"`, which also sets the default sandbox policy, or `openshell -g %[1]s ...`.\n", v.GatewayName(), v.Name)
+	fmt.Fprintf(w, "OpenShell gateway registered as %[1]s. Use it with `brig use %[2]s` (see brig shell-init --help) or `eval \"$(brig env %[2]s)\"`, which also set the default sandbox policy, or with `openshell -g %[1]s ...`.\n", v.GatewayName(), v.Name)
 	if len(v.OpenShellConfigs) > 0 {
 		if !answers {
 			fmt.Fprintf(w, "Run `brig sync %s` to apply its OpenShell config directories once the gateway answers.\n", v.Name)
