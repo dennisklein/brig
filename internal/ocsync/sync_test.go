@@ -25,6 +25,9 @@ type fakeGateway struct {
 	providers map[string]*fakeProvider
 	calls     []string
 	failOn    string
+	// lose fails the matching import or create after it took effect, as
+	// when the CLI times out after the gateway committed it.
+	lose string
 }
 
 type fakeProvider struct {
@@ -81,7 +84,17 @@ func (g *fakeGateway) ImportProfile(_ context.Context, file string) error {
 	if err := g.call("import %s", id); err != nil {
 		return err
 	}
-	return g.store(id, file)
+	if err := g.store(id, file); err != nil {
+		return err
+	}
+	return g.lost("import " + id)
+}
+
+func (g *fakeGateway) lost(call string) error {
+	if g.lose != "" && strings.HasPrefix(call, g.lose) {
+		return errors.New("timed out")
+	}
+	return nil
 }
 
 func (g *fakeGateway) UpdateProfile(_ context.Context, id, file string) error {
@@ -117,7 +130,7 @@ func (g *fakeGateway) CreateProvider(_ context.Context, name, typ string, creds 
 		return err
 	}
 	g.providers[name] = &fakeProvider{typ: typ, creds: maps.Clone(creds)}
-	return nil
+	return g.lost("create " + name)
 }
 
 func (g *fakeGateway) UpdateProvider(_ context.Context, name string, creds map[string]string, remove []string) error {
@@ -506,5 +519,56 @@ func TestSyncKeepsSecretsWhileTheirProfileIsNotApplied(t *testing.T) {
 	}
 	if slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "update github") }) || gw.providers["github"].creds["GH_TOKEN"] != "tok1" {
 		t.Errorf("the rotated secret was sent: calls %q", calls)
+	}
+}
+
+func TestSyncPrunesWhatAFailedCreateLeft(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	gw, st := newFakeGateway(), &State{}
+	sec := fakeSecrets{"service github.com user alice": "tok"}
+
+	// The import takes effect but reports an error, which holds back the
+	// provider; the next sync updates the profile and creates the provider,
+	// whose create in turn reports an error after taking effect.
+	gw.lose = "import"
+	if _, _, err := syncDir(t, dir, gw, sec, st, Options{}); err == nil {
+		t.Fatal("no error")
+	}
+	gw.lose = "create"
+	_, calls, err := syncDir(t, dir, gw, sec, st, Options{})
+	if err == nil || !slices.Equal(calls, []string{"update-profile github", "create github github map[GH_TOKEN:tok]"}) {
+		t.Fatalf("second sync: calls %q, %v", calls, err)
+	}
+	gw.lose = ""
+	_, calls, err = syncDir(t, dir, gw, sec, st, Options{})
+	if err != nil || !slices.Equal(calls, []string{"update github map[GH_TOKEN:tok] remove []"}) {
+		t.Fatalf("third sync: calls %q, %v", calls, err)
+	}
+
+	// Both count as brig's, so a prune deletes them.
+	_, calls, err = syncDir(t, t.TempDir(), gw, sec, st, Options{Prune: true})
+	if err != nil || !slices.Equal(calls, []string{"delete github", "delete-profile github"}) {
+		t.Errorf("prune: calls %q, %v", calls, err)
+	}
+}
+
+func TestSyncRecreatesAfterAFailedCreate(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	gw, st := newFakeGateway(), &State{}
+	gw.profiles["github"] = openshell.Profile{ID: "github", Scope: openshell.ScopePlatform}
+	sec := fakeSecrets{"service github.com user alice": "tok"}
+
+	// A create that failed without taking effect is tried again.
+	gw.failOn = "create"
+	if _, _, err := syncDir(t, dir, gw, sec, st, Options{}); err == nil {
+		t.Fatal("no error")
+	}
+	gw.failOn = ""
+	_, calls, err := syncDir(t, dir, gw, sec, st, Options{})
+	if err != nil || !slices.Equal(calls, []string{"create github github map[GH_TOKEN:tok]"}) || !st.Providers["github"].Created {
+		t.Errorf("calls %q, state %+v, %v", calls, st.Providers, err)
 	}
 }

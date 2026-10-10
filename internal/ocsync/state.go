@@ -34,6 +34,9 @@ type State struct {
 
 // ProfileState records the profile file content brig last applied.
 type ProfileState struct {
+	// SHA256 is empty after an import that failed: the gateway may still
+	// have committed it, as after a timeout, so the profile counts as
+	// created by brig if it exists at the next sync.
 	SHA256 string `json:"sha256"`
 	// Created is set when brig imported the profile, rather than taking
 	// over one that existed; only those does brig ever delete.
@@ -43,7 +46,9 @@ type ProfileState struct {
 // ProviderState records a provider brig created or updated.
 type ProviderState struct {
 	Type string `json:"type"`
-	// Credentials maps each credential brig set to its fingerprint.
+	// Credentials maps each credential brig set to its fingerprint. It is
+	// empty after a create that failed but which the gateway may still have
+	// committed, like a profile's SHA256.
 	Credentials map[string]string `json:"credentials"`
 	// Created is set when brig created the provider, rather than taking over
 	// one that existed; only those does brig ever delete.

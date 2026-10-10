@@ -224,8 +224,8 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 		if err == nil && !s.opts.DryRun {
 			if exists {
 				err = s.gw.UpdateProfile(ctx, p.ID, file)
-			} else {
-				err = s.gw.ImportProfile(ctx, file)
+			} else if err = s.gw.ImportProfile(ctx, file); err != nil {
+				s.st.Profiles[p.ID] = ProfileState{Created: true}
 			}
 		}
 		if err != nil {
@@ -331,8 +331,8 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 		if !s.opts.DryRun {
 			if exists {
 				err = s.gw.UpdateProvider(ctx, p.Name, secrets, remove)
-			} else {
-				err = s.gw.CreateProvider(ctx, p.Name, p.Type, secrets)
+			} else if err = s.gw.CreateProvider(ctx, p.Name, p.Type, secrets); err != nil {
+				s.st.Providers[p.Name] = ProviderState{Type: p.Type, Created: true}
 			}
 			if err != nil {
 				s.fail("provider", p.Name, err)
