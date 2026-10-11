@@ -10,7 +10,7 @@ it, from a first sandbox to Git access and daily use.
 
 > **Status:** early development. Expect breaking changes.
 >
-> brig runs on x86_64 Fedora hosts only.
+> brig currently supports and is tested on x86_64 Fedora hosts.
 
 ## Install
 
