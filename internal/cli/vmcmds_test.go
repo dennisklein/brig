@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -411,6 +412,84 @@ func TestVMStatusesRunInParallel(t *testing.T) {
 		want := [...]string{"running", "shut off", "unknown"}[vms[i].Name[len(vms[i].Name)-1]%3]
 		if s.VM != vms[i] || s.State != want {
 			t.Errorf("status %d = {%s %q}, want {%s %q}", i, s.Name, s.State, vms[i].Name, want)
+		}
+	}
+}
+
+func TestAddStats(t *testing.T) {
+	sts := []vmStatus{
+		{VM: &vm.VM{Name: "a"}, State: "running"},
+		{VM: &vm.VM{Name: "b"}, State: "shut off"},
+		{VM: &vm.VM{Name: "c"}, State: "running"},
+		{VM: &vm.VM{Name: "d"}, State: "unknown"},
+	}
+	var asked []string
+	err := addStats(sts, func(domains []string) (map[string]libvirt.Stats, error) {
+		asked = domains
+		return map[string]libvirt.Stats{"brig-a": {CPUTimeNS: 7}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"brig-a", "brig-c"}; !slices.Equal(asked, want) {
+		t.Errorf("sampled %q, want only the running VMs %q", asked, want)
+	}
+	for i, wantStats := range []bool{true, false, false, false} {
+		if (sts[i].Stats != nil) != wantStats {
+			t.Errorf("VM %s: stats = %v, want present: %v", sts[i].Name, sts[i].Stats, wantStats)
+		}
+	}
+	if sts[0].Stats.CPUTimeNS != 7 {
+		t.Errorf("stats = %+v", sts[0].Stats)
+	}
+
+	called := false
+	err = addStats(sts[1:2], func([]string) (map[string]libvirt.Stats, error) { called = true; return nil, nil })
+	if err != nil || called {
+		t.Errorf("sampling with no running VM: called = %v, err = %v", called, err)
+	}
+	boom := errors.New("boom")
+	if err := addStats(sts[2:3], func([]string) (map[string]libvirt.Stats, error) { return nil, boom }); !errors.Is(err, boom) {
+		t.Errorf("addStats() = %v, want the sampling error", err)
+	}
+}
+
+func TestStatsJSON(t *testing.T) {
+	st := vmStatus{VM: &vm.VM{Name: "a"}, State: "running", Stats: &libvirt.Stats{
+		SampledAt: time.Date(2026, 10, 12, 18, 0, 0, 0, time.UTC),
+		CPUTimeNS: 123,
+		Memory:    &libvirt.MemoryStats{UsedKiB: 1, TotalKiB: 2, Source: libvirt.MemoryFromGuest},
+	}}
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `"stats":{"sampled_at":"2026-10-12T18:00:00Z","cpu_time_ns":123,"memory":{"used_kib":1,"total_kib":2,"source":"guest"}}`
+	if !strings.Contains(string(b), want) {
+		t.Errorf("JSON lacks %s:\n%s", want, b)
+	}
+	st.Stats = nil
+	if b, _ := json.Marshal(st); strings.Contains(string(b), "stats") {
+		t.Errorf("a VM without stats has a stats object:\n%s", b)
+	}
+}
+
+func TestMemoryUsed(t *testing.T) {
+	mem := func(used, total uint64, src string) *libvirt.Stats {
+		return &libvirt.Stats{Memory: &libvirt.MemoryStats{UsedKiB: used, TotalKiB: total, Source: src}}
+	}
+	for _, tc := range []struct {
+		in   *libvirt.Stats
+		want string
+	}{
+		{nil, ""},
+		{&libvirt.Stats{}, ""},
+		{mem(1572864, 4194304, "guest"), "1.5 GiB of 4.0 GiB (guest view)"},
+		{mem(204800, 1048576, "host"), "200 MiB of 1.0 GiB (host view)"},
+		{mem(512, 0, "host"), "512 KiB of 0 KiB (host view)"},
+	} {
+		if got := memoryUsed(tc.in); got != tc.want {
+			t.Errorf("memoryUsed(%+v) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
