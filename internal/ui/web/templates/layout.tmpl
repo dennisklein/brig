@@ -18,7 +18,7 @@
 <div class="app"{{if .Events}} hx-ext="sse" sse-connect="{{.Events}}"{{end}}>
   <header class="top">
     <a class="brand" href="/"><span class="glyph">▥</span> brig <small>ui</small></a>
-    <button type="button" class="search" data-palette-open><span>Jump to a VM or page</span><kbd>/</kbd></button>
+    <button type="button" class="search" data-palette-open><span>Jump to a VM, sandbox or page</span><kbd>/</kbd></button>
     <div class="spacer"></div>
     {{if .Events}}<span class="live" id="live" title="Live: changes show as they happen"><span class="dot"></span><span>live</span></span>{{end}}
     {{if .Demo}}<span class="mockbadge" title="Everything here is made up. Nothing runs.">mock data</span>{{end}}

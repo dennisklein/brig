@@ -1,0 +1,105 @@
+// SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+// SPDX-License-Identifier: Apache-2.0
+
+package ui
+
+import (
+	"net/http"
+	"net/url"
+
+	"github.com/dennisklein/brig/internal/vm"
+)
+
+// sandboxes lists the sandboxes of every VM, or of the VM in the query.
+func (s *Server) sandboxes(w http.ResponseWriter, r *http.Request) {
+	v := s.newView(r, "sandboxes", "Sandboxes")
+	if f := r.URL.Query().Get("vm"); f != "" && vm.ValidateName(f) == nil {
+		v.Filter = f
+	}
+	v.Events = eventsURL([]string{"rail", "sandbox-table"}, url.Values{"filter": {v.Filter}})
+	s.render(w, http.StatusOK, "sandboxes", v)
+}
+
+// sandbox shows a sandbox of a VM's gateway.
+func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
+	vmName, name := r.PathValue("vm"), r.PathValue("name")
+	if vm.ValidateName(vmName) != nil || !sandboxNameRE.MatchString(name) {
+		s.notFound(w, r)
+		return
+	}
+	v := s.newView(r, "sandboxes", name)
+	var ok bool
+	if v.Gateway, ok = v.Snap.Gateway(vmName); !ok {
+		s.notFound(w, r)
+		return
+	}
+	if v.Sandbox, ok = v.Gateway.Sandbox(name); !ok {
+		s.notFound(w, r)
+		return
+	}
+	v.Tab = pickTab(sandboxTabs, r.URL.Query().Get("tab"))
+	v.Events = eventsURL([]string{"rail", "sandbox"}, url.Values{"gw": {vmName}, "sb": {name}, "tab": {v.Tab}})
+	s.render(w, http.StatusOK, "sandbox", v)
+}
+
+// firstGateway sends the browser to the gateway that the Gateway page
+// shows when none is named.
+func (s *Server) firstGateway(w http.ResponseWriter, r *http.Request) {
+	g, ok := firstGateway(s.st.Snapshot())
+	if !ok {
+		v := s.newView(r, "gateway", "Gateway")
+		s.render(w, http.StatusOK, "gateway", v)
+		return
+	}
+	http.Redirect(w, r, "/gateways/"+g.VM, http.StatusSeeOther)
+}
+
+// gateway shows a VM's gateway.
+func (s *Server) gateway(w http.ResponseWriter, r *http.Request) {
+	vmName := r.PathValue("vm")
+	if vm.ValidateName(vmName) != nil {
+		s.notFound(w, r)
+		return
+	}
+	v := s.newView(r, "gateway", "brig-"+vmName)
+	var ok bool
+	if v.Gateway, ok = v.Snap.Gateway(vmName); !ok {
+		s.notFound(w, r)
+		return
+	}
+	v.VM, _ = v.Snap.VM(vmName)
+	v.Tab = pickTab(gatewayTabs, r.URL.Query().Get("tab"))
+	v.Events = eventsURL([]string{"rail", "gateway"}, url.Values{"gw": {vmName}, "tab": {v.Tab}})
+	s.render(w, http.StatusOK, "gateway", v)
+}
+
+// liveOpenShell sets what the OpenShell fragments of a live update need,
+// from its query: the gateway (gw), its sandbox (sb), their tab (tab) and
+// the VM filter (filter), checked by checkOpenShellQuery.
+func liveOpenShell(v *view, q url.Values) {
+	v.Filter = q.Get("filter")
+	gw := q.Get("gw")
+	if gw == "" {
+		return
+	}
+	v.Gateway, _ = v.Snap.Gateway(gw)
+	v.VM, _ = v.Snap.VM(gw)
+	if sb := q.Get("sb"); sb != "" {
+		v.Sandbox, _ = v.Gateway.Sandbox(sb)
+		v.Tab = pickTab(sandboxTabs, q.Get("tab"))
+		return
+	}
+	v.Tab = pickTab(gatewayTabs, q.Get("tab"))
+}
+
+// checkOpenShellQuery checks the OpenShell parameters of a live update's
+// query.
+func checkOpenShellQuery(q url.Values) bool {
+	for _, k := range []string{"gw", "filter"} {
+		if n := q.Get(k); n != "" && vm.ValidateName(n) != nil {
+			return false
+		}
+	}
+	sb := q.Get("sb")
+	return sb == "" || (q.Get("gw") != "" && sandboxNameRE.MatchString(sb))
+}

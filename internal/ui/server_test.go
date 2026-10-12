@@ -43,6 +43,9 @@ func newTestServer(t *testing.T) *testServer {
 	st.SetHost(store.Host{Name: "zeta", BrigVersion: "v0.6.0", OpenShellCLI: "0.1.2", Addr: "127.0.0.1:7878"})
 	st.SetVMs(store.VMState{VMs: demo.VMs(now), Images: demo.Images(now), Profiles: demo.Profiles(), Config: demo.Config()})
 	st.SetActivity(demo.Activity(now))
+	for _, g := range demo.Gateways(now) {
+		st.UpdateGateway(g.VM, func(gw *store.Gateway) bool { *gw = g; return true })
+	}
 	ts := &testServer{t: t, st: st, token: "the-token", starts: &fakeStarter{st: st}}
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: ts.token, Port: testPort, Home: "/home/dklein",
