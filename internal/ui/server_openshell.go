@@ -40,7 +40,11 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 	}
 	v.Tab = pickTab(sandboxTabs, r.URL.Query().Get("tab"))
 	v.Path = filesPath(r.URL.Query().Get("path"))
-	v.Events = eventsURL([]string{"rail", "sandbox"}, url.Values{"gw": {vmName}, "sb": {name}, "tab": {v.Tab}, "path": {v.Path}})
+	names := []string{"rail", "sandbox"}
+	if v.Tab == "traffic" {
+		names = append(names, "sandbox-traffic")
+	}
+	v.Events = eventsURL(names, url.Values{"gw": {vmName}, "sb": {name}, "tab": {v.Tab}, "path": {v.Path}})
 	s.render(w, http.StatusOK, "sandbox", v)
 }
 
@@ -76,10 +80,13 @@ func (s *Server) gateway(w http.ResponseWriter, r *http.Request) {
 }
 
 // liveOpenShell sets what the OpenShell fragments of a live update need,
-// from its query: the gateway (gw), its sandbox (sb), their tab (tab) and
-// the VM filter (filter), checked by checkOpenShellQuery.
+// from its query: the gateway (gw), its sandbox (sb), their tab (tab), the
+// VM filter (filter), the selected node of the topology (sel) and the
+// Traffic page's filters, checked by checkOpenShellQuery.
 func liveOpenShell(v *view, q url.Values) {
 	v.Filter = q.Get("filter")
+	v.Sel = q.Get("sel")
+	v.TrafficQ = trafficQueryOf(q)
 	gw := q.Get("gw")
 	if gw == "" {
 		return
@@ -107,6 +114,9 @@ func checkOpenShellQuery(q url.Values) bool {
 		if _, ok := workspacePath(p); !ok {
 			return false
 		}
+	}
+	if sel := q.Get("sel"); sel != "" && !topoIDRE.MatchString(sel) {
+		return false
 	}
 	sb := q.Get("sb")
 	return sb == "" || (q.Get("gw") != "" && action.ValidSandboxName(sb))

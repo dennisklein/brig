@@ -21,6 +21,7 @@ import (
 var sandboxTabs = []tabDef{
 	{"overview", "Overview"},
 	{"policy", "Policy"},
+	{"traffic", "Traffic"},
 	{"files", "Files"},
 }
 

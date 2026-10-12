@@ -240,9 +240,9 @@ func TestRegistered(t *testing.T) {
 	// The list covers every registered action: a new one must get a
 	// case in TestBuild too.
 	want := []string{
-		"config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
-		"mount-rm", "profile", "resources", "sandbox-attach", "sandbox-create", "sandbox-delete", "sandbox-detach",
-		"sandbox-start", "sandbox-stop", "start", "stop", "sync", "sync-preview", "upgrade",
+		"allow", "config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
+		"mount-rm", "policy-save", "policy-save-preview", "profile", "resources", "sandbox-attach", "sandbox-create",
+		"sandbox-delete", "sandbox-detach", "sandbox-start", "sandbox-stop", "start", "stop", "sync", "sync-preview", "upgrade",
 	}
 	got := action.IDs()
 	slices.Sort(got)
