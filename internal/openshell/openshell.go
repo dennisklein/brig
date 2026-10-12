@@ -59,17 +59,27 @@ func Find() (*CLI, error) {
 	if err != nil {
 		return nil, ErrNotInstalled
 	}
+	home, err := ConfigHome()
+	if err != nil {
+		return nil, err
+	}
+	return &CLI{Path: path, ConfigHome: home}, nil
+}
+
+// ConfigHome returns the openshell CLI's configuration directory as the CLI
+// resolves it: $XDG_CONFIG_HOME/openshell, by default ~/.config/openshell.
+func ConfigHome() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		base = filepath.Join(home, ".config")
 	} else if !filepath.IsAbs(base) {
-		return nil, errors.New("XDG_CONFIG_HOME must be an absolute path")
+		return "", errors.New("XDG_CONFIG_HOME must be an absolute path")
 	}
-	return &CLI{Path: path, ConfigHome: filepath.Join(base, "openshell")}, nil
+	return filepath.Join(base, "openshell"), nil
 }
 
 // Version returns the CLI's version, e.g. "0.1.2".
