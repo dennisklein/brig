@@ -226,7 +226,15 @@ landlock:
 | `providers/*.yaml` | provider; secrets reach `openshell` only in its environment | a keyed fingerprint of a secret changes, or `--refresh-secrets` | only with `--prune`, only if brig created it |
 | `policies/default.yaml` | exported by `brig use dev` as `OPENSHELL_SANDBOX_POLICY` | read at each `openshell sandbox create` | never; running sandboxes keep their policy |
 
-A profile, provider or default policy defined in two directories is an error.
+`profiles/` and `providers/` are for the gateway's `default` workspace. For
+another workspace, put the same directories under `workspaces/NAME/`; brig
+creates a missing workspace, never deletes one, and syncs each workspace on
+its own (`brig sync dev --workspace NAME` limits a sync). The same id or name
+may appear in several workspaces, `--prune` only deletes inside the workspace
+where brig created an item, and `policies/` is not per workspace.
+
+A profile, provider or default policy defined in two directories is an error
+(within one workspace, for profiles and providers).
 Files whose names start with a dot, such as an editor's lock file, are ignored.
 Profiles and providers you created by hand are touched only when a directory
 defines them. A sync does not touch templates, global policies or the policies
