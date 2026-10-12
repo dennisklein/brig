@@ -2,3 +2,16 @@ brig
 Copyright Dennis Klein <d.klein@gsi.de>
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The web UI (internal/ui/web/static) embeds:
+
+- htmx 2.0.11, under the Zero-Clause BSD license
+- htmx's SSE extension 2.2.4, Copyright Alexander Petros, under the
+  Zero-Clause BSD license
+- IBM Plex Sans, Copyright IBM Corp., under the SIL Open Font License 1.1
+- JetBrains Mono, Copyright The JetBrains Mono Project Authors, under the
+  SIL Open Font License 1.1
+- Bricolage Grotesque, Copyright The Bricolage Grotesque Project Authors,
+  under the SIL Open Font License 1.1
+
+Their licenses are in internal/ui/web/static/licenses.
