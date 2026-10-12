@@ -41,6 +41,9 @@ type plan struct {
 	// gw changes the gateway of the VM gwVM when the command succeeds.
 	gw   func(*store.Gateway)
 	gwVM string
+	// after changes the demo's gateways and traffic when the command
+	// succeeds.
+	after func()
 }
 
 // Start implements run.Starter: it plays out the command's steps in the task
@@ -122,6 +125,9 @@ func (h *Host) play(id, trace string, sp run.Spec, p plan) {
 	if p.fail == "" && p.gw != nil {
 		h.st.UpdateGateway(p.gwVM, func(g *store.Gateway) bool { p.gw(g); return true })
 	}
+	if p.fail == "" && p.after != nil {
+		p.after()
+	}
 	h.st.UpdateTask(id, store.TopicTasks, func(t *store.Task) {
 		t.End, t.Output = &end, p.output
 		if p.fail != "" {
@@ -189,6 +195,7 @@ func parseFlags(argv []string) flags {
 	valued := map[string]bool{
 		"--cpus": true, "--memory": true, "--root-disk": true, "--data-disk": true, "--profile": true, "--add-mount": true,
 		"--remove-mount": true, "--add-openshell-config": true, "--remove-openshell-config": true, "--fedora": true, "--openshell": true,
+		"--rule-name": true, "--binary": true, "--add-endpoint": true, "--chunk-id": true, "--rule": true, "--to": true,
 	}
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
@@ -212,6 +219,9 @@ func (h *Host) plan(argv []string) (plan, error) {
 	}
 	if len(argv) < 3 || argv[0] != "brig" {
 		return plan{}, fmt.Errorf("the demo cannot play %q", argv)
+	}
+	if argv[1] == "policy" && len(argv) >= 5 && argv[2] == "save" {
+		return policySavePlan(argv[3], argv[4], argv[5:]), nil
 	}
 	cmd, rest, sub := argv[1], argv[2:], ""
 	if cmd == "image" {
