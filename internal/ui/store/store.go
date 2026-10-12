@@ -60,6 +60,8 @@ type Snapshot struct {
 	Tasks []Task
 	// Gateways are the OpenShell gateways of the VMs, sorted by VM name.
 	Gateways []Gateway
+	// Traffic is what the gateways' sandboxes requested, by VM name.
+	Traffic []Traffic
 }
 
 // Config is the part of config.yaml that the dialogs prefill.
@@ -222,6 +224,8 @@ type Store struct {
 	mu   sync.Mutex
 	snap Snapshot
 	subs map[chan Topic]struct{}
+	// seq is the number of the last request added.
+	seq uint64
 }
 
 // New returns an empty store.
