@@ -28,10 +28,11 @@ Release:        %{baserelease}%{?dist}
 Summary:        Manage agent-sandbox VMs on a Fedora laptop
 
 # brig is Apache-2.0. The binary also contains Go's standard library and the
-# vendored modules (LICENSE.dependencies): cobra, mousetrap and go-libvirt are
-# Apache-2.0, yaml also MIT, libvirtxml MIT, crypto, sys, pflag and Go itself
-# BSD-3-Clause, go-libvirt's XDR code ISC. The web UI embeds htmx (0BSD) and
-# fonts (OFL-1.1), listed in NOTICE.
+# vendored modules (LICENSE.dependencies): cobra, mousetrap, go-libvirt, grpc,
+# genproto and OpenShell's Go SDK are Apache-2.0, yaml also MIT, libvirtxml
+# MIT, crypto, net, sys, text, pflag, protobuf and Go itself BSD-3-Clause,
+# go-libvirt's XDR code ISC. The web UI embeds htmx (0BSD) and fonts
+# (OFL-1.1), listed in NOTICE.
 License:        Apache-2.0 AND BSD-3-Clause AND MIT AND ISC AND 0BSD AND OFL-1.1
 URL:            https://github.com/dennisklein/brig
 # git archive of the release tag
