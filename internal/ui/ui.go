@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/ui/collect"
 	"github.com/dennisklein/brig/internal/ui/demo"
@@ -137,6 +138,11 @@ func Run(ctx context.Context, o Options) error {
 		st.SetHost(store.Host{Addr: addr})
 		goRun(func() { st.SetHost(collect.Host(ctx, addr)) })
 		goRun(func() { collector.Run(ctx, st) })
+		if home, err := openshell.ConfigHome(); err != nil {
+			log.Warn("brig ui cannot read OpenShell gateways", "err", err)
+		} else {
+			goRun(func() { collect.NewGateways(home).Run(ctx, st) })
+		}
 		if o.ActivityLog != "" {
 			goRun(func() { collect.Activity(ctx, st, o.ActivityLog) })
 		}
