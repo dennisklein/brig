@@ -40,6 +40,7 @@ type client interface {
 	DomainDetachDeviceFlags(dom golibvirt.Domain, xml string, flags uint32) error
 	DomainSetMemoryStatsPeriod(dom golibvirt.Domain, period int32, flags golibvirt.DomainMemoryModFlags) error
 	ConnectGetAllDomainStats(doms []golibvirt.Domain, stats, flags uint32) ([]golibvirt.DomainStatsRecord, error)
+	LifecycleEvents(ctx context.Context) (<-chan golibvirt.DomainEventLifecycleMsg, error)
 	Disconnect() error
 }
 
