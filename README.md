@@ -177,6 +177,7 @@ starts with `brig-`.
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
 | `doctor`, `print-fedora-deps` | check host prerequisites, list the Fedora packages they need |
+| `ui` | open the [web UI](#web-ui) in your browser |
 | `shell-init SHELL` | [shell integration](#shell-integration) for bash, zsh and fish |
 | `completion SHELL` | shell completion for bash, zsh, fish and PowerShell |
 
@@ -190,7 +191,7 @@ standard output stays clean for scripts. Steps that the command goes on
 without, such as a gateway that does not answer at `brig start`, end as
 skipped with the reason. `ssh`, `console`, `env`, `use`, `shell-init` and
 `sandbox create` show no progress, since they own the terminal or must print
-exactly their output.
+exactly their output, and neither does `ui`.
 
 `--progress MODE` (or `BRIG_PROGRESS`) picks the display: `auto` (the
 default) chooses from where standard error goes, `tty` redraws a tree of
@@ -206,7 +207,22 @@ On a terminal, `NO_COLOR` turns colours off. Text from guests, images and
 libvirt is escaped before it is shown, so it cannot inject terminal control
 sequences.
 
-## Configuration
+## Web UI
+
+`brig ui` serves a web UI on 127.0.0.1 and opens it in your browser: your
+VMs with their state, CPU and memory use, mounts, network profile, OpenShell
+config directories and last sync; what needs your attention; the `brig
+doctor` checks; and what brig did, from the [activity log](#progress-output).
+Pages update live. For now it only shows: every change is still a
+command, and the UI shows the one to copy where it helps.
+
+Only you can open it. It prints a URL with a token that is new each run and
+swaps it for a cookie, answers only to `127.0.0.1` and `localhost`, refuses
+connections from other users' processes, and loads nothing from the
+network. A second `brig ui` opens the running one. `--port` picks the port,
+`--no-open` only prints the URL, and `--demo` serves made-up VMs without
+touching the host.
+
 
 `$XDG_CONFIG_HOME/brig/config.yaml` (usually `~/.config/brig/config.yaml`)
 overrides the built-in defaults shown here and can add network profiles, such
@@ -314,6 +330,9 @@ golangci-lint run ./...
 goreleaser release --snapshot --clean   # local release dry run
 ```
 
+`go run . ui --demo --dev-assets internal/ui/web` serves the web UI's
+templates and static files from disk, read again on each request.
+
 ### Releasing
 
 Releases are cut from annotated tags; the tag message becomes the release
@@ -402,4 +421,7 @@ rpmkeys --delete` with the old key's ID.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The web UI embeds
+htmx (0BSD) and the IBM Plex Sans, JetBrains Mono and Bricolage Grotesque
+fonts (OFL-1.1); their licenses are in
+[internal/ui/web/static/licenses](internal/ui/web/static/licenses).
