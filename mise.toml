@@ -1,6 +1,6 @@
 # Development tools; run `mise install` to get the pinned versions.
 [tools]
-go = "1.27.1"
+go = "1.27.2"
 golangci-lint = "2.14.0"
 goreleaser = "2.18.2"
 
