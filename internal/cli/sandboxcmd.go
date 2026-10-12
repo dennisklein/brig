@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/libvirt"
+	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -31,14 +32,19 @@ func newSandboxCmd() *cobra.Command {
 }
 
 func newSandboxCreateCmd() *cobra.Command {
-	var mounts []string
+	var (
+		mounts    []string
+		workspace string
+	)
 	cmd := &cobra.Command{
-		Use:   "create [NAME] [--mount DIR:TARGET]... [-- OPENSHELL-ARGS...]",
+		Use:   "create [NAME] [--workspace W] [--mount DIR:TARGET]... [-- OPENSHELL-ARGS...]",
 		Short: "Create an OpenShell sandbox in a VM, with host directories mounted read-only",
 		Long: `Run openshell sandbox create against VM NAME's gateway, with each
 --mount DIR:TARGET showing host directory DIR read-only at TARGET in the
 sandbox. Arguments after -- go to openshell sandbox create as they are.
 Without NAME, the VM is the one that brig use selected.
+
+The sandbox is created in --workspace W of the gateway, default if not given.
 
 A sandbox sees DIR through a read-only sandbox mount of the VM (see brig
 create --help). brig uses the VM's sandbox mount of DIR, or adds one to the
@@ -62,6 +68,9 @@ default sandbox policy, if it has one.`,
 			}
 			pass := args[len(vmArgs(cmd, args)):]
 			if err := checkSandboxArgs(pass); err != nil {
+				return err
+			}
+			if err := openshell.CheckWorkspace(workspace); err != nil {
 				return err
 			}
 			var specs []sandboxMount
@@ -96,13 +105,15 @@ default sandbox policy, if it has one.`,
 			if err != nil {
 				return err
 			}
-			argv := []string{"openshell", "-g", v.GatewayName(), "sandbox", "create"}
+			argv := append([]string{"openshell"}, openshell.WorkspaceArgs(v.GatewayName(), workspace)...)
+			argv = append(argv, "sandbox", "create")
 			if config != "" {
 				argv = append(argv, "--driver-config-json", config)
 			}
 			return execve("openshell", append(argv, pass...))
 		},
 	}
+	cmd.Flags().StringVar(&workspace, "workspace", openshell.DefaultWorkspace, "create the sandbox in this workspace of the gateway")
 	cmd.Flags().StringArrayVarP(&mounts, "mount", "m", nil, "show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable)")
 	return cmd
 }
@@ -142,6 +153,8 @@ func checkSandboxArgs(args []string) error {
 		switch opt {
 		case "-g", "--gateway":
 			return fmt.Errorf("%s: brig picks the gateway from the VM", opt)
+		case "--workspace":
+			return fmt.Errorf("%s: give it to brig, before --", opt)
 		case "--driver-config-json":
 			return fmt.Errorf("%s: brig sets it from --mount", opt)
 		}
