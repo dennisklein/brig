@@ -151,6 +151,17 @@ func logSetting(cmd *cobra.Command, f *progressFlags) cliprogress.Setting {
 	return s
 }
 
+// inheritedTrace returns the trace context that the caller handed on in
+// TRACEPARENT and TRACESTATE, so that the event log tells which run belongs
+// to the caller's task. It takes both out of the environment, since brig
+// hands none on to the programs it starts.
+func inheritedTrace() progress.TraceContext {
+	tc, _ := progress.ParseTraceContext(os.Getenv("TRACEPARENT"), os.Getenv("TRACESTATE"))
+	_ = os.Unsetenv("TRACEPARENT")
+	_ = os.Unsetenv("TRACESTATE")
+	return tc
+}
+
 // start runs as the root's PersistentPreRunE.
 func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags) error {
 	if skipsProgress(cmd) {
@@ -164,6 +175,7 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 		},
 		Log:        logSetting(cmd, f),
 		LogOptions: progress.LogOptions{Version: version.Version()},
+		Trace:      inheritedTrace,
 		Stderr:     os.Stderr,
 		OnTerminal: isTerminal(os.Stderr),
 		Dumb:       os.Getenv("TERM") == "dumb",
