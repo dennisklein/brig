@@ -118,11 +118,12 @@ func Run(ctx context.Context, o Options) error {
 	home, _ := os.UserHomeDir()
 	checkHost := collect.Doctor
 	var starter run.Starter
+	var files FileLister
 	if o.Demo {
 		home = demo.Home
 		checkHost = demo.CheckHost
 		host := demo.New(st)
-		starter = host
+		starter, files = host, host
 		goRun(func() { host.Run(ctx, addr) })
 	} else {
 		brig := o.Brig
@@ -145,6 +146,7 @@ func Run(ctx context.Context, o Options) error {
 			log.Warn("brig ui cannot read OpenShell gateways", "err", err)
 		} else {
 			goRun(func() { collect.NewGateways(home).Run(ctx, st) })
+			files = collect.NewFiles(st, home)
 		}
 		if o.ActivityLog != "" {
 			goRun(func() { collect.Activity(ctx, st, o.ActivityLog) })
@@ -162,7 +164,7 @@ func Run(ctx context.Context, o Options) error {
 
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: token, Port: port, Demo: o.Demo, Home: home,
-		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Log: log,
+		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, Log: log,
 	})
 	if err != nil {
 		return err

@@ -104,11 +104,31 @@
 {{end}}{{end}}</pre>{{end}}
 
 {{define "sandbox-files"}}{{$g := .Gateway}}{{$s := .Sandbox}}
-<section class="panel"><div class="ph"><h2 class="mono">/sandbox</h2><span class="faint small">The sandbox's workspace, kept across stop and start</span></div><div class="pb stack">
-  {{template "cmd" (cmd "List it" (oscmd $g.VM "sandbox" "exec" "-n" $s.Name "--no-tty" "--" "ls" "-la" "/sandbox"))}}
+<section class="panel"><div class="ph"><h2>Files</h2><span class="faint small">The sandbox's workspace /sandbox, kept across stop and start</span></div>
+  {{if $s.Ready}}<div class="pb" hx-get="/sandboxes/{{$g.VM}}/{{$s.Name}}/files?path={{.Path | urlquery}}" hx-trigger="load" hx-swap="innerHTML"><span class="faint">Listing…</span></div>
+  {{else}}<div class="pb muted">{{$s.Name}} is {{lower $s.Phase}}. Its files can be listed once it runs.</div>{{end}}
+</section>
+<section class="panel gap-above"><div class="ph"><h2>Move files</h2><span class="faint small">brig ui does not copy files; run these in your terminal</span></div><div class="pb stack">
   {{template "cmd" (cmd "Upload a file or directory (in a Git work tree, .gitignore applies)" (oscmd $g.VM "sandbox" "upload" $s.Name "PATH" "/sandbox/"))}}
   {{template "cmd" (cmd "Download a file or directory" (oscmd $g.VM "sandbox" "download" $s.Name "/sandbox/PATH" "."))}}
 </div></section>
+{{end}}
+
+{{/* A directory of a sandbox, loaded into the Files tab. */}}
+
+{{define "sandbox-dir"}}{{$g := .Gateway}}{{$s := .Sandbox}}
+<div class="crumbs">{{range $i, $c := .Crumbs}}{{if $i}}<span>/</span>{{end}}<a href="{{$c.Href}}">{{$c.Label}}</a>{{end}}</div>
+{{if .Err}}<div class="callout bad">{{.Err}}</div>
+{{else}}
+<div class="tw"><table><thead><tr><th>Name</th><th class="num">Size</th><th>Modified</th></tr></thead><tbody>
+{{range .Rows}}<tr><td class="mono">{{if .Href}}<a href="{{.Href}}">{{.Name}}/</a>{{else}}{{.Name}}{{if eq .Kind "dir"}}/{{else if eq .Kind "link"}} <span class="faint">link</span>{{end}}{{end}}</td>
+  <td class="num mono small">{{if eq .Kind "file"}}{{fileSize .Size}}{{else}}<span class="faint">–</span>{{end}}</td>
+  <td class="muted small">{{if .Mod.IsZero}}–{{else}}<span title="{{stamp .Mod}}">{{rel .Mod}}</span>{{end}}</td></tr>
+{{else}}<tr><td colspan="3" class="empty">Nothing here.</td></tr>{{end}}
+</tbody></table></div>
+{{if .Truncated}}<p class="note">Only the first entries are listed.</p>{{end}}
+{{end}}
+<div class="stack gap-above">{{template "cmd" (cmd "Listed with" .Cmd)}}</div>
 {{end}}
 
 {{/* A gateway: its providers, profiles, policies and templates. */}}

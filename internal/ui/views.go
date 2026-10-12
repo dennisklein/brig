@@ -138,6 +138,8 @@ type view struct {
 	// Sandbox on a sandbox's page.
 	Gateway store.Gateway
 	Sandbox store.Sandbox
+	// Path is the directory that a sandbox's Files tab shows.
+	Path string
 	// Filter names the VM whose sandboxes a list shows, empty for all.
 	Filter string
 	// Query is the jump box's query, for the palette.

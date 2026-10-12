@@ -4,6 +4,7 @@
 package demo
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -154,4 +155,41 @@ func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 		slices.SortFunc(g.Sandboxes, func(a, b store.Sandbox) int { return strings.Compare(a.Name, b.Name) })
 	}
 	return p, nil
+}
+
+// ListFiles implements ui.FileLister with the same made-up files in every
+// sandbox.
+func (h *Host) ListFiles(ctx context.Context, _, _, dir string) (store.Dir, error) {
+	select {
+	case <-ctx.Done():
+		return store.Dir{}, ctx.Err()
+	case <-time.After(150 * time.Millisecond):
+	}
+	now := time.Now()
+	file := func(name string, size int64, ago time.Duration) store.File {
+		return store.File{Name: name, Kind: "file", Size: size, Mod: now.Add(-ago)}
+	}
+	dirent := func(name string, ago time.Duration) store.File {
+		return store.File{Name: name, Kind: "dir", Size: 4096, Mod: now.Add(-ago)}
+	}
+	switch dir {
+	case "/sandbox":
+		return store.Dir{Files: []store.File{
+			dirent("webapp", 3*time.Hour), dirent(".pi", 26*time.Hour), file("notes.md", 1840, 2*24*time.Hour),
+			file(".bashrc", 412, 9*24*time.Hour),
+			{Name: "latest", Kind: "link", Size: 6, Mod: now.Add(-24 * time.Hour)},
+		}}, nil
+	case "/sandbox/webapp":
+		return store.Dir{Files: []store.File{
+			dirent(".git", 3*time.Hour), dirent("src", 5*time.Hour), dirent("node_modules", 8*24*time.Hour),
+			file("package.json", 1290, 8*24*time.Hour), file("README.md", 3401, 8*24*time.Hour), file("package-lock.json", 183420, 8*24*time.Hour),
+		}}, nil
+	case "/sandbox/webapp/src":
+		return store.Dir{Files: []store.File{
+			file("index.ts", 2210, 5*time.Hour), file("app.ts", 9873, 5*time.Hour), file("util.ts", 640, 4*24*time.Hour),
+		}}, nil
+	case "/sandbox/.pi":
+		return store.Dir{Files: []store.File{dirent("agent", 26*time.Hour)}}, nil
+	}
+	return store.Dir{}, nil
 }

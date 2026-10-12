@@ -36,6 +36,7 @@ type Server struct {
 	checkHost func(context.Context, *store.Store)
 	checking  atomic.Bool
 	starter   run.Starter
+	files     FileLister
 	home      string
 	// ctx ends the live update streams when the server stops.
 	ctx context.Context
@@ -56,7 +57,9 @@ type serverConfig struct {
 	CheckHost func(context.Context, *store.Store)
 	// Starter runs the commands that dialogs make.
 	Starter run.Starter
-	Log     *slog.Logger
+	// Files lists directories in sandboxes; nil lists none.
+	Files FileLister
+	Log   *slog.Logger
 }
 
 func newServer(ctx context.Context, c serverConfig) (*Server, error) {
@@ -70,7 +73,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	}
 	s := &Server{
 		st: c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a,
-		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
+		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
 	s.mux.HandleFunc("GET /{$}", s.overview)
@@ -82,6 +85,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("GET /activity", s.activity)
 	s.mux.HandleFunc("GET /sandboxes", s.sandboxes)
 	s.mux.HandleFunc("GET /sandboxes/{vm}/{name}", s.sandbox)
+	s.mux.HandleFunc("GET /sandboxes/{vm}/{name}/files", s.sandboxFiles)
 	s.mux.HandleFunc("GET /gateway", s.firstGateway)
 	s.mux.HandleFunc("GET /gateways/{vm}", s.gateway)
 	s.mux.HandleFunc("GET /palette", s.palette)

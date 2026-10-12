@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,6 +138,49 @@ func (g *gateway) GetSandboxConfig(_ context.Context, r *sb.GetSandboxConfigRequ
 		return nil, err
 	}
 	return &sb.GetSandboxConfigResponse{Version: 3, PolicySource: sb.PolicySource_POLICY_SOURCE_SANDBOX, Policy: testPolicy()}, nil
+}
+
+// lastExec is what the fake gateway was last asked to run.
+var lastExec atomic.Pointer[pb.ExecSandboxRequest]
+
+func (g *gateway) ExecSandbox(r *pb.ExecSandboxRequest, stream grpc.ServerStreamingServer[pb.ExecSandboxEvent]) error {
+	if err := checkScope(r.GetWorkspaceScope()); err != nil {
+		return err
+	}
+	lastExec.Store(r)
+	send := func(ev *pb.ExecSandboxEvent) {
+		_ = stream.Send(ev)
+	}
+	stdout := func(s string) {
+		send(&pb.ExecSandboxEvent{Payload: &pb.ExecSandboxEvent_Stdout{Stdout: &pb.ExecSandboxStdout{Data: []byte(s)}}})
+	}
+	exit := func(code int32) {
+		send(&pb.ExecSandboxEvent{Payload: &pb.ExecSandboxEvent_Exit{Exit: &pb.ExecSandboxExit{ExitCode: code}}})
+	}
+	switch r.GetSandbox() {
+	case "webapp":
+		// Records may split across messages.
+		stdout("d\t4096\t1760000000.5\t.git\x00f\t12\t1760000100.0\tREAD")
+		stdout("ME.md\x00l\t9\t1760000200.0\tlatest\x00d\t4096\t1760000300.0\tmy dir\nx\x00s\t0\t1760000400.0\tsock\x00")
+		exit(0)
+	case "empty":
+		exit(0)
+	case "nodir":
+		send(&pb.ExecSandboxEvent{Payload: &pb.ExecSandboxEvent_Stderr{Stderr: &pb.ExecSandboxStderr{Data: []byte("find: '/sandbox/x': No such file or directory\n")}}})
+		exit(1)
+	case "garbled":
+		stdout("what\x00")
+		exit(0)
+	case "silent":
+	case "huge":
+		var b strings.Builder
+		for i := range maxFiles + 5 {
+			b.WriteString("f\t1\t1\tf" + strconv.Itoa(i) + "\x00")
+		}
+		stdout(b.String())
+		exit(0)
+	}
+	return nil
 }
 
 func testPolicy() *sb.SandboxPolicy {
@@ -422,4 +466,48 @@ func portOf(c *Client) int {
 	_, port, _ := net.SplitHostPort(strings.TrimPrefix(c.conn.Target(), "passthrough:///"))
 	p, _ := strconv.Atoi(port)
 	return p
+}
+
+func TestListDir(t *testing.T) {
+	c := serve(t, &gateway{})
+	ctx := context.Background()
+	d, err := c.ListDir(ctx, "webapp", "/sandbox/src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.File{
+		{Name: ".git", Kind: "dir", Size: 4096, Mod: time.Unix(1760000000, 0)},
+		{Name: "README.md", Kind: "file", Size: 12, Mod: time.Unix(1760000100, 0)},
+		{Name: "latest", Kind: "link", Size: 9, Mod: time.Unix(1760000200, 0)},
+		{Name: "my dir\nx", Kind: "dir", Size: 4096, Mod: time.Unix(1760000300, 0)},
+		{Name: "sock", Kind: "other", Mod: time.Unix(1760000400, 0)},
+	}
+	if !reflect.DeepEqual(d.Files, want) || d.Truncated {
+		t.Errorf("ListDir = %+v, want %+v", d, want)
+	}
+	// The sandbox runs find with the directory as one argument, and no
+	// shell sees it.
+	req := lastExec.Load()
+	if got := req.GetCommand(); !reflect.DeepEqual(got, ListCommand("/sandbox/src")) || got[0] != "find" || got[1] != "/sandbox/src" {
+		t.Errorf("ran %q", got)
+	}
+	if req.GetSandbox() != "webapp" || !req.GetNoLoginShell() || req.GetTty() || req.GetStdin() != nil {
+		t.Errorf("request: %+v", req)
+	}
+
+	if d, err := c.ListDir(ctx, "empty", "/sandbox"); err != nil || len(d.Files) != 0 {
+		t.Errorf("empty: %+v, %v", d, err)
+	}
+	if _, err := c.ListDir(ctx, "nodir", "/sandbox/x"); err == nil || !strings.Contains(err.Error(), "No such file or directory") {
+		t.Errorf("failed listing: %v", err)
+	}
+	if _, err := c.ListDir(ctx, "garbled", "/sandbox"); err == nil {
+		t.Error("a garbled listing was accepted")
+	}
+	if _, err := c.ListDir(ctx, "silent", "/sandbox"); err == nil || !strings.Contains(err.Error(), "exit status") {
+		t.Errorf("a listing without exit status: %v", err)
+	}
+	if d, err := c.ListDir(ctx, "huge", "/sandbox"); err != nil || len(d.Files) != maxFiles || !d.Truncated {
+		t.Errorf("huge: %d files, truncated %v, %v", len(d.Files), d.Truncated, err)
+	}
 }
