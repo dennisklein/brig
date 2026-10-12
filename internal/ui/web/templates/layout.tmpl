@@ -1,0 +1,40 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"historyCacheSize":0}'>
+<title>{{if .Title}}{{.Title}} · {{end}}brig ui</title>
+<link rel="icon" type="image/svg+xml" href="{{call .Asset "icon.svg"}}">
+<link rel="stylesheet" href="{{call .Asset "app.css"}}">
+<script src="{{call .Asset "app.js"}}"></script>
+<script src="{{call .Asset "htmx.min.js"}}" defer></script>
+<script src="{{call .Asset "htmx-ext-sse.js"}}" defer></script>
+</head>
+<body hx-headers='{"X-Brig-CSRF": "{{.CSRF}}"}'>
+<div class="app"{{if .Events}} hx-ext="sse" sse-connect="{{.Events}}"{{end}}>
+  <header class="top">
+    <a class="brand" href="/"><span class="glyph">▥</span> brig <small>ui</small></a>
+    <button type="button" class="search" data-palette-open><span>Jump to a VM or page</span><kbd>/</kbd></button>
+    <div class="spacer"></div>
+    {{if .Events}}<span class="live" id="live" title="Live: changes show as they happen"><span class="dot"></span><span>live</span></span>{{end}}
+    {{if .Demo}}<span class="mockbadge" title="Everything here is made up. Nothing runs.">mock data</span>{{end}}
+    <span class="hostchip"><span class="dot"></span>{{with .Snap.Host.Name}}{{.}} · {{end}}{{.Snap.Host.Addr}}</span>
+    <button type="button" class="btn ghost sm" data-theme-toggle title="Switch theme">◐</button>
+  </header>
+  <nav class="rail" id="rail" sse-swap="rail">{{template "rail" .}}</nav>
+  <main class="main">{{template "content" .}}</main>
+</div>
+<div class="scrim" id="palette" hidden>
+  <div class="modal palette" role="dialog" aria-label="Jump to">
+    <input name="q" placeholder="Jump to…" aria-label="Search" autocomplete="off"
+      hx-get="/palette" hx-trigger="input changed delay:80ms, palette-open" hx-target="#palette-list">
+    <ul id="palette-list"></ul>
+  </div>
+</div>
+</body>
+</html>
+{{end}}

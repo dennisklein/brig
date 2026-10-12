@@ -1,0 +1,199 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{/* Small parts. */}}
+
+{{define "pill"}}<span class="pill {{stateClass .}}"><span class="dot"></span>{{.}}</span>{{end}}
+
+{{define "meter"}}<svg class="meter{{if high .}} warn{{end}}" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="6" rx="3"/>{{with width .}}<rect class="fill" width="{{.}}" height="6" rx="3"/>{{end}}</svg>{{end}}
+
+{{define "datameter"}}<svg class="meter {{if high .}}warn{{else}}ok{{end}}" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="6" rx="3"/>{{with width .}}<rect class="fill" width="{{.}}" height="6" rx="3"/>{{end}}</svg>{{end}}
+
+{{define "cmd"}}<div>{{with .Label}}<div class="cmdlabel">{{.}}</div>{{end}}<div class="cmd"><pre><span class="ps">$ </span><span class="text">{{.Text}}</span></pre><button type="button" data-copy="{{.Text}}">Copy</button></div></div>{{end}}
+
+{{define "netchips"}}{{$p := .}}<span class="flags"><span class="chip{{if not $p.Internet}} off{{end}}">internet</span><span class="chip{{if not $p.LAN}} off{{end}}">lan</span><span class="chip{{if not $p.Host}} off{{end}}">host</span>{{with $p.HostPorts}}<span class="chip">host:{{hostPorts .}}</span>{{end}}<span class="chip{{if not $p.IPv6}} off{{end}}">ipv6</span></span>{{end}}
+
+{{/* The rail. */}}
+
+{{define "rail"}}
+<h6>Overview</h6>
+<a class="nav{{if eq .Page "overview"}} on{{end}}" href="/"><span class="ico">◎</span>Overview</a>
+<h6>brig</h6>
+<a class="nav{{if eq .Page "vms"}} on{{end}}" href="/vms"><span class="ico">▥</span>VMs<span class="count">{{running .Snap.VMs}}/{{len .Snap.VMs}}</span></a>
+<a class="nav{{if eq .Page "host"}} on{{end}}" href="/host"><span class="ico">✓</span>Host</a>
+<a class="nav{{if eq .Page "activity"}} on{{end}}" href="/activity"><span class="ico">≡</span>Activity</a>
+{{end}}
+
+{{/* Overview. */}}
+
+{{define "overview-sub"}}
+<span>{{running .Snap.VMs}} of {{len .Snap.VMs}} VMs running</span>
+{{with .Snap.Activity}}<span>last run {{rel (index . 0).Start}}</span>{{end}}
+<span class="faint">brig {{.Snap.Host.BrigVersion}}{{with .Snap.Host.OpenShellCLI}} · openshell CLI {{.}}{{end}}</span>
+{{end}}
+
+{{define "vm-cards"}}
+{{range .Snap.VMs}}{{template "vm-card" (cardOf $ .)}}{{else}}
+<section class="panel empty">No VMs yet. Create one in a terminal: <code>brig create NAME</code></section>
+{{end}}
+{{end}}
+
+{{define "vm-card"}}{{$v := .VM}}
+<a class="panel vmcard" href="/vms/{{$v.Name}}">
+  <div class="row1"><span class="name">{{$v.Name}}</span>{{template "pill" $v.State}}<span class="gw">{{$v.GatewayName}}</span></div>
+  <div class="meters">
+    <span>cpu</span>{{template "meter" (stat $v "cpu")}}<span>{{if $v.Running}}{{pct (stat $v "cpu")}}{{else}}–{{end}}</span>
+    <span>mem</span>{{template "meter" (stat $v "mem")}}{{if and $v.Running $v.Stats $v.Stats.MemoryFromHost}}<span title="What QEMU holds on the host; the guest has not reported its own use yet">≈{{pct (stat $v "mem")}}</span>{{else}}<span>{{if $v.Running}}{{pct (stat $v "mem")}}{{else}}–{{end}}</span>{{end}}
+    <span>data</span>{{template "datameter" (stat $v "data")}}<span>{{pct (stat $v "data")}}</span>
+  </div>
+  <dl class="kv">
+    <dt>resources</dt><dd>{{$v.CPUs}} CPUs · {{size $v.Memory}}</dd>
+    <dt>network</dt><dd>{{$v.NetworkProfile}}</dd>
+    {{if and $v.Running (not $v.Up.IsZero)}}<dt>up</dt><dd>{{since $v.Up}}</dd>{{end}}
+    <dt>mounts</dt><dd>{{with $v.Mounts}}{{range .}}<span class="chip">{{.Target}}</span>{{end}}{{else}}<span class="faint">none</span>{{end}}</dd>
+  </dl>
+  {{if or .SyncErr .Older}}<div class="flags">
+    {{if .SyncErr}}<span class="pill bad">sync error</span>{{end}}
+    {{if .Older}}<span class="pill info">upgrade available</span>{{end}}
+  </div>{{end}}
+</a>
+{{end}}
+
+{{define "needs"}}{{$n := needs .Snap}}
+<div class="ph"><h2>Needs you</h2><span class="grow"></span><span class="faint small">{{len $n}} item{{if ne (len $n) 1}}s{{end}}</span></div>
+<div class="attn">
+{{range $n}}<div class="it"><span class="bar {{.Sev}}"></span><div><div class="t">{{.Title}}</div>{{with .Detail}}<div class="d">{{.}}</div>{{end}}</div><div><a class="btn sm" href="{{.Link}}">{{.Action}}</a></div></div>
+{{else}}<div class="empty">Nothing needs you.</div>{{end}}
+</div>
+{{end}}
+
+{{define "recent-activity"}}
+<div class="ph"><h2>Recent activity</h2><span class="grow"></span><a class="btn sm ghost" href="/activity">All activity</a></div>
+<div class="recent">{{with .Snap.Activity}}<ul>
+{{range $i, $r := .}}{{if lt $i 6}}<li><span class="dot {{runClass $r}}"></span><span class="title">{{$r.Title}}</span><span class="faint small">{{if $r.Done}}{{rel $r.Start}}{{else}}running{{end}}</span></li>{{end}}{{end}}
+</ul>{{else}}<div class="empty">No brig commands yet. Commands you run in a terminal show here too.</div>{{end}}</div>
+{{end}}
+
+{{/* VMs. */}}
+
+{{define "vm-table"}}
+<table><thead><tr><th>Name</th><th>State</th><th>Gateway</th><th class="num">CPUs</th><th class="num">Memory</th><th>Network</th><th>Base image</th><th class="num">Mounts</th></tr></thead><tbody>
+{{range .Snap.VMs}}<tr class="click" data-href="/vms/{{.Name}}">
+  <td><a class="rowlink" href="/vms/{{.Name}}">{{.Name}}</a></td><td>{{template "pill" .State}}</td>
+  <td class="mono">{{.GatewayName}} <span class="faint">{{.OpenShell}}</span></td>
+  <td class="num">{{.CPUs}}</td><td class="num">{{size .Memory}}</td><td>{{.NetworkProfile}}</td>
+  <td class="mono">{{.Image}}{{if older $.Snap .}} <span class="pill info">older</span>{{end}}</td>
+  <td class="num">{{len .Mounts}}</td>
+</tr>{{else}}<tr><td colspan="8" class="empty">No VMs yet. Create one in a terminal: <code>brig create NAME</code></td></tr>{{end}}
+</tbody></table>
+{{end}}
+
+{{/* A VM: the header, the tabs and the tab's body, replaced as a whole. */}}
+
+{{define "vm"}}{{$v := .VM}}{{if not $v.Name}}
+<div class="crumbs"><a href="/vms">VMs</a></div>
+<section class="panel empty">This VM is gone: brig delete removed it, or its record no longer loads.</section>
+{{else}}
+<div class="crumbs"><a href="/vms">VMs</a><span>/</span><span>{{$v.Name}}</span></div>
+<div class="head"><div class="titles"><h1>{{$v.Name}}</h1>
+  <div class="sub">{{template "pill" $v.State}}<span class="mono">{{$v.GatewayName}}</span>{{with $v.OpenShell}}<span>OpenShell {{.}}</span>{{end}}<span>{{if and $v.Running (not $v.Up.IsZero)}}up {{since $v.Up}}{{else}}created {{rel $v.CreatedAt}}{{end}}</span></div></div>
+</div>
+<div class="tabs">{{range vmTabs}}<a class="tab{{if eq .Key $.Tab}} on{{end}}" href="/vms/{{$v.Name}}?tab={{.Key}}">{{.Label}}{{if eq .Key "mounts"}}<span class="n">{{len $v.Mounts}}</span>{{end}}</a>{{end}}</div>
+{{if eq .Tab "summary"}}{{template "vm-summary" .}}
+{{else if eq .Tab "mounts"}}{{template "vm-mounts" .}}
+{{else if eq .Tab "openshell"}}{{template "vm-openshell" .}}
+{{else if eq .Tab "network"}}{{template "vm-network" .}}
+{{else if eq .Tab "shell"}}{{template "vm-shell" .}}{{end}}
+{{end}}{{end}}
+
+{{define "vm-summary"}}{{$v := .VM}}
+<div class="grid g2">
+  <section class="panel"><div class="ph"><h2>Resources</h2></div><div class="pb">
+    <dl class="kv"><dt>CPUs</dt><dd>{{$v.CPUs}}</dd><dt>Memory</dt><dd>{{size $v.Memory}}</dd>
+    <dt>Root disk</dt><dd>{{size $v.RootDisk}} <span class="faint">overlay of the base image, thrown away on upgrade</span></dd>
+    <dt>Data disk</dt><dd>{{size $v.DataDisk}} at /home/agent{{with stat $v "data"}}, {{pct .}} used{{end}} <span class="faint">gateway state, secrets, images, workspaces</span></dd></dl>
+    <p class="note">Change them with brig update {{$v.Name}}; CPU, memory and disk changes apply at the next boot.</p></div></section>
+  <section class="panel"><div class="ph"><h2>Image and gateway</h2></div><div class="pb">
+    <dl class="kv"><dt>Base image</dt><dd class="mono">{{$v.Image}}{{if older .Snap $v}} <span class="pill info">{{.Snap.NewestImage.ID}} available</span>{{else if .Snap.NewestImage}} <span class="pill ok">newest</span>{{end}}</dd>
+    <dt>Gateway</dt><dd class="mono">{{$v.GatewayName}}{{with $v.OpenShell}} · OpenShell {{.}}{{end}}</dd>
+    <dt>Host ports</dt><dd class="mono">ssh 127.0.0.1:{{$v.Ports.SSH}} · gateway 127.0.0.1:{{$v.Ports.Gateway}}</dd>
+    <dt>libvirt</dt><dd class="mono">qemu:///session · {{$v.DomainName}}</dd><dt>Created</dt><dd>{{rel $v.CreatedAt}}</dd></dl></div></section>
+</div>
+{{end}}
+
+{{define "vm-mounts"}}{{$v := .VM}}
+<section class="panel"><div class="ph"><h2>Host directories</h2><span class="faint small">virtiofs. brig update {{$v.Name}} --add-mount changes them on a running VM at once.</span></div>
+<div class="tw"><table><thead><tr><th>Host</th><th>In the VM</th><th>Access</th><th>Sandbox volume</th></tr></thead><tbody>
+{{range $v.Mounts}}<tr><td class="mono">{{tilde .Source}}</td><td class="mono">{{.Target}}</td><td>{{if .ReadOnly}}<span class="chip">ro</span>{{else}}<span class="chip acc">rw</span>{{end}}</td><td>{{if .Sandbox}}<span class="chip">{{.Tag}}</span>{{else}}<span class="faint">–</span>{{end}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">No host directories are shared with this VM.</td></tr>{{end}}
+</tbody></table></div></section>
+<p class="note">In the VM, user agent owns what you own on the host. Sandbox volumes are always read-only.</p>
+{{end}}
+
+{{define "vm-openshell"}}{{$v := .VM}}
+<section class="panel"><div class="ph"><h2>Config directories</h2></div><div class="pb stack">
+  {{range $v.OpenShellConfigs}}<div class="mono">{{tilde .}}</div>{{else}}<p class="muted">None. Providers on this gateway were created by hand, if any.</p>{{end}}
+  {{with $v.LastSync}}{{if .Error}}<div class="callout bad"><b>The last sync, {{rel .Time}}, failed.</b><br>{{.Error}}</div>{{else}}<div><span class="pill ok"><span class="dot"></span>synced {{rel .Time}}</span></div>{{end}}{{else}}{{if $v.OpenShellConfigs}}<div><span class="pill">never synced</span></div>{{end}}{{end}}
+  {{if $v.OpenShellConfigs}}{{template "cmd" (cmd "Preview what a sync would change" (print "brig sync " $v.Name " --dry-run"))}}{{end}}
+</div></section>
+{{end}}
+
+{{define "vm-network"}}{{$v := .VM}}{{$p := profile .Snap $v.NetworkProfile}}
+<div class="grid g2">
+  <section class="panel"><div class="ph"><h2>Network profile <span class="chip acc">{{$v.NetworkProfile}}</span></h2></div>
+  {{if $p}}<table><tbody>
+    {{template "netrow" (netrow $p.Internet "Internet" "public addresses, DNS from the host")}}
+    {{template "netrow" (netrow $p.LAN "LAN" "private ranges, VPN intranets, host networks")}}
+    {{if $p.HostPorts}}{{template "netrow" (netrow true (print "Host ports " (hostPorts $p.HostPorts)) "only these TCP ports on the host")}}{{else}}{{template "netrow" (netrow $p.Host "Host" "services on this laptop")}}{{end}}
+    {{template "netrow" (netrow $p.IPv6 "IPv6" "")}}
+  </tbody></table>{{else}}<div class="pb"><div class="callout warn">config.yaml has no profile {{$v.NetworkProfile}}; brig start {{$v.Name}} will fail until it does.</div></div>{{end}}</section>
+  <section class="panel"><div class="ph"><h2>Two fences</h2></div><div class="pb fences">
+    <div><span class="fence f1">fence 1</span> each sandbox's OpenShell policy, per host, binary, method and path. It reloads at once.</div>
+    <div><span class="fence f2">fence 2</span> this profile, enforced by nftables on the host, outside the VM. Root in the VM cannot lift it. Changes apply at the next boot.</div>
+    <div class="muted">A request leaves only if both allow it.</div></div></section>
+</div>
+{{end}}
+
+{{define "netrow"}}<tr><td>{{if .On}}<span class="verdict allow">ALLOW</span>{{else}}<span class="verdict deny">BLOCK</span>{{end}}</td><td class="strong">{{.Label}}</td><td class="muted">{{.Detail}}</td></tr>{{end}}
+
+{{define "vm-shell"}}{{$v := .VM}}
+<section class="panel"><div class="pb stack"><p>Open a shell in the VM as user agent, or the serial console, from your terminal.</p>
+  {{template "cmd" (cmd "As agent" (print "brig ssh " $v.Name))}}
+  {{template "cmd" (cmd "As root" (print "brig ssh " $v.Name " --root"))}}
+  {{template "cmd" (cmd "Serial console" (print "brig console " $v.Name))}}
+  {{template "cmd" (cmd "Point this shell's openshell CLI at the VM" (print "brig use " $v.Name))}}
+</div></section>
+{{end}}
+
+{{/* Host. */}}
+
+{{define "host-checks"}}{{$d := .Snap.Doctor}}
+<div class="head"><div class="titles"><h1>Host</h1>
+  <div class="sub"><span>brig doctor{{with .Snap.Host.Name}} on {{.}}{{end}}</span>{{if $d}}{{if not $d.Time.IsZero}}<span class="faint">checked {{rel $d.Time}}</span>{{end}}{{end}}</div></div>
+  <div class="actions"><button type="button" class="btn" hx-post="/host/check" hx-target="#host-checks"{{if and $d $d.Running}} disabled{{end}}>{{if and $d $d.Running}}Checking…{{else}}Check again{{end}}</button></div>
+</div>
+{{if and $d $d.Results}}
+<section class="panel tw"><table><tbody>
+{{range $d.Results}}<tr><td class="dotcell"><span class="dot {{checkClass .Status}}"></span></td><td class="strong">{{.Name}}</td><td class="muted">{{.Detail}}{{with .Hint}}<div class="faint small">To fix: {{range lines .}}{{.}}<br>{{end}}</div>{{end}}</td></tr>{{end}}
+</tbody></table></section>
+{{else}}<section class="panel empty">Running the checks…</section>{{end}}
+{{end}}
+
+{{/* Activity. */}}
+
+{{define "activity-list"}}
+{{range .Snap.Activity}}<details id="run-{{.ID}}"><summary><span class="dot {{runClass .}}"></span><span class="title mono">{{.Title}}</span><span class="faint">{{if .Done}}{{rel .Start}}{{else}}running{{end}}</span></summary>
+  {{template "tree" .Steps}}
+  {{with .Err}}<div class="err">{{.}}</div>{{end}}
+</details>
+{{else}}<div class="empty">No brig commands yet. Commands you run in a terminal show here too.</div>{{end}}
+{{end}}
+
+{{define "tree"}}{{with .}}<ul class="tree">{{range .}}<li class="{{statusClass .Status .Done}}"><div class="line"><span class="m">{{statusMark .Status .Done}}</span><span>{{.Name}}{{with .Err}} <span class="why">{{.}}</span>{{else}}{{with .Message}} <span class="why">{{.}}</span>{{end}}{{end}}</span></div>{{template "tree" .Steps}}</li>{{end}}</ul>{{end}}{{end}}
+
+{{/* The jump box's entries. */}}
+
+{{define "palette-list"}}
+{{range palette .Snap .Query}}<li data-link="{{.Link}}"><a href="{{.Link}}">{{.Label}}<span class="k">{{.Kind}}</span></a></li>
+{{else}}<li class="none">Nothing matches</li>{{end}}
+{{end}}

@@ -1,0 +1,7 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{define "content"}}
+<div class="head"><div class="titles"><h1>Activity</h1><div class="sub">What brig did, from a terminal or from here. Same steps as the progress tree in a terminal.</div></div></div>
+<section class="panel runs" sse-swap="activity-list">{{template "activity-list" .}}</section>
+{{end}}

@@ -1,0 +1,7 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{define "content"}}
+<div id="host-checks" sse-swap="host-checks">{{template "host-checks" .}}</div>
+<div class="gap-above">{{template "cmd" (cmd "Same as" "brig doctor")}}</div>
+{{end}}
