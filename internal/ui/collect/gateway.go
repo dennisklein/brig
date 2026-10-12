@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"reflect"
 	"slices"
@@ -45,6 +46,10 @@ type GatewayClient interface {
 	Profiles(ctx context.Context) ([]store.Profile, error)
 	Templates(ctx context.Context) ([]store.Template, error)
 	Policy(ctx context.Context, sandbox string) (*store.Policy, error)
+	// Watch follows a sandbox's log until the stream or ctx ends.
+	Watch(ctx context.Context, sandbox string, from osclient.WatchFrom, each func(osclient.WatchEvent)) error
+	// Drafts lists the rules OpenShell drafted for a sandbox.
+	Drafts(ctx context.Context, sandbox string) ([]store.Draft, error)
 	BundleChanged() bool
 	Close() error
 }
@@ -60,6 +65,12 @@ type Gateways struct {
 	// Backoff is the first wait before dialing a gateway again; zero picks
 	// a second.
 	Backoff time.Duration
+	// FlushEvery, DraftsAfter and DraftsEvery time the traffic feed; zero
+	// picks the defaults.
+	FlushEvery, DraftsAfter, DraftsEvery time.Duration
+	// Log tells why a sandbox's log or drafts cannot be read; nil logs
+	// nothing.
+	Log *slog.Logger
 }
 
 // NewGateways returns a collector that reaches each gateway with the mTLS
@@ -156,6 +167,7 @@ func (g *Gateways) reconcile(ctx context.Context, st *store.Store, workers map[s
 		}
 	}
 	st.RemoveGateways(func(vm string) bool { return names[vm] })
+	st.RemoveTraffic(func(vm string) bool { return names[vm] })
 }
 
 // start starts a worker for the gateway of v.
@@ -180,11 +192,13 @@ func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
 		return true
 	})
 	backoff := g.backoff()
+	// positions are where the traffic feed is in each sandbox's log.
+	positions := map[string]*position{}
 	for {
 		c, err := g.Dial(v)
 		if err == nil {
 			var answered bool
-			answered, err = g.serve(ctx, st, v.Name, c)
+			answered, err = g.serve(ctx, st, v.Name, c, positions)
 			_ = c.Close()
 			if answered {
 				backoff = g.backoff()
@@ -219,11 +233,22 @@ func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
 
 // serve reads the gateway through c until an error or ctx ends. It reports
 // whether the gateway answered.
-func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient) (bool, error) {
+func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient, positions map[string]*position) (bool, error) {
 	version, err := c.Version(ctx)
 	if err != nil {
 		return false, err
 	}
+	tctx, stopTraffic := context.WithCancel(ctx)
+	tr := newTraffic(g, st, vm, c, positions)
+	trafficDone := make(chan struct{})
+	go func() {
+		defer close(trafficDone)
+		tr.run(tctx)
+	}()
+	defer func() {
+		stopTraffic()
+		<-trafficDone
+	}()
 	var (
 		providers []store.Provider
 		profiles  []store.Profile
@@ -269,6 +294,8 @@ func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c Gate
 			clear(policies)
 		}
 		g.addPolicies(ctx, c, sandboxes, policies)
+		tr.follow(tctx, sandboxes)
+		tr.readDrafts(ctx, sandboxes)
 		lastRead = time.Now()
 		st.UpdateGateway(vm, func(gw *store.Gateway) bool {
 			if gw.State == store.GatewayReady && gw.Version == version &&
@@ -388,3 +415,13 @@ func readCapped(path string, limit int64) (string, error) {
 func (g *Gateways) sandboxesEvery() time.Duration { return cmp.Or(g.SandboxesEvery, sandboxesEvery) }
 func (g *Gateways) restEvery() time.Duration      { return cmp.Or(g.RestEvery, restEvery) }
 func (g *Gateways) backoff() time.Duration        { return cmp.Or(g.Backoff, time.Second) }
+func (g *Gateways) flushEvery() time.Duration     { return cmp.Or(g.FlushEvery, flushEvery) }
+func (g *Gateways) draftsAfter() time.Duration    { return cmp.Or(g.DraftsAfter, draftsAfter) }
+func (g *Gateways) draftsEvery() time.Duration    { return cmp.Or(g.DraftsEvery, draftsEvery) }
+
+func (g *Gateways) log() *slog.Logger {
+	if g.Log == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return g.Log
+}
