@@ -277,3 +277,26 @@ func TestLoadReadsOnlyRegularFiles(t *testing.T) {
 		t.Errorf("oversized file: %v", err)
 	}
 }
+
+func TestLoadListsPolicyFiles(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(a, "policies", "default.yaml"), "version: 1\n")
+	writeFile(t, filepath.Join(a, "policies", "webapp.yaml"), "version: 1\n")
+	writeFile(t, filepath.Join(a, "policies", ".webapp.yaml"), "hidden")
+	writeFile(t, filepath.Join(a, "policies", "NOTES.md"), "not a policy")
+	writeFile(t, filepath.Join(b, "policies", "webapp.yml"), "version: 1\n")
+	writeFile(t, filepath.Join(b, "policies", "api.json"), "{}")
+	set, err := Load([]string{a, b})
+	if err != nil {
+		t.Fatalf("Load() with the same policy name in two directories: %v", err)
+	}
+	want := []PolicyFile{
+		{"api", filepath.Join(b, "policies", "api.json")},
+		{"default", filepath.Join(a, "policies", "default.yaml")},
+		{"webapp", filepath.Join(a, "policies", "webapp.yaml")},
+		{"webapp", filepath.Join(b, "policies", "webapp.yml")},
+	}
+	if !reflect.DeepEqual(set.Policies, want) {
+		t.Errorf("Policies = %+v, want %+v", set.Policies, want)
+	}
+}
