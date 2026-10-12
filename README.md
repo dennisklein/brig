@@ -194,10 +194,13 @@ exactly their output.
 `--progress MODE` (or `BRIG_PROGRESS`) picks the display: `auto` (the
 default) chooses from where standard error goes, `tty` redraws a tree of
 steps, `counter` a single line, `plain` prints one line per event, and `none`
-shows nothing. `--progress-log FILE` (or `BRIG_PROGRESS_LOG`) also appends a
-JSON event log of the work to FILE. On a terminal, `NO_COLOR` turns colours
-off. Text from guests, images and libvirt is escaped before it is shown, so
-it cannot inject terminal control sequences.
+shows nothing. These commands also append a JSON event log of their work to
+`$XDG_STATE_HOME/brig/activity.jsonl` (usually
+`~/.local/state/brig/activity.jsonl`), which brig moves to
+`activity.jsonl.1` once it passes 8 MiB. `--progress-log FILE` (or
+`BRIG_PROGRESS_LOG`) logs to FILE instead; an empty value turns the log off.
+On a terminal, `NO_COLOR` turns colours off. Text from guests, images and
+libvirt is escaped before it is shown, so it cannot inject terminal control sequences.
 
 ## Configuration
 

@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
+	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/version"
 )
 
@@ -25,6 +26,8 @@ const (
 	// noProgress marks commands that own the terminal or must keep standard
 	// output and error untouched.
 	noProgress = "brig.no-progress"
+	// defaultLogHint says in the help where the log goes by default.
+	defaultLogHint = "$XDG_STATE_HOME/brig/activity.jsonl"
 )
 
 // progressFlags are the values of the global progress flags.
@@ -55,7 +58,7 @@ func progressMode(ctx context.Context) cliprogress.Mode {
 func (f *progressFlags) register(root *cobra.Command) {
 	pf := root.PersistentFlags()
 	pf.StringVar(&f.mode, "progress", "auto", "how to show progress: auto, tty, counter, plain, none (env "+progressVar+")")
-	pf.StringVar(&f.log, "progress-log", "", "append a JSON event log of the work to this file (env "+progressLogVar+")")
+	pf.StringVar(&f.log, "progress-log", "", "append a JSON event log of the work to this file, by default "+defaultLogHint+"; empty for none (env "+progressLogVar+")")
 	_ = root.RegisterFlagCompletionFunc("progress", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		var words []string
 		for _, m := range cliprogress.Modes() {
@@ -130,6 +133,24 @@ func inOptionalSpan(ctx context.Context, k progress.Kind, name string, fn func(c
 	return err
 }
 
+// logSetting returns where the event log goes: the flag's file, else the
+// variable's, else the activity log in the state directory. An empty flag or
+// variable, which is given but names no file, turns the log off.
+func logSetting(cmd *cobra.Command, f *progressFlags) cliprogress.Setting {
+	s := cliprogress.Setting{
+		Flag: "--progress-log", Given: cmd.Flags().Changed("progress-log"),
+		Value: f.log, Variable: progressLogVar,
+	}
+	env, set := os.LookupEnv(progressLogVar)
+	s.Env = env
+	if !s.Given && !set {
+		if dirs, err := paths.Default(); err == nil {
+			s.Env, s.Variable = defaultActivityLog(dirs), activityLogName
+		}
+	}
+	return s
+}
+
 // start runs as the root's PersistentPreRunE.
 func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags) error {
 	if skipsProgress(cmd) {
@@ -141,10 +162,7 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 			Flag: "--progress", Given: cmd.Flags().Changed("progress"),
 			Value: f.mode, Variable: progressVar, Env: os.Getenv(progressVar),
 		},
-		Log: cliprogress.Setting{
-			Flag: "--progress-log", Given: cmd.Flags().Changed("progress-log"),
-			Value: f.log, Variable: progressLogVar, Env: os.Getenv(progressLogVar),
-		},
+		Log:        logSetting(cmd, f),
 		LogOptions: progress.LogOptions{Version: version.Version()},
 		Stderr:     os.Stderr,
 		OnTerminal: isTerminal(os.Stderr),
