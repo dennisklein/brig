@@ -6,6 +6,7 @@ package run
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -272,6 +273,20 @@ func TestRunOpenShellFails(t *testing.T) {
 	log, _ := os.ReadFile(r.ActivityLog)
 	if !strings.Contains(string(log), `"status":"failed"`) {
 		t.Errorf("activity log: %s", log)
+	}
+}
+
+func TestFailure(t *testing.T) {
+	for out, want := range map[string]string{
+		"step\nError: no VM named dev\n": "no VM named dev",
+		"Error:   × policy update failed\n  ╰─▶ status: FailedPrecondition, message: \"sandbox is not ready\"\n": `policy update failed: status: FailedPrecondition, message: "sandbox is not ready"`,
+		"Error:   × rule approve failed\n  ├─▶ chunk not found\n  ╰─▶ status: NotFound\n":                        "rule approve failed: chunk not found: status: NotFound",
+		"nothing useful\n": "openshell exit status 2",
+	} {
+		err := exec.Command("sh", "-c", "exit 2").Run()
+		if got := failure("openshell", out, err); got != want {
+			t.Errorf("failure(%q) = %q, want %q", out, got, want)
+		}
 	}
 }
 
