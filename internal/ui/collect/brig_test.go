@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,13 @@ func TestBrigCollect(t *testing.T) {
 	}
 	if sn.NewestImage == nil || sn.NewestImage.ID != newImg {
 		t.Errorf("newest image: %+v", sn.NewestImage)
+	}
+	if len(sn.Images) != 2 || sn.Images[0].ID != newImg || !slices.Equal(sn.Images[0].UsedBy, []string{"dev"}) ||
+		sn.Images[1].Fedora != 44 || !slices.Equal(sn.Images[1].UsedBy, []string{"old"}) {
+		t.Errorf("images: %+v", sn.Images)
+	}
+	if sn.Config.Defaults.CPUs == 0 || sn.Config.Defaults.NetworkProfile == "" {
+		t.Errorf("config defaults: %+v", sn.Config)
 	}
 	if _, ok := sn.Profiles["default"]; !ok {
 		t.Error("no built-in profiles without a config file")

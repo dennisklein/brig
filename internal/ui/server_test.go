@@ -40,8 +40,7 @@ func newTestServer(t *testing.T) *testServer {
 	st := store.New()
 	now := time.Now()
 	st.SetHost(store.Host{Name: "zeta", BrigVersion: "v0.6.0", OpenShellCLI: "0.1.2", Addr: "127.0.0.1:7878"})
-	newest := demo.Images(now)[0]
-	st.SetVMs(demo.VMs(now), "", &newest, demo.Profiles())
+	st.SetVMs(store.VMState{VMs: demo.VMs(now), Images: demo.Images(now), Profiles: demo.Profiles()})
 	st.SetActivity(demo.Activity(now))
 	ts := &testServer{t: t, st: st, token: "the-token"}
 	srv, err := newServer(ctx, serverConfig{
@@ -253,7 +252,7 @@ func TestPagesEscapeUntrustedText(t *testing.T) {
 	sn := ts.st.Snapshot()
 	vms := append([]store.VM(nil), sn.VMs...)
 	vms[1].LastSync = &store.SyncRecord{Time: time.Now(), Error: `<script>alert(1)</script>`}
-	ts.st.SetVMs(vms, "", sn.NewestImage, sn.Profiles)
+	ts.st.SetVMs(store.VMState{VMs: vms, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config})
 	body := ts.get("/").Body.String()
 	if strings.Contains(body, "<script>alert") || !strings.Contains(body, "&lt;script&gt;alert") {
 		t.Error("an error from the guest was not escaped")
@@ -268,7 +267,7 @@ func TestHostMemoryIsMarked(t *testing.T) {
 	st := *vms[0].Stats
 	st.MemoryFromHost = true
 	vms[0].Stats = &st
-	ts.st.SetVMs(vms, "", sn.NewestImage, sn.Profiles)
+	ts.st.SetVMs(store.VMState{VMs: vms, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config})
 	body := ts.get("/").Body.String()
 	if !strings.Contains(body, "≈63%") || strings.Count(body, "≈") != 1 {
 		t.Error("memory as the host sees it is not marked, or not only for that VM")
@@ -362,7 +361,7 @@ func TestEvents(t *testing.T) {
 	vms := append([]store.VM(nil), sn.VMs...)
 	vms[2].State = "running"
 	vms[2].Name = "airgap2"
-	ts.st.SetVMs(vms, "", sn.NewestImage, sn.Profiles)
+	ts.st.SetVMs(store.VMState{VMs: vms, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config})
 	name, data := next()
 	if name != "vm-table" || !strings.Contains(data, "airgap2") {
 		t.Errorf("got event %q: %.200s", name, data)

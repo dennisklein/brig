@@ -88,9 +88,9 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 		errs = append(errs, err)
 	}
 	images := image.NewStore(b.Dirs)
-	var newest *store.Image
-	if imgs, err := images.List(); err == nil && len(imgs) > 0 {
-		newest = &store.Image{ID: imgs[0].ID, OpenShell: imgs[0].OpenShellVersion, CreatedAt: imgs[0].CreatedAt}
+	var bases []store.Image
+	if imgs, err := images.List(); err == nil {
+		bases = baseImages(imgs, records)
 	}
 	if conn == nil && len(records) > 0 {
 		if conn, err = b.Connect(ctx); err != nil {
@@ -128,10 +128,30 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 	if err := errors.Join(errs...); err != nil {
 		msg = err.Error()
 	}
-	if !sameVMs(st.Snapshot(), out, msg, newest, cfg.NetworkProfiles) {
-		st.SetVMs(out, msg, newest, cfg.NetworkProfiles)
+	state := store.VMState{
+		VMs: out, Err: msg, Images: bases, Profiles: cfg.NetworkProfiles,
+		Config: store.Config{Defaults: cfg.Defaults, OpenShellConfigs: cfg.OpenShell.Configs},
+	}
+	if !sameState(st.Snapshot(), state) {
+		st.SetVMs(state)
 	}
 	return conn
+}
+
+// baseImages returns imgs, newest first, with the VMs that use each.
+func baseImages(imgs []image.Image, vms []*vm.VM) []store.Image {
+	var out []store.Image
+	for _, img := range imgs {
+		out = append(out, store.Image{})
+		i := len(out) - 1
+		out[i] = store.Image{ID: img.ID, Fedora: img.FedoraRelease, OpenShell: img.OpenShellVersion, CreatedAt: img.CreatedAt}
+		for _, v := range vms {
+			if v.Image == img.ID {
+				out[i].UsedBy = append(out[i].UsedBy, v.Name)
+			}
+		}
+	}
+	return out
 }
 
 // addStats samples the resource use of the running domains and sets the
@@ -181,9 +201,9 @@ func share(part, whole float64) *float64 {
 	return &p
 }
 
-// sameVMs reports whether the snapshot already holds what was read, so that
-// an unchanged poll sends no update to the browsers.
-func sameVMs(sn store.Snapshot, vms []store.VM, msg string, newest *store.Image, profiles map[string]config.NetworkProfile) bool {
-	return sn.VMsErr == msg && reflect.DeepEqual(sn.VMs, vms) &&
-		reflect.DeepEqual(sn.NewestImage, newest) && reflect.DeepEqual(sn.Profiles, profiles)
+// sameState reports whether the snapshot already holds what was read, so
+// that an unchanged poll sends no update to the browsers.
+func sameState(sn store.Snapshot, v store.VMState) bool {
+	return sn.VMsErr == v.Err && reflect.DeepEqual(sn.VMs, v.VMs) && reflect.DeepEqual(sn.Images, v.Images) &&
+		reflect.DeepEqual(sn.Profiles, v.Profiles) && reflect.DeepEqual(sn.Config, v.Config)
 }

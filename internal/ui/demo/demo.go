@@ -27,8 +27,8 @@ func Run(ctx context.Context, st *store.Store, addr string) {
 	now := time.Now()
 	st.SetHost(store.Host{Name: "zeta", BrigVersion: version.Version(), OpenShellCLI: "0.1.2", Addr: addr})
 	vms := VMs(now)
-	newest, profiles := Images(now)[0], Profiles()
-	st.SetVMs(vms, "", &newest, profiles)
+	state := store.VMState{VMs: vms, Images: Images(now), Profiles: Profiles(), Config: Config()}
+	st.SetVMs(state)
 	st.SetActivity(Activity(now))
 	st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
 	tick := time.NewTicker(tickEvery)
@@ -39,8 +39,8 @@ func Run(ctx context.Context, st *store.Store, addr string) {
 			return
 		case <-tick.C:
 		}
-		vms = wiggle(vms)
-		st.SetVMs(vms, "", &newest, profiles)
+		state.VMs = wiggle(state.VMs)
+		st.SetVMs(state)
 	}
 }
 
@@ -86,9 +86,18 @@ const (
 // Images returns the demo's base images, newest first.
 func Images(now time.Time) []store.Image {
 	return []store.Image{
-		{ID: imageNew, OpenShell: "0.1.2", CreatedAt: now.Add(-48 * time.Hour)},
-		{ID: imageOld, OpenShell: "0.1.1", CreatedAt: now.Add(-21 * 24 * time.Hour)},
-		{ID: imageOlder, OpenShell: "0.1.0", CreatedAt: now.Add(-43 * 24 * time.Hour)},
+		{ID: imageNew, Fedora: 44, OpenShell: "0.1.2", CreatedAt: now.Add(-48 * time.Hour), UsedBy: []string{"dev", "review"}},
+		{ID: imageOld, Fedora: 44, OpenShell: "0.1.1", CreatedAt: now.Add(-21 * 24 * time.Hour), UsedBy: []string{"airgap"}},
+		{ID: imageOlder, Fedora: 43, OpenShell: "0.1.0", CreatedAt: now.Add(-43 * 24 * time.Hour)},
+	}
+}
+
+// Config returns the demo's config.yaml settings.
+func Config() store.Config {
+	const gib = bytesize.Size(1 << 30)
+	return store.Config{
+		Defaults:         config.Defaults{CPUs: 4, Memory: 8 * gib, RootDisk: 20 * gib, DataDisk: 40 * gib, NetworkProfile: "default", FedoraRelease: 44},
+		OpenShellConfigs: []string{Home + "/src/agent-openshell"},
 	}
 }
 
