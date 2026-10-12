@@ -179,3 +179,20 @@ func TestPolicySaveThroughASymlink(t *testing.T) {
 		t.Error("the link's target was not written")
 	}
 }
+
+func TestPolicySaveInAWorkspace(t *testing.T) {
+	// other, in workspace team, came from default.yaml and got the pip rule.
+	choices, dir := policyFixture(t, `{"filesystem_policy": {"include_workdir": true, "read_only": ["/usr"]},
+  "landlock": {"compatibility": "best_effort"}, "network_policies": {`+pipRule+`}}`)
+	if out, _, _, err := runSplit(t, "policy", "save", "dev", "other", "--workspace", "team", "--to", "other"); err != nil {
+		t.Fatalf("exit = %v\n%s", err, out)
+	}
+	if got := readPolicy(t, choices); !strings.Contains(got, `"team/other": "`+filepath.Join(dir, "other.yaml")+`"`) {
+		t.Errorf("record:\n%s", got)
+	}
+	// default/other has no record, so its source is inferred.
+	out, _, _, _ := runSplit(t, "policy", "diff", "dev", "other", "-o", "json")
+	if rep := decodeReport(t, out); rep.Workspace != "default" || rep.Source == nil || rep.Source.How == "recorded" {
+		t.Errorf("report:\n%s", out)
+	}
+}

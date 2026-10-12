@@ -25,12 +25,13 @@ import (
 
 func newPolicySaveCmd() *cobra.Command {
 	var (
-		rules  []string
-		to     string
-		dryRun bool
+		rules     []string
+		to        string
+		dryRun    bool
+		workspace string
 	)
 	cmd := &cobra.Command{
-		Use:   "save [VM] SANDBOX [--rule KEY]... [--to FILE]",
+		Use:   "save [VM] SANDBOX [--workspace W] [--rule KEY]... [--to FILE]",
 		Short: "Write rules added to a sandbox into its policy file",
 		Long: `Write the network rules that SANDBOX has and its policy file lacks, such as
 rules added with openshell policy update, into that file, so that sandboxes
@@ -68,16 +69,17 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 			if err != nil {
 				return err
 			}
-			return a.policySave(cmd.Context(), v, args[len(args)-1], rules, to, dryRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return a.policySave(cmd.Context(), v, workspace, args[len(args)-1], rules, to, dryRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringArrayVar(&rules, "rule", nil, "save only this rule, by its key under network_policies (repeatable)")
 	cmd.Flags().StringVar(&to, "to", "", "save into this policy file, or create policies/NAME.yaml from the sandbox's policy file")
+	addWorkspaceFlag(cmd, &workspace)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the change to the file and write nothing")
 	return cmd
 }
 
-func (a *app) policySave(ctx context.Context, v *vm.VM, sandbox string, keys []string, to string, dryRun bool, out, warn io.Writer) error {
+func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox string, keys []string, to string, dryRun bool, out, warn io.Writer) error {
 	var set *ocsync.Set
 	if len(v.OpenShellConfigs) > 0 {
 		var err error
@@ -102,7 +104,7 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, sandbox string, keys []s
 			return err
 		}
 	}
-	rep, err := a.policyDiff(ctx, v, sandbox, target, false, warn)
+	rep, err := a.policyDiff(ctx, v, workspace, sandbox, target, false, warn)
 	if err != nil {
 		return err
 	}
@@ -210,7 +212,7 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, sandbox string, keys []s
 		}
 	}
 	if to != "" {
-		if err := a.rememberPolicySource(v, sandbox, target); err != nil {
+		if err := a.rememberPolicySource(v, workspace, sandbox, target); err != nil {
 			return err
 		}
 	}

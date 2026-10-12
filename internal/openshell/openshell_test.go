@@ -423,7 +423,7 @@ func TestBasePolicy(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, log := fakeCLI(t, "cat <<'EOF'\n"+tc.out+"\nEOF")
-			got, err := c.BasePolicy(context.Background(), "brig-dev", "webapp")
+			got, err := c.BasePolicy(context.Background(), "brig-dev", "team", "webapp")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("BasePolicy() error = %v, want %q", err, tc.wantErr)
@@ -436,16 +436,19 @@ func TestBasePolicy(t *testing.T) {
 			if string(got) != tc.want {
 				t.Errorf("BasePolicy() = %q, want %q", got, tc.want)
 			}
-			if want := "-g brig-dev policy get webapp --base -o json\n"; readFile(t, log) != want {
+			if want := "-g brig-dev --workspace team policy get webapp --base -o json\n"; readFile(t, log) != want {
 				t.Errorf("ran %q, want %q", readFile(t, log), want)
 			}
 		})
 	}
 	c, _ := fakeCLI(t, "exit 1")
-	if _, err := c.BasePolicy(context.Background(), "brig-dev", "-g"); err == nil {
+	if _, err := c.BasePolicy(context.Background(), "brig-dev", "team", "-g"); err == nil {
 		t.Error("BasePolicy() accepted an option as the sandbox name")
 	}
-	if _, err := c.BasePolicy(context.Background(), "brig-dev", "webapp"); err == nil {
+	if _, err := c.BasePolicy(context.Background(), "brig-dev", "--workspace", "webapp"); err == nil {
+		t.Error("BasePolicy() accepted an option as the workspace name")
+	}
+	if _, err := c.BasePolicy(context.Background(), "brig-dev", "team", "webapp"); err == nil {
 		t.Error("BasePolicy() ignored the failing CLI")
 	}
 }
