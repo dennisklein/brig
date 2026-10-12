@@ -359,3 +359,35 @@ func majorMinor(version string) ([2]int, bool) {
 	}
 	return mm, true
 }
+
+// BasePolicy returns the base policy of the sandbox on gateway: the policy
+// it was created with plus later changes to its rules, without the rules
+// that attached providers contribute. It is YAML or JSON, whichever the CLI
+// printed.
+func (c *CLI) BasePolicy(ctx context.Context, gateway, sandbox string) ([]byte, error) {
+	if !nameRE.MatchString(sandbox) {
+		return nil, fmt.Errorf("invalid sandbox name %q", sandbox)
+	}
+	if _, err := gatewayDir(c.ConfigHome, gateway); err != nil {
+		return nil, err
+	}
+	out, err := c.run(ctx, "-g", gateway, "policy", "get", sandbox, "--base", "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Policy json.RawMessage `json:"policy"`
+	}
+	if err := json.NewDecoder(bytes.NewReader(jsonObject(out))).Decode(&doc); err != nil {
+		return nil, fmt.Errorf("parse openshell policy get: %w", err)
+	}
+	var text string
+	switch {
+	case len(doc.Policy) == 0 || string(doc.Policy) == "null":
+		return nil, fmt.Errorf("sandbox %s has no base policy", sandbox)
+	case json.Unmarshal(doc.Policy, &text) == nil:
+		// A policy as YAML text.
+		return []byte(text), nil
+	}
+	return doc.Policy, nil
+}
