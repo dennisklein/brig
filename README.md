@@ -214,8 +214,18 @@ sequences.
 VMs with their state, CPU and memory use, mounts, network profile, OpenShell
 config directories and last sync; what needs your attention; the `brig
 doctor` checks; and what brig did, from the [activity log](#progress-output).
-Pages update live. For now it only shows: every change is still a
-command, and the UI shows the one to copy where it helps.
+Pages update live.
+
+The UI also changes things: start, stop, create, delete and upgrade a VM,
+change its mounts, config directories, profile, CPUs, memory and disks,
+preview and run `brig sync`, and build, prune and push base images. Every
+change is a dialog that shows the `brig` command it runs, with a Copy
+button, and runs exactly that command; the browser never sends a command
+line. Deleting a VM asks you to type its name. A running command is a card
+with its steps and, if it failed, its output. A VM's buttons wait while a
+command works on it. Ctrl-C in the terminal that runs `brig ui` interrupts
+the running commands the way it does in a shell, so brig rolls back. The UI
+shows and takes no secrets.
 
 Only you can open it. It prints a URL with a token that is new each run and
 swaps it for a cookie, answers only to `127.0.0.1` and `localhost`, refuses

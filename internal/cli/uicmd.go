@@ -18,7 +18,9 @@ func newUICmd() *cobra.Command {
 		Use:   "ui",
 		Short: "Open a local web UI for brig's VMs",
 		Long: `ui serves a web UI on 127.0.0.1 and opens it in your browser. It shows
-your VMs, the host checks and what brig did, and updates live.
+your VMs, the host checks and what brig did, and updates live. It also
+changes things: each dialog shows the brig command it runs, and runs
+exactly that.
 
 Only you can open it: it prints a URL with a token that is new each run,
 and it refuses other users' connections. A second brig ui opens the
