@@ -200,7 +200,10 @@ func devices(s DomainSpec) *libvirtxml.DomainDeviceList {
 			Model:   "virtio",
 			Backend: &libvirtxml.DomainRNGBackend{Random: &libvirtxml.DomainRNGBackendRandom{Device: "/dev/urandom"}},
 		}},
-		MemBalloon: &libvirtxml.DomainMemBalloon{Model: "virtio"},
+		MemBalloon: &libvirtxml.DomainMemBalloon{
+			Model: "virtio",
+			Stats: &libvirtxml.DomainMemBalloonStats{Period: statsPeriod},
+		},
 	}
 	for _, m := range s.Mounts {
 		devs.Filesystems = append(devs.Filesystems, filesystem(m, s.MountIDMap))
