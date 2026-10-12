@@ -1,14 +1,15 @@
 // SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
 // SPDX-License-Identifier: Apache-2.0
 
-// Package run starts the brig commands that brig ui's dialogs make, and
-// keeps their tasks in the store while they run.
+// Package run starts the brig and openshell commands that brig ui's dialogs
+// make, and keeps their tasks in the store while they run.
 //
 // A task's command is a child process of its own, in its own process group
-// with no input. Its progress comes from the activity log, where the child
-// writes the same events that make a terminal's progress display: the runner
-// hands the child a trace ID in TRACEPARENT, and the page finds the run with
-// that trace.
+// with no input. The progress of a brig command comes from the activity log,
+// where the child writes the same events that make a terminal's progress
+// display: the runner hands the child a trace ID in TRACEPARENT, and the page
+// finds the run with that trace. An openshell command writes no events, so
+// the runner writes one span for it under that trace.
 package run
 
 import (
@@ -26,6 +27,7 @@ import (
 
 	"github.com/GSI-HPC/go-clikit/termtext"
 
+	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/ui/action"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
@@ -66,6 +68,9 @@ type Runner struct {
 	// Brig is the brig executable, which runs in place of "brig" in a
 	// command.
 	Brig string
+	// OpenShell is the openshell CLI, which runs in place of "openshell" in
+	// a command; nil if it is not installed.
+	OpenShell *openshell.CLI
 	// ActivityLog is the event log that the children append to.
 	ActivityLog string
 	Store       *store.Store
@@ -82,12 +87,29 @@ type Runner struct {
 
 // Start implements Starter.
 func (r *Runner) Start(s Spec) (string, error) {
-	if len(s.Command.Argv) == 0 || s.Command.Argv[0] != "brig" {
-		return "", errors.New("not a brig command")
+	if len(s.Command.Argv) == 0 {
+		return "", errors.New("no command to run")
 	}
 	trace, span := randomHex(16), randomHex(8)
-	cmd := exec.Command(r.Brig, s.Command.Argv[1:]...)
-	cmd.Env = childEnv(os.Environ(), r.ActivityLog, "00-"+trace+"-"+span+"-01")
+	var cmd *exec.Cmd
+	var endSpan func(error)
+	switch s.Command.Argv[0] {
+	case "brig":
+		cmd = exec.Command(r.Brig, s.Command.Argv[1:]...)
+		cmd.Env = childEnv(os.Environ(), r.ActivityLog, "00-"+trace+"-"+span+"-01")
+	case "openshell":
+		if r.OpenShell == nil {
+			return "", openshell.ErrNotInstalled
+		}
+		env, err := r.OpenShell.Environ(os.Environ(), nil)
+		if err != nil {
+			return "", err
+		}
+		cmd = exec.Command(r.OpenShell.Path, s.Command.Argv[1:]...)
+		cmd.Env = env
+	default:
+		return "", errors.New("not a brig or openshell command")
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// A daemon that brig starts may keep the output pipes open after brig
 	// ended; its output is not worth waiting for.
@@ -95,7 +117,10 @@ func (r *Runner) Start(s Spec) (string, error) {
 	tail := &tailBuffer{max: outputKept}
 	cmd.Stdout, cmd.Stderr = tail, tail
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("could not start brig: %w", err)
+		return "", fmt.Errorf("could not start %s: %w", s.Command.Argv[0], err)
+	}
+	if s.Command.Argv[0] == "openshell" {
+		endSpan = openSpan(r.ActivityLog, trace, span, s.Command.Argv)
 	}
 	t := store.Task{
 		ID: randomHex(8), Action: s.Action, Display: s.Command.Display, VM: s.VM, Trace: trace,
@@ -109,13 +134,13 @@ func (r *Runner) Start(s Spec) (string, error) {
 	r.running[t.ID] = cmd
 	r.mu.Unlock()
 	r.wg.Add(1)
-	go r.wait(t.ID, cmd, tail)
+	go r.wait(t.ID, s.Command.Argv[0], cmd, tail, endSpan)
 	return t.ID, nil
 }
 
 // wait follows the child until it ends, publishing its output on the way, and
 // records how it ended.
-func (r *Runner) wait(id string, cmd *exec.Cmd, tail *tailBuffer) {
+func (r *Runner) wait(id, program string, cmd *exec.Cmd, tail *tailBuffer, endSpan func(error)) {
 	defer r.wg.Done()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -141,6 +166,9 @@ loop:
 	r.mu.Lock()
 	delete(r.running, id)
 	r.mu.Unlock()
+	if endSpan != nil {
+		endSpan(err)
+	}
 	out := tail.escaped()
 	end := time.Now()
 	r.Store.UpdateTask(id, store.TopicTasks, func(t *store.Task) {
@@ -149,7 +177,7 @@ loop:
 			t.Status = store.TaskOK
 			return
 		}
-		t.Status, t.Err = store.TaskFailed, failure(out, err)
+		t.Status, t.Err = store.TaskFailed, failure(program, out, err)
 	})
 	if r.Ended != nil {
 		r.Ended()
@@ -209,9 +237,9 @@ func childEnv(env []string, activityLog, traceparent string) []string {
 	return out
 }
 
-// failure says in one line why a command failed: brig's error line if it
-// printed one, else how the process ended.
-func failure(out string, err error) string {
+// failure says in one line why a command failed: the program's error line if
+// it printed one, else how the process ended.
+func failure(program, out string, err error) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if msg, ok := strings.CutPrefix(lines[i], "Error: "); ok {
@@ -219,7 +247,7 @@ func failure(out string, err error) string {
 		}
 	}
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
-		return "brig " + ee.String()
+		return program + " " + ee.String()
 	}
 	return err.Error()
 }

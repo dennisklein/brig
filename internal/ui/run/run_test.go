@@ -4,12 +4,14 @@
 package run
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/ui/action"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
@@ -202,6 +204,81 @@ func TestShutdownInterrupts(t *testing.T) {
 	}
 	if r.Running() != 0 {
 		t.Error("a child still runs")
+	}
+}
+
+// fakeOpenShell prints its arguments and the environment that matters.
+const fakeOpenShell = `#!/bin/sh
+echo "args: $*"
+echo "xdg=$XDG_CONFIG_HOME gateway=$OPENSHELL_GATEWAY trace=$TRACEPARENT"
+case "$1" in
+fail) echo "Error: sandbox gone" >&2; exit 2 ;;
+esac
+`
+
+func newOpenShellRunner(t *testing.T) (*Runner, *store.Store) {
+	t.Helper()
+	r, st := newRunner(t)
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "openshell")
+	if err := os.WriteFile(exe, []byte(fakeOpenShell), 0o755); err != nil { //nolint:gosec // G306: a script to run
+		t.Fatal(err)
+	}
+	r.OpenShell = &openshell.CLI{Path: exe, ConfigHome: filepath.Join(dir, "config", "openshell")}
+	return r, st
+}
+
+func TestRunOpenShell(t *testing.T) {
+	r, st := newOpenShellRunner(t)
+	t.Setenv("OPENSHELL_GATEWAY", "somewhere-else")
+	id, err := r.Start(Spec{Action: "sandbox-delete", Command: action.NewCommand("openshell", "-g", "brig-dev", "sandbox", "delete", "webapp")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := await(t, st, id)
+	if task.Status != store.TaskOK {
+		t.Fatalf("task: %+v", task)
+	}
+	for _, want := range []string{
+		"args: -g brig-dev sandbox delete webapp",
+		"xdg=" + filepath.Dir(r.OpenShell.ConfigHome) + " gateway= trace=",
+	} {
+		if !strings.Contains(task.Output, want) {
+			t.Errorf("output lacks %q:\n%s", want, task.Output)
+		}
+	}
+	// The activity log lists the command under the task's trace.
+	log, err := os.ReadFile(r.ActivityLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"trace":"` + task.Trace + `"`, `"program":"openshell"`, `"name":"sandbox delete webapp"`, `"status":"ok"`} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("activity log lacks %s:\n%s", want, log)
+		}
+	}
+}
+
+func TestRunOpenShellFails(t *testing.T) {
+	r, st := newOpenShellRunner(t)
+	id, err := r.Start(Spec{Command: action.NewCommand("openshell", "fail")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := await(t, st, id)
+	if task.Status != store.TaskFailed || task.Err != "sandbox gone" {
+		t.Errorf("task: %+v", task)
+	}
+	log, _ := os.ReadFile(r.ActivityLog)
+	if !strings.Contains(string(log), `"status":"failed"`) {
+		t.Errorf("activity log: %s", log)
+	}
+}
+
+func TestRunOpenShellNeedsTheCLI(t *testing.T) {
+	r, _ := newRunner(t)
+	if _, err := r.Start(Spec{Command: action.NewCommand("openshell", "sandbox", "list")}); !errors.Is(err, openshell.ErrNotInstalled) {
+		t.Errorf("err = %v", err)
 	}
 }
 
