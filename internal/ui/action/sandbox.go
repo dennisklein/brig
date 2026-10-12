@@ -127,7 +127,7 @@ func buildSandboxCreate(f Form, c Context) (Command, error) {
 	}
 	var notes []string
 	for _, p := range f["provider"] {
-		prov, ok := g.Provider(p)
+		prov, ok := g.Provider(store.DefaultWorkspace, p)
 		if !ok {
 			return Command{}, fmt.Errorf("%s has no provider %q", g.Name(), p)
 		}
@@ -170,7 +170,7 @@ func providersOf(argv []string) []string {
 
 // reach says what attaching the provider lets the sandbox reach.
 func reach(g store.Gateway, p store.Provider) string {
-	prof, ok := g.Profile(p.Type)
+	prof, ok := g.Profile(p.Workspace, p.Type)
 	if !ok || len(prof.Endpoints) == 0 {
 		return fmt.Sprintf("Provider %s opens no endpoint.", p.Name)
 	}
@@ -251,7 +251,7 @@ func buildSandboxAttach(f Form, c Context) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	p, ok := g.Provider(f.Get("provider"))
+	p, ok := g.Provider(store.DefaultWorkspace, f.Get("provider"))
 	switch {
 	case !ok:
 		return Command{}, fmt.Errorf("%s has no provider %q", g.Name(), f.Get("provider"))

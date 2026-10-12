@@ -204,7 +204,7 @@ func topologyOf(v *view, vm, sel string) topology {
 				continue
 			}
 			add(3, topoNode{ID: prID, Label: p.Name, Sub: strings.Join(p.Credentials, ", ")})
-			if prof, ok := g.Profile(p.Type); ok {
+			if prof, ok := g.Profile(p.Workspace, p.Type); ok {
 				for _, ep := range prof.Endpoints {
 					addEndpoint(ep)
 					edge(prID, "ep:"+ep, "")
@@ -333,8 +333,8 @@ func topoDetailOf(v *view, n topoNode, edges []topoEdge) *topoDetail {
 			d.Sandbox, _ = d.Gateway.Sandbox(store.DefaultWorkspace, d.Name)
 			break
 		}
-		d.Provider, _ = d.Gateway.Provider(d.Name)
-		if p, ok := d.Gateway.Profile(d.Provider.Type); ok {
+		d.Provider, _ = d.Gateway.Provider(store.DefaultWorkspace, d.Name)
+		if p, ok := d.Gateway.Profile(d.Provider.Workspace, d.Provider.Type); ok {
 			d.Profile = &p
 		}
 	case "ep":
