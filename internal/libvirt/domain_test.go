@@ -197,6 +197,7 @@ func TestDomainXML(t *testing.T) {
 		`<serial type="pty">`,
 		`<channel type="unix">`,
 		`<memballoon model="virtio">`,
+		`<stats period="5">`,
 	} {
 		if !strings.Contains(x, sub) {
 			t.Errorf("domain XML lacks %s:\n%s", sub, x)

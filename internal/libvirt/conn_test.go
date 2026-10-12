@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -39,6 +40,9 @@ type fakeDomain struct {
 	// until the guest is off; negative if the guest ignores requests.
 	offAfter int
 	stopping bool
+	// stats are the typed parameters ConnectGetAllDomainStats returns for
+	// the domain while it runs.
+	stats []golibvirt.TypedParam
 }
 
 // fakeClient is an in-memory libvirt daemon that records the calls made.
@@ -53,6 +57,8 @@ type fakeClient struct {
 	shutdownBlock chan struct{}
 	// shutdownErr, if set, fails shutdown requests for running domains.
 	shutdownErr error
+	// statsErr fails ConnectGetAllDomainStats.
+	statsErr error
 }
 
 func libvirtErr(code golibvirt.ErrorNumber, msg string) error {
@@ -299,6 +305,30 @@ func (f *fakeClient) DomainDetachDeviceFlags(d golibvirt.Domain, x string, flags
 	f.record("detach %s %s %d", d.Name, x, flags)
 	_, err := f.dom(d)
 	return err
+}
+
+func (f *fakeClient) DomainSetMemoryStatsPeriod(d golibvirt.Domain, period int32, flags golibvirt.DomainMemoryModFlags) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("statsperiod %s %d %d", d.Name, period, flags)
+	_, err := f.dom(d)
+	return err
+}
+
+func (f *fakeClient) ConnectGetAllDomainStats(doms []golibvirt.Domain, stats, flags uint32) ([]golibvirt.DomainStatsRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("domstats %d %d %d", len(doms), stats, flags)
+	if f.statsErr != nil {
+		return nil, f.statsErr
+	}
+	var recs []golibvirt.DomainStatsRecord
+	for _, name := range slices.Sorted(maps.Keys(f.doms)) {
+		if fd := f.doms[name]; fd.state == golibvirt.DomainRunning {
+			recs = append(recs, golibvirt.DomainStatsRecord{Dom: golibvirt.Domain{Name: name}, Params: fd.stats})
+		}
+	}
+	return recs, nil
 }
 
 func (f *fakeClient) Disconnect() error {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/progress"
@@ -37,6 +38,8 @@ type client interface {
 	DomainBlockResize(dom golibvirt.Domain, disk string, size uint64, flags golibvirt.DomainBlockResizeFlags) error
 	DomainAttachDeviceFlags(dom golibvirt.Domain, xml string, flags uint32) error
 	DomainDetachDeviceFlags(dom golibvirt.Domain, xml string, flags uint32) error
+	DomainSetMemoryStatsPeriod(dom golibvirt.Domain, period int32, flags golibvirt.DomainMemoryModFlags) error
+	ConnectGetAllDomainStats(doms []golibvirt.Domain, stats, flags uint32) ([]golibvirt.DomainStatsRecord, error)
 	Disconnect() error
 }
 
@@ -48,6 +51,10 @@ type Conn struct {
 	// resend is the interval at which Shutdown repeats its request, which
 	// a guest that is still booting may miss.
 	resend time.Duration
+
+	mu sync.Mutex
+	// statsSet holds the domains whose memory statistics period Stats set.
+	statsSet map[string]bool
 }
 
 // Connect connects to the user's libvirt session daemon (qemu:///session).
