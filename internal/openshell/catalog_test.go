@@ -48,7 +48,7 @@ EOF`)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Profiles() = %+v, want %+v", got, want)
 	}
-	if l := readFile(t, log); l != "-g brig-dev profile list -o json\n" {
+	if l := readFile(t, log); l != "-g brig-dev --workspace default profile list -o json\n" {
 		t.Errorf("argv: %q", l)
 	}
 	if s := got[0].Endpoints[1].String(); s != "github.com:{443,22}" {
@@ -89,7 +89,7 @@ esac`)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Providers() = %+v, want %+v", got, want)
 	}
-	if l := readFile(t, log); l != "-g brig-dev provider list -o json\n-g brig-dev provider list -o json --page-token p2\n" {
+	if l := readFile(t, log); l != "-g brig-dev --workspace default provider list -o json\n-g brig-dev --workspace default provider list -o json --page-token p2\n" {
 		t.Errorf("argv: %q", l)
 	}
 }
@@ -121,8 +121,8 @@ func TestProviderSecretsStayOffTheCommandLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	argv := readFile(t, log)
-	want := "-g brig-dev provider create --name github --type github --credential GH_TOKEN --credential OTHER\n" +
-		"-g brig-dev provider update github --credential GH_TOKEN --credential OLD=\n"
+	want := "-g brig-dev --workspace default provider create --name github --type github --credential GH_TOKEN --credential OTHER\n" +
+		"-g brig-dev --workspace default provider update github --credential GH_TOKEN --credential OLD=\n"
 	if argv != want {
 		t.Errorf("argv:\n%s\nwant:\n%s", argv, want)
 	}
@@ -149,11 +149,11 @@ func TestProfileCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := `-g brig-dev profile lint -f /p/a.yaml
--g brig-dev profile import -f /p/a.yaml
--g brig-dev profile update a -f /p/a.yaml
--g brig-dev profile delete a
--g brig-dev provider delete x
+	want := `-g brig-dev --workspace default profile lint -f /p/a.yaml
+-g brig-dev --workspace default profile import -f /p/a.yaml
+-g brig-dev --workspace default profile update a -f /p/a.yaml
+-g brig-dev --workspace default profile delete a
+-g brig-dev --workspace default provider delete x
 `
 	if got := readFile(t, log); got != want {
 		t.Errorf("argv:\n%s\nwant:\n%s", got, want)
