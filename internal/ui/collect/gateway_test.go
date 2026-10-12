@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,8 +27,10 @@ import (
 type fakeGateway struct {
 	mu        sync.Mutex
 	sandboxes []store.Sandbox
+	// workspaces are the gateway's workspaces; default alone when nil.
+	workspaces []string
 	// policyReads counts Policy calls by sandbox.
-	policyReads map[string]int
+	policyReads map[sandboxKey]int
 	// fail makes every call fail.
 	fail error
 	// bundleChanged makes BundleChanged report a change once.
@@ -35,14 +38,14 @@ type fakeGateway struct {
 	dials         atomic.Int32
 	// logs are the lines of each sandbox's log, the cursor of each its
 	// index plus one.
-	logs map[string][]osclient.LogLine
+	logs map[sandboxKey][]osclient.LogLine
 	// watches are the starts of the watches, by sandbox.
-	watches map[string][]osclient.WatchFrom
+	watches map[sandboxKey][]osclient.WatchFrom
 	// lost makes the gateway refuse every cursor.
 	lost bool
 	// drafts are the drafted rules by sandbox; draftReads counts reads.
-	drafts     map[string][]store.Draft
-	draftReads map[string]int
+	drafts     map[sandboxKey][]store.Draft
+	draftReads map[sandboxKey]int
 }
 
 type fakeClient struct{ g *fakeGateway }
@@ -71,11 +74,23 @@ func (c fakeClient) Sandboxes(context.Context) ([]store.Sandbox, error) {
 	return out, nil
 }
 
+// dflt is the key of a sandbox of the default workspace.
+func dflt(name string) sandboxKey { return keyOf("default", name) }
+
+func (c fakeClient) Workspaces(context.Context) ([]string, error) {
+	c.g.mu.Lock()
+	defer c.g.mu.Unlock()
+	if c.g.workspaces == nil {
+		return []string{"default"}, c.g.fail
+	}
+	return slices.Clone(c.g.workspaces), c.g.fail
+}
+
 func (c fakeClient) Providers(context.Context) ([]store.Provider, error) {
 	return []store.Provider{{Name: "github", Type: "github", Credentials: []string{"GH_TOKEN"}}}, c.err()
 }
 
-func (c fakeClient) Profiles(context.Context) ([]store.Profile, error) {
+func (c fakeClient) Profiles(_ context.Context, workspaces []string) ([]store.Profile, error) {
 	return []store.Profile{{ID: "github"}}, c.err()
 }
 
@@ -83,23 +98,24 @@ func (c fakeClient) Templates(context.Context) ([]store.Template, error) {
 	return []store.Template{{Name: "pi"}}, c.err()
 }
 
-func (c fakeClient) Policy(_ context.Context, name string) (*store.Policy, error) {
+func (c fakeClient) Policy(_ context.Context, workspace, name string) (*store.Policy, error) {
 	c.g.mu.Lock()
 	defer c.g.mu.Unlock()
-	c.g.policyReads[name]++
+	c.g.policyReads[keyOf(workspace, name)]++
 	if name == "gone" {
 		return nil, status.Error(codes.NotFound, "sandbox gone not found")
 	}
-	return &store.Policy{Effective: "version: 1\n", Base: "version: 1\n"}, nil
+	// The workspace is in ProviderRules, to tell the sandboxes apart.
+	return &store.Policy{Effective: "version: 1\n", Base: "version: 1\n", ProviderRules: []string{workspace}}, nil
 }
 
 func (c fakeClient) BundleChanged() bool { return c.g.bundleChanged.Swap(false) }
 func (c fakeClient) Close() error        { return nil }
 
-func (g *fakeGateway) reads(name string) int {
+func (g *fakeGateway) reads(k sandboxKey) int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.policyReads[name]
+	return g.policyReads[k]
 }
 
 func (g *fakeGateway) set(f func(*fakeGateway)) {
@@ -141,8 +157,8 @@ func TestGateways(t *testing.T) {
 	}
 
 	fake := &fakeGateway{
-		policyReads: map[string]int{},
-		sandboxes:   []store.Sandbox{{Name: "gone", PolicyVersion: 1}, {Name: "webapp", Phase: "Ready", PolicyVersion: 1}},
+		policyReads: map[sandboxKey]int{},
+		sandboxes:   []store.Sandbox{{Workspace: "default", Name: "gone", PolicyVersion: 1}, {Workspace: "default", Name: "webapp", Phase: "Ready", PolicyVersion: 1}},
 	}
 	g := &Gateways{
 		Dial: func(v store.VM) (GatewayClient, error) {
@@ -181,14 +197,14 @@ func TestGateways(t *testing.T) {
 
 	// A policy is read again only when its version changes.
 	time.Sleep(30 * time.Millisecond)
-	if n := fake.reads("webapp"); n != 1 {
+	if n := fake.reads(dflt("webapp")); n != 1 {
 		t.Errorf("read the unchanged policy %d times", n)
 	}
 	fake.set(func(f *fakeGateway) { f.sandboxes[1].PolicyVersion = 2 })
 	waitFor(t, st, "the new policy version", func(gw store.Gateway) bool {
 		return len(gw.Sandboxes) == 2 && gw.Sandboxes[1].PolicyVersion == 2
 	})
-	if n := fake.reads("webapp"); n != 2 {
+	if n := fake.reads(dflt("webapp")); n != 2 {
 		t.Errorf("read the changed policy %d times in all", n)
 	}
 

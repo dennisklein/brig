@@ -58,6 +58,9 @@ func (g *gateway) GetDraftPolicy(_ context.Context, r *pb.GetDraftPolicyRequest)
 	if r.GetStatusFilter() != "pending" || r.GetSandbox() != "webapp" {
 		return nil, status.Error(codes.InvalidArgument, "unexpected request")
 	}
+	if r.GetWorkspaceScope().GetWorkspace() == "team" {
+		return &pb.GetDraftPolicyResponse{Chunks: []*pb.PolicyChunk{{Id: "ch-9", Status: "pending", RuleName: "team_rule"}}}, nil
+	}
 	return &pb.GetDraftPolicyResponse{Chunks: []*pb.PolicyChunk{
 		{
 			Id: "ch-1", Status: "pending", RuleName: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
@@ -84,7 +87,7 @@ func TestWatch(t *testing.T) {
 	ctx := context.Background()
 	since := logTime.Add(-time.Hour)
 	var got []WatchEvent
-	err := c.Watch(ctx, "webapp", WatchFrom{Since: since, Tail: 2000}, func(e WatchEvent) { got = append(got, e) })
+	err := c.Watch(ctx, "default", "webapp", WatchFrom{Since: since, Tail: 2000}, func(e WatchEvent) { got = append(got, e) })
 	if err == nil {
 		t.Fatal("a stream that ended reported no error")
 	}
@@ -106,7 +109,7 @@ func TestWatch(t *testing.T) {
 
 	// Resuming sends only the cursor; one the gateway lost ends the watch
 	// with ErrCursorLost.
-	err = c.Watch(ctx, "webapp", WatchFrom{Cursor: "gone", Since: since, Tail: 2000}, func(WatchEvent) {})
+	err = c.Watch(ctx, "default", "webapp", WatchFrom{Cursor: "gone", Since: since, Tail: 2000}, func(WatchEvent) {})
 	if !errors.Is(err, ErrCursorLost) {
 		t.Errorf("err = %v, want ErrCursorLost", err)
 	}
@@ -118,14 +121,22 @@ func TestWatch(t *testing.T) {
 	}
 }
 
+func TestDraftsInWorkspace(t *testing.T) {
+	c := serve(t, &gateway{pageSize: 10})
+	got, err := c.Drafts(context.Background(), "team", "webapp")
+	if err != nil || len(got) != 1 || got[0].Workspace != "team" || got[0].ID != "ch-9" {
+		t.Errorf("Drafts in team = %+v, %v", got, err)
+	}
+}
+
 func TestDrafts(t *testing.T) {
 	c := serve(t, &gateway{pageSize: 10})
-	got, err := c.Drafts(context.Background(), "webapp")
+	got, err := c.Drafts(context.Background(), "default", "webapp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []store.Draft{{
-		Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
+		Workspace: "default", Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
 		Endpoints: []store.DraftEndpoint{{Host: "registry.npmjs.org", Port: 443}},
 		Binaries:  []string{"/usr/bin/node"},
 		YAML: `allow_registry_npmjs_org_443:

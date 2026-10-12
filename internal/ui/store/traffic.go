@@ -32,10 +32,13 @@ const (
 type Request struct {
 	// Seq numbers the requests of the store, from 1, in the order they
 	// arrived.
-	Seq     uint64
-	VM      string
-	Sandbox string
-	Time    time.Time
+	Seq uint64
+	VM  string
+	// Workspace and Sandbox name the sandbox; its name is unique per
+	// workspace only.
+	Workspace string
+	Sandbox   string
+	Time      time.Time
 	// Verdict is VerdictAllow or VerdictDeny, empty when unknown.
 	Verdict string
 	// Method is the HTTP method, empty for a connection.
@@ -82,7 +85,8 @@ func (r Request) CredentialMismatch() bool {
 // Draft is a network rule that OpenShell drafted from a sandbox's denied
 // requests and that waits for approval.
 type Draft struct {
-	Sandbox string
+	Workspace string
+	Sandbox   string
 	// ID is the draft's chunk ID, which openshell rule approve takes.
 	ID string
 	// Rule is the rule's key under network_policies.
@@ -115,7 +119,7 @@ type DraftEndpoint struct {
 // request's host and port, and the request's program, if the line named
 // one, by its path or its name.
 func (d Draft) Matches(r Request) bool {
-	if r.Sandbox != d.Sandbox || r.Host == "" {
+	if r.Workspace != d.Workspace || r.Sandbox != d.Sandbox || r.Host == "" {
 		return false
 	}
 	if !slices.ContainsFunc(d.Endpoints, func(e DraftEndpoint) bool {
@@ -142,9 +146,9 @@ type Traffic struct {
 
 // Draft returns the pending drafted rule of the sandbox with the chunk ID
 // id.
-func (t Traffic) Draft(sandbox, id string) (Draft, bool) {
+func (t Traffic) Draft(workspace, sandbox, id string) (Draft, bool) {
 	for _, d := range t.Drafts {
-		if d.Sandbox == sandbox && d.ID == id {
+		if d.Workspace == workspace && d.Sandbox == sandbox && d.ID == id {
 			return d, true
 		}
 	}
@@ -226,7 +230,7 @@ func (s *Store) AddRequests(vm string, rs []Request) {
 
 // SetDrafts replaces the pending drafted rules of a sandbox of the VM's
 // gateway. When they did not change, nothing is published.
-func (s *Store) SetDrafts(vm, sandbox string, drafts []Draft) {
+func (s *Store) SetDrafts(vm, workspace, sandbox string, drafts []Draft) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ts := slices.Clone(s.snap.Traffic)
@@ -235,7 +239,7 @@ func (s *Store) SetDrafts(vm, sandbox string, drafts []Draft) {
 	var old []Draft
 	kept := make([]Draft, 0, len(t.Drafts)+len(drafts))
 	for _, d := range t.Drafts {
-		if d.Sandbox == sandbox {
+		if d.Workspace == workspace && d.Sandbox == sandbox {
 			old = append(old, d)
 		} else {
 			kept = append(kept, d)
@@ -245,10 +249,13 @@ func (s *Store) SetDrafts(vm, sandbox string, drafts []Draft) {
 		return
 	}
 	for _, d := range drafts {
-		d.Sandbox = sandbox
+		d.Workspace, d.Sandbox = workspace, sandbox
 		kept = append(kept, d)
 	}
 	slices.SortFunc(kept, func(a, b Draft) int {
+		if c := strings.Compare(a.Workspace, b.Workspace); c != 0 {
+			return c
+		}
 		if c := strings.Compare(a.Sandbox, b.Sandbox); c != 0 {
 			return c
 		}
@@ -264,7 +271,7 @@ func (s *Store) SetDrafts(vm, sandbox string, drafts []Draft) {
 
 func draftsEqual(a, b []Draft) bool {
 	return slices.EqualFunc(a, b, func(x, y Draft) bool {
-		y.Sandbox = x.Sandbox
+		y.Workspace, y.Sandbox = x.Workspace, x.Sandbox
 		return x.ID == y.ID && x.Rule == y.Rule && x.Binary == y.Binary && x.YAML == y.YAML &&
 			x.Rationale == y.Rationale && x.Validation == y.Validation && x.Security == y.Security &&
 			x.Error == y.Error && x.Hits == y.Hits && x.LastSeen.Equal(y.LastSeen) &&

@@ -46,7 +46,7 @@ func TestPlaySandboxCreate(t *testing.T) {
 	if want := []string{"aaa", "kit-dev", "tools", "webapp"}; !slices.Equal(names(g), want) {
 		t.Fatalf("sandboxes %v, want %v", names(g), want)
 	}
-	s, _ := g.Sandbox("aaa")
+	s, _ := g.Sandbox("default", "aaa")
 	if s.Phase != "Ready" || s.Image != "localhost/claude-agent:2026-10-01" || s.Template != "claude" || !slices.Equal(s.Providers, []string{"github", "llm"}) {
 		t.Errorf("sandbox %+v", s)
 	}
@@ -60,17 +60,17 @@ func TestPlaySandboxChanges(t *testing.T) {
 	if want := []string{"kit-dev", "tools"}; !slices.Equal(names(g), want) {
 		t.Errorf("after delete: %v, want %v", names(g), want)
 	}
-	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "start", "tools").Sandbox("tools"); s.Phase != "Ready" {
+	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "start", "tools").Sandbox("default", "tools"); s.Phase != "Ready" {
 		t.Errorf("after start: %s", s.Phase)
 	}
-	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "stop", "webapp").Sandbox("webapp"); s.Phase != "Stopped" {
+	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "stop", "webapp").Sandbox("default", "webapp"); s.Phase != "Stopped" {
 		t.Errorf("after stop: %s", s.Phase)
 	}
-	s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "provider", "attach", "kit-dev", "github", "--wait").Sandbox("kit-dev")
+	s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "provider", "attach", "kit-dev", "github", "--wait").Sandbox("default", "kit-dev")
 	if !slices.Equal(s.Providers, []string{"github", "llm"}) || s.PolicyVersion != 2 || len(s.Policy.ProviderRules) != 2 {
 		t.Errorf("after attach: %+v", s)
 	}
-	s, _ = devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "provider", "detach", "webapp", "github", "--wait").Sandbox("webapp")
+	s, _ = devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "provider", "detach", "webapp", "github", "--wait").Sandbox("default", "webapp")
 	if !slices.Equal(s.Providers, []string{"llm"}) || len(s.Policy.ProviderRules) != 1 {
 		t.Errorf("after detach: %+v", s)
 	}

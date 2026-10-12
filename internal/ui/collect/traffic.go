@@ -36,6 +36,12 @@ const (
 	draftsEvery = 30 * time.Second
 )
 
+// sandboxKey identifies a sandbox of a gateway: names are unique per
+// workspace only.
+type sandboxKey struct{ workspace, name string }
+
+func keyOf(workspace, name string) sandboxKey { return sandboxKey{workspace, name} }
+
 // position is where brig ui is in a sandbox's log. It outlives a
 // connection, so that a watch resumes where the last one ended.
 type position struct {
@@ -54,27 +60,27 @@ type traffic struct {
 
 	mu sync.Mutex
 	// positions are kept by the worker across connections.
-	positions map[string]*position
+	positions map[sandboxKey]*position
 	// watching holds the cancel function of each sandbox's watch.
-	watching map[string]context.CancelFunc
+	watching map[sandboxKey]context.CancelFunc
 	pending  []store.Request
 	// denied is when a sandbox last had a denial whose drafts were not
 	// read since.
-	denied map[string]time.Time
+	denied map[sandboxKey]time.Time
 	// draftsRead is when each sandbox's drafts were last read.
-	draftsRead map[string]time.Time
+	draftsRead map[sandboxKey]time.Time
 	// draftsErr is the error logged last for each sandbox's drafts.
-	draftsErr map[string]string
+	draftsErr map[sandboxKey]string
 	// noDrafts is set when the gateway does not offer drafts.
 	noDrafts bool
 	wg       sync.WaitGroup
 }
 
-func newTraffic(g *Gateways, st *store.Store, vm string, c GatewayClient, positions map[string]*position) *traffic {
+func newTraffic(g *Gateways, st *store.Store, vm string, c GatewayClient, positions map[sandboxKey]*position) *traffic {
 	return &traffic{
 		g: g, st: st, vm: vm, c: c, positions: positions,
-		watching: map[string]context.CancelFunc{}, denied: map[string]time.Time{}, draftsRead: map[string]time.Time{},
-		draftsErr: map[string]string{},
+		watching: map[sandboxKey]context.CancelFunc{}, denied: map[sandboxKey]time.Time{}, draftsRead: map[sandboxKey]time.Time{},
+		draftsErr: map[sandboxKey]string{},
 	}
 }
 
@@ -108,44 +114,45 @@ func (t *traffic) flush() {
 func (t *traffic) follow(ctx context.Context, sandboxes []store.Sandbox) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	listed := map[string]bool{}
+	listed := map[sandboxKey]bool{}
 	for _, s := range sandboxes {
-		listed[s.Name] = true
-		if _, ok := t.watching[s.Name]; ok {
+		k := keyOf(s.Workspace, s.Name)
+		listed[k] = true
+		if _, ok := t.watching[k]; ok {
 			continue
 		}
-		pos := t.positions[s.Name]
+		pos := t.positions[k]
 		if pos == nil {
 			pos = &position{}
-			t.positions[s.Name] = pos
+			t.positions[k] = pos
 		}
 		wctx, cancel := context.WithCancel(ctx)
-		t.watching[s.Name] = cancel
+		t.watching[k] = cancel
 		t.wg.Add(1)
 		go func() {
 			defer t.wg.Done()
-			t.watch(wctx, s.Name, pos)
+			t.watch(wctx, k, pos)
 			t.mu.Lock()
-			delete(t.watching, s.Name)
+			delete(t.watching, k)
 			t.mu.Unlock()
 			cancel()
 		}()
 	}
-	for name, cancel := range t.watching {
-		if !listed[name] {
+	for k, cancel := range t.watching {
+		if !listed[k] {
 			cancel()
 		}
 	}
-	for name := range t.positions {
-		if !listed[name] {
-			delete(t.positions, name)
+	for k := range t.positions {
+		if !listed[k] {
+			delete(t.positions, k)
 		}
 	}
 }
 
 // watch follows a sandbox's log until ctx ends or the sandbox is gone,
 // starting again after an error.
-func (t *traffic) watch(ctx context.Context, sandbox string, pos *position) {
+func (t *traffic) watch(ctx context.Context, k sandboxKey, pos *position) {
 	backoff := t.g.backoff()
 	// logged is the last error logged.
 	logged := ""
@@ -159,22 +166,22 @@ func (t *traffic) watch(ctx context.Context, sandbox string, pos *position) {
 			}
 		}
 		read := false
-		err := t.c.Watch(ctx, sandbox, from, func(e osclient.WatchEvent) {
+		err := t.c.Watch(ctx, k.workspace, k.name, from, func(e osclient.WatchEvent) {
 			read = true
-			t.add(sandbox, pos, e)
+			t.add(k, pos, e)
 		})
 		if ctx.Err() != nil {
 			return
 		}
 		if msg := errMessage(err); msg != "" && msg != logged {
 			// Once for each new error, not for every try.
-			t.g.log().Warn("brig ui cannot follow a sandbox's log", "vm", t.vm, "sandbox", sandbox, "err", msg)
+			t.g.log().Warn("brig ui cannot follow a sandbox's log", "vm", t.vm, "workspace", k.workspace, "sandbox", k.name, "err", msg)
 			logged = msg
 		}
 		switch {
 		case errors.Is(err, osclient.ErrCursorLost):
 			pos.cursor = ""
-			t.gap(sandbox, "brig ui lost its place in the log, as when the gateway restarts; requests may be missing here.")
+			t.gap(k, "brig ui lost its place in the log, as when the gateway restarts; requests may be missing here.")
 			continue
 		case status.Code(err) == codes.NotFound:
 			// Deleted; the next list starts a watch if it comes back.
@@ -193,9 +200,9 @@ func (t *traffic) watch(ctx context.Context, sandbox string, pos *position) {
 }
 
 // add reads an event of a sandbox's log.
-func (t *traffic) add(sandbox string, pos *position, e osclient.WatchEvent) {
+func (t *traffic) add(k sandboxKey, pos *position, e osclient.WatchEvent) {
 	if e.Warning != "" {
-		t.gap(sandbox, "The gateway dropped lines of the log: "+e.Warning)
+		t.gap(k, "The gateway dropped lines of the log: "+e.Warning)
 		return
 	}
 	if e.Cursor != "" {
@@ -217,22 +224,22 @@ func (t *traffic) add(sandbox string, pos *position, e osclient.WatchEvent) {
 	if !ok {
 		return
 	}
-	r.Sandbox, r.Time = sandbox, l.Time
+	r.Workspace, r.Sandbox, r.Time = k.workspace, k.name, l.Time
 	if r.Time.IsZero() {
 		r.Time = time.Now()
 	}
 	t.mu.Lock()
 	t.pending = append(t.pending, r)
 	if r.Denied() {
-		t.denied[sandbox] = time.Now()
+		t.denied[k] = time.Now()
 	}
 	t.mu.Unlock()
 }
 
 // gap adds a row that says requests may be missing.
-func (t *traffic) gap(sandbox, why string) {
+func (t *traffic) gap(k sandboxKey, why string) {
 	t.mu.Lock()
-	t.pending = append(t.pending, store.Request{Sandbox: sandbox, Time: time.Now(), Gap: why})
+	t.pending = append(t.pending, store.Request{Workspace: k.workspace, Sandbox: k.name, Time: time.Now(), Gap: why})
 	t.mu.Unlock()
 }
 
@@ -240,18 +247,19 @@ func (t *traffic) gap(sandbox, why string) {
 // while ago, or whose drafts were not read for long, and drops those of
 // sandboxes that are gone.
 func (t *traffic) readDrafts(ctx context.Context, sandboxes []store.Sandbox) {
-	listed := map[string]bool{}
+	listed := map[sandboxKey]bool{}
 	now := time.Now()
 	for _, s := range sandboxes {
-		listed[s.Name] = true
+		k := keyOf(s.Workspace, s.Name)
+		listed[k] = true
 		t.mu.Lock()
-		denied, read, off := t.denied[s.Name], t.draftsRead[s.Name], t.noDrafts
+		denied, read, off := t.denied[k], t.draftsRead[k], t.noDrafts
 		t.mu.Unlock()
 		due := now.Sub(read) >= t.g.draftsEvery() || (!denied.IsZero() && now.Sub(denied) >= t.g.draftsAfter())
 		if off || !due {
 			continue
 		}
-		drafts, err := t.c.Drafts(ctx, s.Name)
+		drafts, err := t.c.Drafts(ctx, s.Workspace, s.Name)
 		switch {
 		case status.Code(err) == codes.Unimplemented:
 			t.mu.Lock()
@@ -260,30 +268,30 @@ func (t *traffic) readDrafts(ctx context.Context, sandboxes []store.Sandbox) {
 			continue
 		case err != nil:
 			t.mu.Lock()
-			again := t.draftsErr[s.Name] == err.Error()
-			t.draftsErr[s.Name] = err.Error()
+			again := t.draftsErr[k] == err.Error()
+			t.draftsErr[k] = err.Error()
 			t.mu.Unlock()
 			if !again {
-				t.g.log().Warn("brig ui cannot read the drafted rules of a sandbox", "vm", t.vm, "sandbox", s.Name, "err", err)
+				t.g.log().Warn("brig ui cannot read the drafted rules of a sandbox", "vm", t.vm, "workspace", s.Workspace, "sandbox", s.Name, "err", err)
 			}
 			continue
 		}
 		t.mu.Lock()
-		t.draftsRead[s.Name] = now
-		delete(t.draftsErr, s.Name)
-		if !t.denied[s.Name].After(denied) {
-			delete(t.denied, s.Name)
+		t.draftsRead[k] = now
+		delete(t.draftsErr, k)
+		if !t.denied[k].After(denied) {
+			delete(t.denied, k)
 		}
 		t.mu.Unlock()
-		t.st.SetDrafts(t.vm, s.Name, drafts)
+		t.st.SetDrafts(t.vm, s.Workspace, s.Name, drafts)
 	}
 	for _, tr := range t.st.Snapshot().Traffic {
 		if tr.VM != t.vm {
 			continue
 		}
 		for _, d := range tr.Drafts {
-			if !listed[d.Sandbox] {
-				t.st.SetDrafts(t.vm, d.Sandbox, nil)
+			if !listed[keyOf(d.Workspace, d.Sandbox)] {
+				t.st.SetDrafts(t.vm, d.Workspace, d.Sandbox, nil)
 			}
 		}
 	}

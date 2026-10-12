@@ -24,7 +24,7 @@ type fakeFiles struct {
 	asked []string
 }
 
-func (f *fakeFiles) ListFiles(_ context.Context, vm, sandbox, dir string) (store.Dir, error) {
+func (f *fakeFiles) ListFiles(_ context.Context, vm, _, sandbox, dir string) (store.Dir, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, vm+"/"+sandbox+":"+dir)

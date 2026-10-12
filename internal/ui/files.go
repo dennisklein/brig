@@ -30,7 +30,7 @@ const maxPath = 1024
 
 // FileLister lists a directory in a sandbox.
 type FileLister interface {
-	ListFiles(ctx context.Context, vm, sandbox, dir string) (store.Dir, error)
+	ListFiles(ctx context.Context, vm, workspace, sandbox, dir string) (store.Dir, error)
 }
 
 // workspacePath returns p as a clean path in the workspace, and whether it
@@ -151,7 +151,7 @@ func (s *Server) sandboxFiles(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "", "")
 	var found bool
 	if v.Gateway, found = v.Snap.Gateway(vmName); found {
-		v.Sandbox, found = v.Gateway.Sandbox(name)
+		v.Sandbox, found = v.Gateway.Sandbox(store.DefaultWorkspace, name)
 	}
 	if !found {
 		s.notFound(w, r)
@@ -168,7 +168,7 @@ func (s *Server) sandboxFiles(w http.ResponseWriter, r *http.Request) {
 		d.Err = name + " is " + strings.ToLower(v.Sandbox.Phase) + "; its files can be listed once it runs."
 	default:
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		listing, err := s.files.ListFiles(ctx, vmName, name, dir)
+		listing, err := s.files.ListFiles(ctx, vmName, v.Sandbox.Workspace, name, dir)
 		cancel()
 		if err != nil {
 			s.log.Warn("listing files", "vm", vmName, "sandbox", name, "dir", dir, "err", err)

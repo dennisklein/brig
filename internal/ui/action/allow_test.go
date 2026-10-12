@@ -22,11 +22,11 @@ func trafficContext() action.Context {
 	c.Snap.Traffic = []store.Traffic{{
 		VM: "dev",
 		Requests: []store.Request{
-			{Seq: 1, VM: "dev", Sandbox: "webapp", Verdict: "deny", Process: "/usr/bin/node", Host: "registry.npmjs.org", Port: 443},
-			{Seq: 2, VM: "dev", Sandbox: "webapp", Verdict: "deny", Method: "POST", Host: "uploads.github.com", Port: 443, Reason: "credential_endpoint_mismatch"},
+			{Seq: 1, VM: "dev", Workspace: "default", Sandbox: "webapp", Verdict: "deny", Process: "/usr/bin/node", Host: "registry.npmjs.org", Port: 443},
+			{Seq: 2, VM: "dev", Workspace: "default", Sandbox: "webapp", Verdict: "deny", Method: "POST", Host: "uploads.github.com", Port: 443, Reason: "credential_endpoint_mismatch"},
 		},
 		Drafts: []store.Draft{{
-			Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
+			Workspace: "default", Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
 			Endpoints: []store.DraftEndpoint{{Host: "registry.npmjs.org", Port: 443}}, Security: "new host",
 		}},
 	}}

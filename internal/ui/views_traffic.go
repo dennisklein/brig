@@ -255,7 +255,7 @@ func (d *dialog) PathCheck() string {
 
 // Draft returns the pending draft that the dialog's field "draft" names.
 func (d *dialog) Draft() *store.Draft {
-	dr, ok := d.Snap.TrafficOf(d.Form.Get("vm")).Draft(d.Form.Get("sandbox"), d.Form.Get("draft"))
+	dr, ok := d.Snap.TrafficOf(d.Form.Get("vm")).Draft(store.DefaultWorkspace, d.Form.Get("sandbox"), d.Form.Get("draft"))
 	if !ok {
 		return nil
 	}

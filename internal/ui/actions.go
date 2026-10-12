@@ -360,7 +360,7 @@ func (s *Server) dialog(w http.ResponseWriter, r *http.Request) {
 	d := &dialog{view: v, ID: a.ID, Form: maps(r.URL.Query()), Spec: dialogSpecs[a.ID]}
 	d.VM, _ = v.Snap.VM(d.Form.Get("vm"))
 	d.Gateway, _ = v.Snap.Gateway(d.Form.Get("vm"))
-	d.Sandbox, _ = d.Gateway.Sandbox(d.Form.Get("sandbox"))
+	d.Sandbox, _ = d.Gateway.Sandbox(store.DefaultWorkspace, d.Form.Get("sandbox"))
 	if d.Spec.Defaults != nil {
 		d.Spec.Defaults(d)
 	}
@@ -504,7 +504,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	sb, ok := g.Sandbox(q.Get("sandbox"))
+	sb, ok := g.Sandbox(store.DefaultWorkspace, q.Get("sandbox"))
 	if !ok {
 		s.notFound(w, r)
 		return

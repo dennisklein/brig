@@ -42,13 +42,13 @@ var (
 
 // request returns the request that the form's field "req" names, if the
 // store still holds it and it is the sandbox's.
-func request(f Form, c Context, vm, sandbox string) (store.Request, bool) {
+func request(f Form, c Context, vm, workspace, sandbox string) (store.Request, bool) {
 	seq, err := strconv.ParseUint(f.Get("req"), 10, 64)
 	if err != nil {
 		return store.Request{}, false
 	}
 	r, ok := c.Snap.TrafficOf(vm).Request(seq)
-	return r, ok && r.Sandbox == sandbox
+	return r, ok && r.Workspace == workspace && r.Sandbox == sandbox
 }
 
 func buildAllow(f Form, c Context) (Command, error) {
@@ -56,14 +56,14 @@ func buildAllow(f Form, c Context) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	if r, ok := request(f, c, g.VM, s.Name); ok && r.CredentialMismatch() && f.Get("anyway") == "" {
+	if r, ok := request(f, c, g.VM, s.Workspace, s.Name); ok && r.CredentialMismatch() && f.Get("anyway") == "" {
 		return Command{}, fmt.Errorf("%s may not carry the provider's credential, so the request would go out without it. "+
 			"Add the host to the provider profile's endpoints instead, or tick Allow anyway", r.Host)
 	}
 	switch f.Get("mode") {
 	case AllowDraft:
 		id := f.Get("draft")
-		d, ok := c.Snap.TrafficOf(g.VM).Draft(s.Name, id)
+		d, ok := c.Snap.TrafficOf(g.VM).Draft(s.Workspace, s.Name, id)
 		if !ok {
 			return Command{}, fmt.Errorf("OpenShell has no pending draft %q for %s; it may have been approved or rejected meanwhile", id, s.Name)
 		}

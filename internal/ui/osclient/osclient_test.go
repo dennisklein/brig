@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +29,9 @@ import (
 	pb "github.com/NVIDIA/OpenShell/sdk/go/proto/openshellv1"
 	sb "github.com/NVIDIA/OpenShell/sdk/go/proto/sandboxv1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/dennisklein/brig/internal/ui/store"
@@ -43,6 +46,8 @@ type gateway struct {
 	mu       sync.Mutex
 	// watches are the watch requests it got.
 	watches []*pb.WatchSandboxRequest
+	// profileScopes are the workspaces ListProviderProfiles was asked for.
+	profileScopes []string
 }
 
 func page[T any](items []T, token string, size int) ([]T, string) {
@@ -55,14 +60,35 @@ func page[T any](items []T, token string, size int) ([]T, string) {
 	return items[start:end], next
 }
 
-func checkScope(ws *dm.WorkspaceSelector) error {
-	if ws.GetWorkspace() != "default" {
-		return errWorkspace
+// workspaceNames are the workspaces of the fake gateway.
+var workspaceNames = []string{"default", "team"}
+
+// scopeOf returns the workspaces a selector names: the one, or with all
+// set, every workspace when the selector asks for all.
+func scopeOf(ws *dm.WorkspaceSelector, all bool) ([]string, error) {
+	switch {
+	case ws.GetAllWorkspaces() != nil && all:
+		return workspaceNames, nil
+	case ws.GetWorkspace() != "" && slices.Contains(workspaceNames, ws.GetWorkspace()):
+		return []string{ws.GetWorkspace()}, nil
 	}
-	return nil
+	return nil, status.Error(codes.InvalidArgument, "bad workspace selector")
 }
 
-var errWorkspace = &net.AddrError{Err: "not the default workspace"}
+// checkScope accepts a selector of one existing workspace.
+func checkScope(ws *dm.WorkspaceSelector) error {
+	_, err := scopeOf(ws, false)
+	return err
+}
+
+// metaIn is the metadata of an object in a workspace. The default workspace
+// is left implicit, as a gateway may send it.
+func metaIn(workspace, name string) *dm.ObjectMeta {
+	if workspace == "default" {
+		return &dm.ObjectMeta{Name: name}
+	}
+	return &dm.ObjectMeta{Name: name, Workspace: workspace}
+}
 
 func (g *gateway) Health(context.Context, *pb.HealthRequest) (*pb.HealthResponse, error) {
 	return &pb.HealthResponse{Status: pb.ServiceStatus_SERVICE_STATUS_HEALTHY, Version: "0.1.3"}, nil
@@ -70,50 +96,94 @@ func (g *gateway) Health(context.Context, *pb.HealthRequest) (*pb.HealthResponse
 
 var created = time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 
+func (g *gateway) ListWorkspaces(_ context.Context, r *pb.ListWorkspacesRequest) (*pb.ListWorkspacesResponse, error) {
+	var all []*dm.Workspace
+	// Reversed, to show that the client sorts.
+	for _, n := range slices.Backward(workspaceNames) {
+		all = append(all, &dm.Workspace{Metadata: &dm.ObjectMeta{Name: n}})
+	}
+	items, next := page(all, r.GetPageToken(), g.pageSize)
+	return &pb.ListWorkspacesResponse{Workspaces: items, NextPageToken: next}, nil
+}
+
 func (g *gateway) ListSandboxes(_ context.Context, r *pb.ListSandboxesRequest) (*pb.ListSandboxesResponse, error) {
-	if err := checkScope(r.GetWorkspaceScope()); err != nil {
+	wss, err := scopeOf(r.GetWorkspaceScope(), true)
+	if err != nil {
 		return nil, err
 	}
-	all := []*pb.Sandbox{
-		{
-			Metadata: &dm.ObjectMeta{Name: "webapp", CreatedTime: timestamppb.New(created)},
-			Spec: &pb.SandboxSpec{
-				Template:    &pb.SandboxTemplate{Image: "localhost/pi-agent:2026-10-08"},
-				Providers:   []string{"llm", "github"},
-				Environment: map[string]string{"SECRET": "s3cret"},
-			},
-			Status:                      &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_READY, CurrentPolicyVersion: 3},
-			CreatedFromWorkloadTemplate: &pb.SandboxWorkloadTemplateProvenance{Name: "pi"},
-		},
-		{
-			Metadata: &dm.ObjectMeta{Name: "broken"},
-			Status: &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_ERROR, Conditions: []*pb.SandboxCondition{
-				{Type: "Ready", Status: "False", Message: "image pull failed"},
-			}},
-		},
-		{Metadata: &dm.ObjectMeta{Name: "odd"}, Status: &pb.SandboxStatus{Phase: 42}},
+	var all []*pb.Sandbox
+	for _, ws := range wss {
+		switch ws {
+		case "default":
+			all = append(all,
+				&pb.Sandbox{
+					Metadata: &dm.ObjectMeta{Name: "webapp", CreatedTime: timestamppb.New(created)},
+					Spec: &pb.SandboxSpec{
+						Template:    &pb.SandboxTemplate{Image: "localhost/pi-agent:2026-10-08"},
+						Providers:   []string{"llm", "github"},
+						Environment: map[string]string{"SECRET": "s3cret"},
+					},
+					Status:                      &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_READY, CurrentPolicyVersion: 3},
+					CreatedFromWorkloadTemplate: &pb.SandboxWorkloadTemplateProvenance{Name: "pi"},
+				},
+				&pb.Sandbox{
+					Metadata: &dm.ObjectMeta{Name: "broken"},
+					Status: &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_ERROR, Conditions: []*pb.SandboxCondition{
+						{Type: "Ready", Status: "False", Message: "image pull failed"},
+					}},
+				},
+				// Named explicitly, as the default workspace may be.
+				&pb.Sandbox{Metadata: &dm.ObjectMeta{Name: "odd", Workspace: "default"}, Status: &pb.SandboxStatus{Phase: 42}},
+			)
+		case "team":
+			all = append(all,
+				// The same name as the default workspace's sandbox.
+				&pb.Sandbox{
+					Metadata: metaIn("team", "webapp"),
+					Spec:     &pb.SandboxSpec{Template: &pb.SandboxTemplate{Image: "localhost/claude-agent:2026-10-01"}, Providers: []string{"llm"}},
+					Status:   &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_STOPPED, CurrentPolicyVersion: 7},
+				},
+				&pb.Sandbox{Metadata: metaIn("team", "ci"), Status: &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_READY, CurrentPolicyVersion: 1}},
+			)
+		}
 	}
 	items, next := page(all, r.GetPageToken(), g.pageSize)
 	return &pb.ListSandboxesResponse{Sandboxes: items, NextPageToken: next}, nil
 }
 
 func (g *gateway) ListProviders(_ context.Context, r *pb.ListProvidersRequest) (*pb.ListProvidersResponse, error) {
-	if err := checkScope(r.GetWorkspaceScope()); err != nil {
+	wss, err := scopeOf(r.GetWorkspaceScope(), true)
+	if err != nil {
 		return nil, err
 	}
-	all := []*dm.Provider{
-		{Metadata: &dm.ObjectMeta{Name: "llm"}, Type: "openai", Credentials: map[string]string{"OPENAI_API_KEY": "sk-not-redacted"}},
-		{Metadata: &dm.ObjectMeta{Name: "github"}, Type: "github", Credentials: map[string]string{"GH_TOKEN": "REDACTED", "GH_HOST": "REDACTED"}},
+	var all []*dm.Provider
+	for _, ws := range wss {
+		switch ws {
+		case "default":
+			all = append(all,
+				&dm.Provider{Metadata: metaIn(ws, "llm"), Type: "openai", Credentials: map[string]string{"OPENAI_API_KEY": "sk-not-redacted"}},
+				&dm.Provider{Metadata: metaIn(ws, "github"), Type: "github", Credentials: map[string]string{"GH_TOKEN": "REDACTED", "GH_HOST": "REDACTED"}},
+			)
+		case "team":
+			// The same name as in the default workspace.
+			all = append(all, &dm.Provider{Metadata: metaIn(ws, "llm"), Type: "anthropic", Credentials: map[string]string{"ANTHROPIC_API_KEY": "REDACTED"}})
+		}
 	}
 	items, next := page(all, r.GetPageToken(), g.pageSize)
 	return &pb.ListProvidersResponse{Providers: items, NextPageToken: next}, nil
 }
 
+// ListProviderProfiles takes one named workspace only, like the real
+// gateway, and lists the platform's profiles with the workspace's own.
 func (g *gateway) ListProviderProfiles(_ context.Context, r *pb.ListProviderProfilesRequest) (*pb.ListProviderProfilesResponse, error) {
 	if err := checkScope(r.GetWorkspaceScope()); err != nil {
 		return nil, err
 	}
-	return &pb.ListProviderProfilesResponse{Profiles: []*pb.ProviderProfile{{
+	g.mu.Lock()
+	g.profileScopes = append(g.profileScopes, r.GetWorkspaceScope().GetWorkspace())
+	g.mu.Unlock()
+	platform := &pb.ProviderProfile{Id: "claude-code", DisplayName: "Claude Code", Source: "builtin", Scope: "platform"}
+	github := &pb.ProviderProfile{
 		Id: "github", DisplayName: "GitHub", Category: pb.ProviderProfileCategory_PROVIDER_PROFILE_CATEGORY_SOURCE_CONTROL,
 		Source: "user", Scope: "workspace",
 		Credentials: []*pb.ProviderProfileCredential{{Name: "token", EnvVars: []string{"GH_TOKEN"}, AuthStyle: "bearer", Required: true}},
@@ -122,26 +192,44 @@ func (g *gateway) ListProviderProfiles(_ context.Context, r *pb.ListProviderProf
 			{Host: "github.com", Ports: []uint32{22, 443}},
 		},
 		Binaries: []*sb.NetworkBinary{{Path: "/usr/bin/gh"}},
-	}}}, nil
+	}
+	if r.GetWorkspaceScope().GetWorkspace() == "team" {
+		github = &pb.ProviderProfile{Id: "github", DisplayName: "GitHub (team)", Source: "user", Scope: "workspace"}
+	}
+	return &pb.ListProviderProfilesResponse{Profiles: []*pb.ProviderProfile{platform, github}}, nil
 }
 
 func (g *gateway) ListSandboxTemplates(_ context.Context, r *pb.ListSandboxTemplatesRequest) (*pb.ListSandboxTemplatesResponse, error) {
-	if err := checkScope(r.GetWorkspaceScope()); err != nil {
+	wss, err := scopeOf(r.GetWorkspaceScope(), true)
+	if err != nil {
 		return nil, err
 	}
-	return &pb.ListSandboxTemplatesResponse{Templates: []*pb.SandboxWorkloadTemplate{{
-		Metadata: &dm.ObjectMeta{Name: "pi"},
-		Spec: &pb.SandboxWorkloadTemplateSpec{Workload: &pb.SandboxWorkloadConfig{
-			Image: "localhost/pi-agent:2026-10-08", Resources: &pb.SandboxResources{Cpu: "2", Memory: "4Gi"},
-		}},
-	}}}, nil
+	var all []*pb.SandboxWorkloadTemplate
+	for _, ws := range wss {
+		name, image := "pi", "localhost/pi-agent:2026-10-08"
+		if ws == "team" {
+			name, image = "claude", "localhost/claude-agent:2026-10-01"
+		}
+		all = append(all, &pb.SandboxWorkloadTemplate{
+			Metadata: metaIn(ws, name),
+			Spec: &pb.SandboxWorkloadTemplateSpec{Workload: &pb.SandboxWorkloadConfig{
+				Image: image, Resources: &pb.SandboxResources{Cpu: "2", Memory: "4Gi"},
+			}},
+		})
+	}
+	items, next := page(all, r.GetPageToken(), g.pageSize)
+	return &pb.ListSandboxTemplatesResponse{Templates: items, NextPageToken: next}, nil
 }
 
 func (g *gateway) GetSandboxConfig(_ context.Context, r *sb.GetSandboxConfigRequest) (*sb.GetSandboxConfigResponse, error) {
 	if err := checkScope(r.GetWorkspaceScope()); err != nil {
 		return nil, err
 	}
-	return &sb.GetSandboxConfigResponse{Version: 3, PolicySource: sb.PolicySource_POLICY_SOURCE_SANDBOX, Policy: testPolicy()}, nil
+	version := uint32(3)
+	if r.GetWorkspaceScope().GetWorkspace() == "team" {
+		version = 7
+	}
+	return &sb.GetSandboxConfigResponse{Version: version, PolicySource: sb.PolicySource_POLICY_SOURCE_SANDBOX, Policy: testPolicy()}, nil
 }
 
 // lastExec is what the fake gateway was last asked to run.
@@ -152,6 +240,10 @@ func (g *gateway) ExecSandbox(r *pb.ExecSandboxRequest, stream grpc.ServerStream
 		return err
 	}
 	lastExec.Store(r)
+	if r.GetSandbox() == "webapp" && r.GetWorkspaceScope().GetWorkspace() == "team" {
+		_ = stream.Send(&pb.ExecSandboxEvent{Payload: &pb.ExecSandboxEvent_Stdout{Stdout: &pb.ExecSandboxStdout{Data: []byte("f\t1\t1760000000.0\tteam-only\x00")}}})
+		return stream.Send(&pb.ExecSandboxEvent{Payload: &pb.ExecSandboxEvent_Exit{Exit: &pb.ExecSandboxExit{}}})
+	}
 	send := func(ev *pb.ExecSandboxEvent) {
 		_ = stream.Send(ev)
 	}
@@ -308,16 +400,26 @@ func TestReads(t *testing.T) {
 		t.Fatalf("Version: %q, %v", v, err)
 	}
 
+	wss, err := c.Workspaces(ctx)
+	if err != nil || !reflect.DeepEqual(wss, []string{"default", "team"}) {
+		t.Errorf("Workspaces = %v, %v", wss, err)
+	}
+
 	sbs, err := c.Sandboxes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []store.Sandbox{
-		{Name: "broken", Phase: "Error", Problem: "image pull failed"},
-		{Name: "odd", Phase: "Unknown"},
+		{Workspace: "default", Name: "broken", Phase: "Error", Problem: "image pull failed"},
+		{Workspace: "default", Name: "odd", Phase: "Unknown"},
 		{
-			Name: "webapp", Phase: "Ready", Image: "localhost/pi-agent:2026-10-08", Template: "pi",
+			Workspace: "default", Name: "webapp", Phase: "Ready", Image: "localhost/pi-agent:2026-10-08", Template: "pi",
 			Providers: []string{"github", "llm"}, Created: created, PolicyVersion: 3,
+		},
+		{Workspace: "team", Name: "ci", Phase: "Ready", PolicyVersion: 1},
+		{
+			Workspace: "team", Name: "webapp", Phase: "Stopped", Image: "localhost/claude-agent:2026-10-01",
+			Providers: []string{"llm"}, PolicyVersion: 7,
 		},
 	}
 	if !reflect.DeepEqual(sbs, want) {
@@ -329,23 +431,30 @@ func TestReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantProvs := []store.Provider{
-		{Name: "github", Type: "github", Credentials: []string{"GH_HOST", "GH_TOKEN"}},
-		{Name: "llm", Type: "openai", Credentials: []string{"OPENAI_API_KEY"}},
+		{Workspace: "default", Name: "github", Type: "github", Credentials: []string{"GH_HOST", "GH_TOKEN"}},
+		{Workspace: "default", Name: "llm", Type: "openai", Credentials: []string{"OPENAI_API_KEY"}},
+		{Workspace: "team", Name: "llm", Type: "anthropic", Credentials: []string{"ANTHROPIC_API_KEY"}},
 	}
 	if !reflect.DeepEqual(provs, wantProvs) {
 		t.Errorf("Providers:\ngot  %+v\nwant %+v", provs, wantProvs)
 	}
 
-	profs, err := c.Profiles(ctx)
+	profs, err := c.Profiles(ctx, wss)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProfs := []store.Profile{{
-		ID: "github", Name: "GitHub", Category: "source control", Source: "user", Scope: "workspace",
-		Credentials: []store.ProfileCredential{{Name: "token", EnvVars: []string{"GH_TOKEN"}, Auth: "bearer", Required: true}},
-		Endpoints:   []string{"api.github.com:443", "github.com:22", "github.com:443"},
-		Binaries:    []string{"/usr/bin/gh"},
-	}}
+	// The platform's profile comes with every workspace and is listed
+	// once, with no workspace.
+	wantProfs := []store.Profile{
+		{ID: "claude-code", Name: "Claude Code", Source: "builtin", Scope: "platform"},
+		{
+			Workspace: "default", ID: "github", Name: "GitHub", Category: "source control", Source: "user", Scope: "workspace",
+			Credentials: []store.ProfileCredential{{Name: "token", EnvVars: []string{"GH_TOKEN"}, Auth: "bearer", Required: true}},
+			Endpoints:   []string{"api.github.com:443", "github.com:22", "github.com:443"},
+			Binaries:    []string{"/usr/bin/gh"},
+		},
+		{Workspace: "team", ID: "github", Name: "GitHub (team)", Source: "user", Scope: "workspace"},
+	}
 	if !reflect.DeepEqual(profs, wantProfs) {
 		t.Errorf("Profiles:\ngot  %+v\nwant %+v", profs, wantProfs)
 	}
@@ -354,11 +463,14 @@ func TestReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []store.Template{{Name: "pi", Image: "localhost/pi-agent:2026-10-08", CPU: "2", Memory: "4Gi"}}; !reflect.DeepEqual(tmpls, want) {
+	if want := []store.Template{
+		{Workspace: "default", Name: "pi", Image: "localhost/pi-agent:2026-10-08", CPU: "2", Memory: "4Gi"},
+		{Workspace: "team", Name: "claude", Image: "localhost/claude-agent:2026-10-01", CPU: "2", Memory: "4Gi"},
+	}; !reflect.DeepEqual(tmpls, want) {
 		t.Errorf("Templates: %+v", tmpls)
 	}
 
-	p, err := c.Policy(ctx, "webapp")
+	p, err := c.Policy(ctx, "default", "webapp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,6 +479,40 @@ func TestReads(t *testing.T) {
 	}
 	if strings.Contains(p.Base, "_provider_") || !strings.Contains(p.Effective, "_provider_github:") {
 		t.Errorf("Policy base:\n%s\neffective:\n%s", p.Base, p.Effective)
+	}
+}
+
+// TestWorkspaceKeying asks for the same sandbox name in two workspaces and
+// gets each workspace's own answer.
+func TestWorkspaceKeying(t *testing.T) {
+	g := &gateway{pageSize: 2}
+	c := serve(t, g)
+	ctx := context.Background()
+
+	for ws, version := range map[string]uint32{"default": 3, "team": 7} {
+		p, err := c.Policy(ctx, ws, "webapp")
+		if err != nil || p.Version != version {
+			t.Errorf("Policy(%s, webapp) = %+v, %v; want version %d", ws, p, err, version)
+		}
+	}
+	if _, err := c.Policy(ctx, "gone", "webapp"); err == nil {
+		t.Error("a policy of a workspace that does not exist was read")
+	}
+	if _, err := c.Profiles(ctx, []string{"default", "team"}); err != nil {
+		t.Fatal(err)
+	}
+	g.mu.Lock()
+	scopes := slices.Clone(g.profileScopes)
+	g.mu.Unlock()
+	if !reflect.DeepEqual(scopes, []string{"default", "team"}) {
+		t.Errorf("profiles were asked for the workspaces %v", scopes)
+	}
+	d, err := c.ListDir(ctx, "team", "webapp", "/sandbox")
+	if err != nil || len(d.Files) != 1 || d.Files[0].Name != "team-only" {
+		t.Errorf("ListDir in team = %+v, %v", d, err)
+	}
+	if got := lastExec.Load().GetWorkspaceScope().GetWorkspace(); got != "team" {
+		t.Errorf("ListDir asked workspace %q", got)
 	}
 }
 
@@ -475,7 +621,7 @@ func portOf(c *Client) int {
 func TestListDir(t *testing.T) {
 	c := serve(t, &gateway{})
 	ctx := context.Background()
-	d, err := c.ListDir(ctx, "webapp", "/sandbox/src")
+	d, err := c.ListDir(ctx, "default", "webapp", "/sandbox/src")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,19 +645,19 @@ func TestListDir(t *testing.T) {
 		t.Errorf("request: %+v", req)
 	}
 
-	if d, err := c.ListDir(ctx, "empty", "/sandbox"); err != nil || len(d.Files) != 0 {
+	if d, err := c.ListDir(ctx, "default", "empty", "/sandbox"); err != nil || len(d.Files) != 0 {
 		t.Errorf("empty: %+v, %v", d, err)
 	}
-	if _, err := c.ListDir(ctx, "nodir", "/sandbox/x"); err == nil || !strings.Contains(err.Error(), "No such file or directory") {
+	if _, err := c.ListDir(ctx, "default", "nodir", "/sandbox/x"); err == nil || !strings.Contains(err.Error(), "No such file or directory") {
 		t.Errorf("failed listing: %v", err)
 	}
-	if _, err := c.ListDir(ctx, "garbled", "/sandbox"); err == nil {
+	if _, err := c.ListDir(ctx, "default", "garbled", "/sandbox"); err == nil {
 		t.Error("a garbled listing was accepted")
 	}
-	if _, err := c.ListDir(ctx, "silent", "/sandbox"); err == nil || !strings.Contains(err.Error(), "exit status") {
+	if _, err := c.ListDir(ctx, "default", "silent", "/sandbox"); err == nil || !strings.Contains(err.Error(), "exit status") {
 		t.Errorf("a listing without exit status: %v", err)
 	}
-	if d, err := c.ListDir(ctx, "huge", "/sandbox"); err != nil || len(d.Files) != maxFiles || !d.Truncated {
+	if d, err := c.ListDir(ctx, "default", "huge", "/sandbox"); err != nil || len(d.Files) != maxFiles || !d.Truncated {
 		t.Errorf("huge: %d files, truncated %v, %v", len(d.Files), d.Truncated, err)
 	}
 }

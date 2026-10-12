@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	"github.com/dennisklein/brig/internal/ui/action"
+	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -34,7 +35,7 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	if v.Sandbox, ok = v.Gateway.Sandbox(name); !ok {
+	if v.Sandbox, ok = v.Gateway.Sandbox(store.DefaultWorkspace, name); !ok {
 		s.notFound(w, r)
 		return
 	}
@@ -94,7 +95,7 @@ func liveOpenShell(v *view, q url.Values) {
 	v.Gateway, _ = v.Snap.Gateway(gw)
 	v.VM, _ = v.Snap.VM(gw)
 	if sb := q.Get("sb"); sb != "" {
-		v.Sandbox, _ = v.Gateway.Sandbox(sb)
+		v.Sandbox, _ = v.Gateway.Sandbox(store.DefaultWorkspace, sb)
 		v.Tab = pickTab(sandboxTabs, q.Get("tab"))
 		v.Path = filesPath(q.Get("path"))
 		return

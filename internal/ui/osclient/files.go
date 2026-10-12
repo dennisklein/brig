@@ -40,11 +40,11 @@ func ListCommand(dir string) []string {
 
 // ListDir lists the directory dir in the sandbox, which must run. It runs
 // ListCommand in the sandbox through the gateway and changes nothing.
-func (c *Client) ListDir(ctx context.Context, sandbox, dir string) (store.Dir, error) {
+func (c *Client) ListDir(ctx context.Context, workspace, sandbox, dir string) (store.Dir, error) {
 	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
 	stream, err := c.api.ExecSandbox(ctx, &pb.ExecSandboxRequest{
-		WorkspaceScope:   scope(),
+		WorkspaceScope:   scope(workspace),
 		Sandbox:          sandbox,
 		Command:          ListCommand(dir),
 		NoLoginShell:     true,

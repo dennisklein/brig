@@ -14,7 +14,7 @@ import (
 
 // DirClient lists a directory in a sandbox; osclient.Client does.
 type DirClient interface {
-	ListDir(ctx context.Context, sandbox, dir string) (store.Dir, error)
+	ListDir(ctx context.Context, workspace, sandbox, dir string) (store.Dir, error)
 	Close() error
 }
 
@@ -36,7 +36,7 @@ func NewFiles(st *store.Store, configHome string) *Files {
 }
 
 // ListFiles lists the directory dir in the sandbox of the VM named vm.
-func (f *Files) ListFiles(ctx context.Context, vm, sandbox, dir string) (store.Dir, error) {
+func (f *Files) ListFiles(ctx context.Context, vm, workspace, sandbox, dir string) (store.Dir, error) {
 	v, ok := f.Store.Snapshot().VM(vm)
 	if !ok || !v.Running() {
 		return store.Dir{}, fmt.Errorf("%s does not run", vm)
@@ -46,5 +46,5 @@ func (f *Files) ListFiles(ctx context.Context, vm, sandbox, dir string) (store.D
 		return store.Dir{}, err
 	}
 	defer func() { _ = c.Close() }()
-	return c.ListDir(ctx, sandbox, dir)
+	return c.ListDir(ctx, workspace, sandbox, dir)
 }

@@ -92,7 +92,7 @@ func draftOf(sandbox string, p pattern) (store.Draft, bool) {
 	portN, _ := strconv.Atoi(port)
 	name := "allow_" + strings.NewReplacer(".", "_", "-", "_").Replace(host) + "_" + port
 	return store.Draft{
-		Sandbox: sandbox, ID: "chunk-" + strings.ReplaceAll(host, ".", "-"), Rule: name, Binary: p.program,
+		Workspace: store.DefaultWorkspace, Sandbox: sandbox, ID: "chunk-" + strings.ReplaceAll(host, ".", "-"), Rule: name, Binary: p.program,
 		Endpoints: []store.DraftEndpoint{{Host: host, Port: portN}},
 		Binaries:  []string{p.program},
 		YAML: name + ":\n  name: " + name + "\n  endpoints:\n    - host: " + host + "\n      port: " + port +
@@ -127,9 +127,9 @@ func (t *traffic) backfill(now time.Time, vms []store.VM) {
 		at := now.Add(-time.Duration(i)*50*time.Second - time.Duration(rand.IntN(40))*time.Second) //nolint:gosec // G404: made-up times
 		t.tick(at, vms)
 	}
-	t.st.AddRequests("dev", []store.Request{{Sandbox: "kit-dev", Time: now.Add(-41 * time.Minute), Gap: "The gateway dropped lines of the log: 12 lines dropped, buffer full"}})
+	t.st.AddRequests("dev", []store.Request{{Workspace: store.DefaultWorkspace, Sandbox: "kit-dev", Time: now.Add(-41 * time.Minute), Gap: "The gateway dropped lines of the log: 12 lines dropped, buffer full"}})
 	raw, _ := osclient.ParseRequest("HTTP:CONNECT [MED] DENIED tunnel to 192.0.2.7:8443 refused by the upstream proxy")
-	raw.Sandbox, raw.Time = "webapp", now.Add(-23*time.Minute)
+	raw.Workspace, raw.Sandbox, raw.Time = store.DefaultWorkspace, "webapp", now.Add(-23*time.Minute)
 	t.st.AddRequests("dev", []store.Request{raw})
 }
 
@@ -163,7 +163,7 @@ func (t *traffic) tick(at time.Time, vms []store.VM) {
 	if !ok {
 		return
 	}
-	r.Sandbox, r.Time = sb.sandbox, at
+	r.Workspace, r.Sandbox, r.Time = store.DefaultWorkspace, sb.sandbox, at
 	t.st.AddRequests(sb.vm, []store.Request{r})
 	if r.Denied() {
 		t.drafted(sb.vm, sb.sandbox, p, at)
@@ -188,7 +188,7 @@ func (t *traffic) drafted(vm, sandbox string, p pattern, at time.Time) {
 	drafts[i].LastSeen = at
 	t.drafts[key] = drafts
 	t.mu.Unlock()
-	t.st.SetDrafts(vm, sandbox, drafts)
+	t.st.SetDrafts(vm, store.DefaultWorkspace, sandbox, drafts)
 }
 
 // allow lets the sandbox's program reach the endpoint from now on, by the
@@ -203,7 +203,7 @@ func (t *traffic) allow(vm, sandbox, endpoint, program, rule string) {
 	})
 	t.drafts[key] = drafts
 	t.mu.Unlock()
-	t.st.SetDrafts(vm, sandbox, drafts)
+	t.st.SetDrafts(vm, store.DefaultWorkspace, sandbox, drafts)
 }
 
 // draft returns the pending draft of the sandbox with the ID id.
