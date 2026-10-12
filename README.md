@@ -199,8 +199,11 @@ shows nothing. These commands also append a JSON event log of their work to
 `~/.local/state/brig/activity.jsonl`), which brig moves to
 `activity.jsonl.1` once it passes 8 MiB. `--progress-log FILE` (or
 `BRIG_PROGRESS_LOG`) logs to FILE instead; an empty value turns the log off.
+A caller can pass a W3C trace context in `TRACEPARENT` and `TRACESTATE` to
+find a run in the log by its trace id.
 On a terminal, `NO_COLOR` turns colours off. Text from guests, images and
-libvirt is escaped before it is shown, so it cannot inject terminal control sequences.
+libvirt is escaped before it is shown, so it cannot inject terminal control
+sequences.
 
 ## Configuration
 

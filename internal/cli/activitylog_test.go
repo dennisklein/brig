@@ -115,6 +115,46 @@ func TestUnusableStateDirectoryWritesNoLogAndNoNote(t *testing.T) {
 	}
 }
 
+func TestTraceparentJoinsTheCallersTrace(t *testing.T) {
+	log := stateHome(t)
+	if err := os.Unsetenv(progressLogVar); err != nil {
+		t.Fatal(err)
+	}
+	const trace = "4bf92f3577b34da6a3ce929d0e0e4736"
+	t.Setenv("TRACEPARENT", "00-"+trace+"-00f067aa0ba902b7-01")
+	t.Setenv("TRACESTATE", "vendor=x")
+	if _, _, _, err := runSplit(t, "print-fedora-deps"); err != nil {
+		t.Fatal(err)
+	}
+	got := readActivity(t, log)
+	for _, want := range []string{`"trace":"` + trace + `"`, `"parent":"00f067aa0ba902b7"`, `"name":"print-fedora-deps"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("activity log lacks %s:\n%s", want, got)
+		}
+	}
+	// brig hands no trace context to the programs it starts.
+	if v, ok := os.LookupEnv("TRACEPARENT"); ok {
+		t.Errorf("TRACEPARENT = %q still set", v)
+	}
+	if v, ok := os.LookupEnv("TRACESTATE"); ok {
+		t.Errorf("TRACESTATE = %q still set", v)
+	}
+}
+
+func TestInvalidTraceparentStartsANewTrace(t *testing.T) {
+	log := stateHome(t)
+	if err := os.Unsetenv(progressLogVar); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACEPARENT", "garbage")
+	if _, _, _, err := runSplit(t, "print-fedora-deps"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readActivity(t, log); !strings.Contains(got, `"type":"trace"`) || strings.Contains(got, "garbage") {
+		t.Errorf("activity log:\n%s", got)
+	}
+}
+
 func TestRotateLog(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "activity.jsonl")
