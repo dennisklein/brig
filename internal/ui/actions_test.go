@@ -393,3 +393,101 @@ func TestEventsCarryTheTasks(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxDialogs(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	body := ts.get("/a/sandbox-create").Body.String()
+	for _, want := range []string{
+		"New sandbox", "On brig-dev", `<option value="dev" selected>`, `<option value="pi">pi · localhost/pi-agent:2026-10-08</option>`,
+		`name="provider" value="github"`, "opens api.github.com:443, github.com:443", "~/src/agent-openshell/policies/tools.yaml",
+		"default · ~/src/agent-openshell/policies/default.yaml", "<textarea",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("create dialog lacks %q", want)
+		}
+	}
+	// With more than one gateway, the VM can be changed, which starts the form over.
+	if !strings.Contains(body, `hx-get="/a/sandbox-create"`) {
+		t.Error("the VM of the create dialog cannot be changed")
+	}
+	if body := ts.get("/a/sandbox-create?vm=review&provider=github").Body.String(); !strings.Contains(body, "On brig-review") || !strings.Contains(body, `name="provider" value="github" checked`) {
+		t.Errorf("create dialog for review:\n%s", body)
+	}
+	if body := ts.get("/a/sandbox-delete?vm=dev&sandbox=webapp").Body.String(); !strings.Contains(body, `Type <b class="mono">webapp</b> to confirm`) || !strings.Contains(body, "Delete webapp") {
+		t.Errorf("delete dialog:\n%s", body)
+	}
+	if body := ts.get("/a/sandbox-attach?vm=dev&sandbox=kit-dev").Body.String(); !strings.Contains(body, `<option value="github"`) || strings.Contains(body, `<option value="llm"`) {
+		t.Errorf("attach offers the wrong providers:\n%s", body)
+	}
+	if body := ts.get("/a/sandbox-attach?vm=dev&sandbox=kit-dev").Body.String(); strings.Contains(body, `<option value="llm"`) {
+		t.Error("attach offers a provider that is attached")
+	}
+}
+
+func TestSandboxActionRuns(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	f := values("vm", "dev", "sandbox", "kit-dev")
+	f.Set("shown", ts.shownBy("sandbox-delete", f))
+	// Deleting needs the name typed.
+	if w := ts.post("/a/sandbox-delete/run", f); w.Code != http.StatusUnprocessableEntity || len(ts.starts.started()) != 0 {
+		t.Fatalf("delete without the name: %d, %d started", w.Code, len(ts.starts.started()))
+	}
+	f.Set("confirm", "kit-dev")
+	if w := ts.post("/a/sandbox-delete/run", f); w.Code != http.StatusOK {
+		t.Fatalf("delete: %d\n%s", w.Code, w.Body)
+	}
+	specs := ts.starts.started()
+	if len(specs) != 1 || specs[0].Command.Display != "openshell -g brig-dev sandbox delete kit-dev" || specs[0].Command.Argv[0] != "openshell" {
+		t.Fatalf("started %+v", specs)
+	}
+	// A sandbox on a stopped VM cannot be changed.
+	if w := ts.post("/a/sandbox-stop/preview", values("vm", "airgap", "sandbox", "corpus-scan")); !strings.Contains(w.Body.String(), "before stopping a sandbox") {
+		t.Errorf("stopping on a stopped VM:\n%s", w.Body)
+	}
+}
+
+func TestSandboxButtons(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	for target, want := range map[string][]string{
+		"/sandboxes":             {`hx-get="/a/sandbox-create"`},
+		"/sandboxes?vm=dev":      {`hx-get="/a/sandbox-create?vm=dev"`},
+		"/vms/dev?tab=sandboxes": {`hx-get="/a/sandbox-create?vm=dev"`},
+		"/sandboxes/dev/webapp":  {"Connect…", `/a/sandbox-stop?`, `/a/sandbox-delete?`, `/a/sandbox-attach?`, `/a/sandbox-detach?provider=github`},
+		"/sandboxes/dev/tools":   {`/a/sandbox-start?`},
+	} {
+		body := ts.get(target).Body.String()
+		for _, s := range want {
+			if !strings.Contains(body, s) {
+				t.Errorf("%s lacks %q", target, s)
+			}
+		}
+	}
+	if body := ts.get("/sandboxes/dev/webapp").Body.String(); strings.Contains(body, `/a/sandbox-start?`) {
+		t.Error("a running sandbox offers Start")
+	}
+}
+
+func TestTerminalDialog(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	body := ts.get("/terminal?vm=dev&sandbox=webapp").Body.String()
+	for _, want := range []string{
+		"Connect to webapp", "$ </span><span class=\"text\">openshell -g brig-dev sandbox connect webapp",
+		"sandbox exec -n webapp --tty -- bash -l", "data-dialog-close",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("terminal dialog lacks %q:\n%s", want, body)
+		}
+	}
+	if !strings.Contains(ts.get("/terminal?vm=dev&sandbox=tools").Body.String(), "Start it first") {
+		t.Error("a stopped sandbox is not said to be stopped")
+	}
+	for _, target := range []string{"/terminal", "/terminal?vm=dev&sandbox=nope", "/terminal?vm=dev&sandbox=--x", "/terminal?vm=..&sandbox=webapp"} {
+		if w := ts.get(target); w.Code != http.StatusNotFound {
+			t.Errorf("%s: %d", target, w.Code)
+		}
+	}
+}

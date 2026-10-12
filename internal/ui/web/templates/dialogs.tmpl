@@ -128,3 +128,69 @@
 </div>
 {{else}}<div class="callout warn">No VM is running. Start one first: the image is loaded into its Podman.</div><input type="hidden" name="vm" value="">{{end}}
 {{end}}
+
+{{/* Sandboxes. A sandbox dialog names the VM and the sandbox in hidden fields. */}}
+
+{{define "sbfields"}}<input type="hidden" name="vm" value="{{.Form.Get "vm"}}"><input type="hidden" name="sandbox" value="{{.Form.Get "sandbox"}}">{{end}}
+
+{{define "dlg-sandbox-create"}}{{$g := .Gateway}}
+{{if not (readyGateways .Snap)}}<div class="callout warn">No VM has a reachable OpenShell gateway. Start a VM first.</div><input type="hidden" name="vm" value="">
+{{else}}
+<div class="row">
+  <div class="field"><label for="s-vm">VM</label>{{if gt (len (readyGateways .Snap)) 1}}<select id="s-vm" name="vm" hx-get="/a/sandbox-create" hx-trigger="change" hx-target="#layer" hx-swap="innerHTML">{{range readyGateways .Snap}}<option value="{{.VM}}"{{if eq .VM ($.Form.Get "vm")}} selected{{end}}>{{.VM}}</option>{{end}}</select><span class="hint">Changing it starts the form over.</span>
+  {{else}}<input type="text" id="s-vm" value="{{$g.VM}}" disabled><input type="hidden" name="vm" value="{{$g.VM}}">{{end}}</div>
+  <div class="field"><label for="s-name">Name</label><input type="text" id="s-name" name="name" value="{{.Form.Get "name"}}" placeholder="webapp" autocapitalize="off" spellcheck="false"><span class="hint">Letters, digits, dots, dashes and underscores.</span></div>
+</div>
+<div class="row">
+  <div class="field"><label for="s-template">Template</label><select id="s-template" name="template"><option value="">none</option>{{range $g.Templates}}<option value="{{.Name}}"{{if eq .Name ($.Form.Get "template")}} selected{{end}}>{{.Name}} · {{.Image}}</option>{{end}}</select></div>
+  <div class="field"><label for="s-image">or image</label><input type="text" id="s-image" name="image" value="{{.Form.Get "image"}}" placeholder="localhost/pi-agent:2026-10-08" autocapitalize="off" spellcheck="false"><span class="hint">As podman images lists it in {{$g.VM}}. A template brings its own.</span></div>
+</div>
+<div class="field"><span class="lbl">Providers</span><div class="checks">
+  {{range $g.Providers}}{{$p := .}}<label><input type="checkbox" name="provider" value="{{.Name}}"{{if formHas $.Form "provider" .Name}} checked{{end}}> {{.Name}} <small>{{with profileOf $g .Type}}opens {{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e}}{{else}}no endpoint{{end}}{{end}}</small></label>
+  {{else}}<span class="faint small">None on {{$g.Name}}. Define them in a config directory and sync.</span>{{end}}</div></div>
+<div class="field"><label for="s-policy">Policy</label><select id="s-policy" name="policy"><option value="">{{if $g.Config.DefaultPolicy}}default · {{tilde $g.Config.DefaultPolicy}}{{else}}the image's, else OpenShell's{{end}}</option>{{range $g.Config.Policies}}<option value="{{.}}"{{if eq . ($.Form.Get "policy")}} selected{{end}}>{{tilde .}}</option>{{end}}</select>
+  <span class="hint">The providers add their own network rules to it.</span></div>
+<div class="field"><label for="s-mounts">Host directories</label><textarea id="s-mounts" name="mounts" rows="2" placeholder="~/src/pi-kit:/usr/local/share/pi-kit" autocapitalize="off" spellcheck="false">{{.Form.Get "mounts"}}</textarea>
+  <span class="hint">One DIR:TARGET per line. The sandbox sees DIR read-only at TARGET.</span></div>
+{{end}}
+{{end}}
+
+{{define "dlg-sandbox-start"}}{{template "sbfields" .}}
+<p class="muted">Starts {{.Form.Get "sandbox"}} on {{.Gateway.Name}} again with the workspace it had. Programs that ran in it, your agent included, are not restarted.</p>
+{{end}}
+
+{{define "dlg-sandbox-stop"}}{{template "sbfields" .}}
+<p class="muted">Stops {{.Form.Get "sandbox"}}, and every program in it. The workspace /sandbox, its providers and policy stay; start it again later.</p>
+{{end}}
+
+{{define "dlg-sandbox-delete"}}{{template "sbfields" .}}
+<div class="callout bad">This deletes the workspace /sandbox of {{.Form.Get "sandbox"}}: checkouts, agent settings and sessions. Providers, templates and images stay. Push branches and copy sessions out first.</div>
+{{end}}
+
+{{define "dlg-sandbox-attach"}}{{template "sbfields" .}}{{$g := .Gateway}}
+{{with unattached $g .Sandbox}}
+<div class="field"><label for="a-provider">Provider</label><select id="a-provider" name="provider">{{range .}}<option value="{{.Name}}"{{if eq .Name ($.Form.Get "provider")}} selected{{end}}>{{.Name}}{{with .Type}} · {{.}}{{end}}</option>{{end}}</select>
+  <span class="hint">Its credentials stay in the gateway; the sandbox sees placeholders.</span></div>
+{{else}}<div class="callout warn">Every provider of {{$g.Name}} is attached already.</div><input type="hidden" name="provider" value="">{{end}}
+{{end}}
+
+{{define "dlg-sandbox-detach"}}{{template "sbfields" .}}<input type="hidden" name="provider" value="{{.Form.Get "provider"}}">
+<p class="muted">{{.Form.Get "sandbox"}} loses {{.Form.Get "provider"}}: the network rules it added, and the placeholders of new programs. A program that runs already keeps what it has until it restarts.</p>
+{{end}}
+
+{{/* The commands to run in your own terminal: a terminal in the browser is deferred, and nothing here runs. */}}
+
+{{define "terminal"}}{{$g := .Gateway}}{{$s := .Sandbox}}
+<div class="scrim" id="dialog" data-dialog>
+<div class="modal" role="dialog" aria-label="Connect to {{$s.Name}}">
+  <div class="mh"><h2>Connect to {{$s.Name}}</h2><div class="muted">Run these in your own terminal. brig ui shows no terminal of its own.</div></div>
+  <div class="mb">
+    {{if not $s.Ready}}<div class="callout warn">{{$s.Name}} is {{lower $s.Phase}}. {{if eq $s.Phase "Stopped"}}Start it first.{{else}}These work once it runs.{{end}}</div>{{end}}
+    {{template "cmd" (cmd "Attach to the sandbox's shell. Ctrl-P, Ctrl-Q leaves it running." (oscmd $g.VM "sandbox" "connect" $s.Name))}}
+    {{template "cmd" (cmd "A second shell, in the same sandbox" (oscmd $g.VM "sandbox" "exec" "-n" $s.Name "--tty" "--" "bash" "-l"))}}
+    <p class="note">The commands name the gateway {{$g.Name}}, so they work whichever gateway your shell points at. They use your host's ssh, which reads ~/.ssh/config.</p>
+  </div>
+  <div class="mf"><button type="button" class="btn" data-dialog-close>Close</button></div>
+</div>
+</div>
+{{end}}

@@ -6,6 +6,7 @@ package ui
 import (
 	"fmt"
 	"html/template"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,10 +44,6 @@ func pickTab(tabs []tabDef, key string) string {
 	}
 	return tabs[0].Key
 }
-
-// sandboxNameRE matches OpenShell sandbox names, as brig's openshell package
-// does.
-var sandboxNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // sandboxRow is a sandbox in the list of all VMs' sandboxes.
 type sandboxRow struct {
@@ -315,17 +312,21 @@ func gatewayNeeds(sn store.Snapshot) []need {
 // openshellFuncs returns the template functions of the OpenShell pages.
 func openshellFuncs() template.FuncMap {
 	return template.FuncMap{
-		"sandboxRows":  sandboxRows,
-		"providerRows": providerRows,
-		"profileRows":  profileRows,
-		"policyLines":  policyLines,
-		"phaseClass":   phaseClass,
-		"gatewayClass": gatewayClass,
-		"otherMinor":   otherMinor,
-		"oscmd":        oscmd,
-		"stubsVersion": func() string { return osclient.StubsVersion },
-		"sandboxTabs":  func() []tabDef { return sandboxTabs },
-		"gatewayTabs":  func() []tabDef { return gatewayTabs },
+		"sandboxRows":   sandboxRows,
+		"providerRows":  providerRows,
+		"profileRows":   profileRows,
+		"policyLines":   policyLines,
+		"phaseClass":    phaseClass,
+		"gatewayClass":  gatewayClass,
+		"otherMinor":    otherMinor,
+		"oscmd":         oscmd,
+		"stubsVersion":  func() string { return osclient.StubsVersion },
+		"lower":         strings.ToLower,
+		"readyGateways": readyGateways,
+		"unattached":    unattached,
+		"formHas":       func(f url.Values, key, v string) bool { return slices.Contains(f[key], v) },
+		"sandboxTabs":   func() []tabDef { return sandboxTabs },
+		"gatewayTabs":   func() []tabDef { return gatewayTabs },
 		"gatewayOf": func(sn store.Snapshot, vm string) store.Gateway {
 			g, _ := sn.Gateway(vm)
 			return g

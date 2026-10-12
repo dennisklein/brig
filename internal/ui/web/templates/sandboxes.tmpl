@@ -3,7 +3,7 @@
 
 {{define "content"}}
 <div class="head"><div class="titles"><h1>Sandboxes</h1><div class="sub">Agent containers on every VM's OpenShell gateway. Each keeps its workspace at /sandbox.</div></div>
-  <div class="actions"><nav class="seg" aria-label="Filter by VM"><a class="{{if not .Filter}}on{{end}}" href="/sandboxes">All VMs</a>{{range .Snap.VMs}}<a class="{{if eq .Name $.Filter}}on{{end}}" href="/sandboxes?vm={{.Name}}">{{.Name}}</a>{{end}}</nav></div>
+  <div class="actions">{{if .Filter}}{{template "act" (act $ "sandbox-create" "" "primary" "vm" .Filter)}}{{else}}{{template "act" (act $ "sandbox-create" "" "primary")}}{{end}}<nav class="seg" aria-label="Filter by VM"><a class="{{if not .Filter}}on{{end}}" href="/sandboxes">All VMs</a>{{range .Snap.VMs}}<a class="{{if eq .Name $.Filter}}on{{end}}" href="/sandboxes?vm={{.Name}}">{{.Name}}</a>{{end}}</nav></div>
 </div>
 <section class="panel tw" sse-swap="sandbox-table">{{template "sandbox-table" .}}</section>
 {{end}}

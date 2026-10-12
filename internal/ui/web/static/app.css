@@ -250,7 +250,8 @@ pre.code .c { color: var(--faint); }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field > label, .field > .lbl { font-weight: 500; font-size: 13px; }
 .field .hint { color: var(--muted); font-size: 12px; }
-.field input[type=text], .field select { border: 1px solid var(--line); border-radius: var(--r); padding: 6px 9px; background: var(--panel-2); width: 100%; font-family: var(--f-mono); font-size: 13px; }
+.field input[type=text], .field select, .field textarea { border: 1px solid var(--line); border-radius: var(--r); padding: 6px 9px; background: var(--panel-2); width: 100%; font-family: var(--f-mono); font-size: 13px; }
+.field textarea { resize: vertical; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; }
 .checks { display: flex; flex-direction: column; gap: 6px; }
 .checks label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }

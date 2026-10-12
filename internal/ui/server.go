@@ -85,6 +85,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("GET /gateway", s.firstGateway)
 	s.mux.HandleFunc("GET /gateways/{vm}", s.gateway)
 	s.mux.HandleFunc("GET /palette", s.palette)
+	s.mux.HandleFunc("GET /terminal", s.terminal)
 	s.mux.HandleFunc("GET /a/{id}", s.dialog)
 	s.mux.HandleFunc("POST /a/{id}/preview", s.preview)
 	s.mux.HandleFunc("POST /a/{id}/run", s.runAction)

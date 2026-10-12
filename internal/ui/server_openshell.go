@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/dennisklein/brig/internal/ui/action"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -23,7 +24,7 @@ func (s *Server) sandboxes(w http.ResponseWriter, r *http.Request) {
 // sandbox shows a sandbox of a VM's gateway.
 func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 	vmName, name := r.PathValue("vm"), r.PathValue("name")
-	if vm.ValidateName(vmName) != nil || !sandboxNameRE.MatchString(name) {
+	if vm.ValidateName(vmName) != nil || !action.ValidSandboxName(name) {
 		s.notFound(w, r)
 		return
 	}
@@ -101,5 +102,5 @@ func checkOpenShellQuery(q url.Values) bool {
 		}
 	}
 	sb := q.Get("sb")
-	return sb == "" || (q.Get("gw") != "" && sandboxNameRE.MatchString(sb))
+	return sb == "" || (q.Get("gw") != "" && action.ValidSandboxName(sb))
 }

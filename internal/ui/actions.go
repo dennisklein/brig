@@ -109,6 +109,50 @@ var dialogSpecs = map[string]dialogSpec{
 	},
 }
 
+// sandboxTitle titles a dialog with a sandbox's name.
+func sandboxTitle(format string) func(*dialog) string {
+	return func(d *dialog) string { return fmt.Sprintf(format, d.Form.Get("sandbox")) }
+}
+
+func init() {
+	for id, spec := range map[string]dialogSpec{
+		"sandbox-create": {
+			OK: "Create sandbox", Open: "New sandbox…", Title: func(*dialog) string { return "New sandbox" },
+			Sub: func(d *dialog) string {
+				if d.Gateway.VM == "" {
+					return ""
+				}
+				return "On " + d.Gateway.Name() + ". Everything stays on its VM; the workspace is /sandbox."
+			},
+			Defaults: func(d *dialog) {
+				if d.Form.Get("vm") == "" {
+					if gws := readyGateways(d.Snap); len(gws) > 0 {
+						d.Form.Set("vm", gws[0].VM)
+					}
+				}
+				d.Gateway, _ = d.Snap.Gateway(d.Form.Get("vm"))
+			},
+		},
+		"sandbox-start":  {OK: "Start", Open: "Start", Title: sandboxTitle("Start %s")},
+		"sandbox-stop":   {OK: "Stop", Open: "Stop", Title: sandboxTitle("Stop %s")},
+		"sandbox-delete": {OK: "Delete sandbox", Open: "Delete…", Danger: true, Title: sandboxTitle("Delete %s")},
+		"sandbox-attach": {OK: "Attach", Open: "Attach provider…", Title: sandboxTitle("Attach a provider to %s")},
+		"sandbox-detach": {OK: "Detach", Open: "Detach", Title: sandboxTitle("Detach a provider from %s")},
+	} {
+		dialogSpecs[id] = spec
+	}
+}
+
+// readyGateways lists the gateways that answer, by VM name.
+func readyGateways(sn store.Snapshot) []store.Gateway {
+	return slices.DeleteFunc(slices.Clone(sn.Gateways), func(g store.Gateway) bool { return g.State != store.GatewayReady })
+}
+
+// unattached lists the gateway's providers that the sandbox lacks.
+func unattached(g store.Gateway, s store.Sandbox) []store.Provider {
+	return slices.DeleteFunc(slices.Clone(g.Providers), func(p store.Provider) bool { return slices.Contains(s.Providers, p.Name) })
+}
+
 func upgradeSub(d *dialog) string {
 	n := d.Snap.NewestImage
 	if n == nil || d.VM.Name == "" {
@@ -135,6 +179,10 @@ type dialog struct {
 	Form url.Values
 	// VM is the VM that the form's field "vm" names, if there is one.
 	VM store.VM
+	// Gateway is its gateway, and Sandbox the sandbox that the field
+	// "sandbox" names on it, if there are such.
+	Gateway store.Gateway
+	Sandbox store.Sandbox
 	// Typed is what the user must type to confirm, or "".
 	Typed string
 	Spec  dialogSpec
@@ -298,6 +346,8 @@ func (s *Server) dialog(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "", "")
 	d := &dialog{view: v, ID: a.ID, Form: maps(r.URL.Query()), Spec: dialogSpecs[a.ID]}
 	d.VM, _ = v.Snap.VM(d.Form.Get("vm"))
+	d.Gateway, _ = v.Snap.Gateway(d.Form.Get("vm"))
+	d.Sandbox, _ = d.Gateway.Sandbox(d.Form.Get("sandbox"))
 	if d.Spec.Defaults != nil {
 		d.Spec.Defaults(d)
 	}
@@ -429,4 +479,23 @@ func (s *Server) fragmentResponse(w http.ResponseWriter, status int, name string
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(html)) //nolint:gosec // G705: html/template output, escaped in context
+}
+
+// terminal answers with the dialog that shows the commands to connect to a
+// sandbox from the user's own terminal.
+func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	v := s.newView(r, "", "")
+	g, ok := v.Snap.Gateway(q.Get("vm"))
+	if !ok || !action.ValidSandboxName(q.Get("sandbox")) {
+		s.notFound(w, r)
+		return
+	}
+	sb, ok := g.Sandbox(q.Get("sandbox"))
+	if !ok {
+		s.notFound(w, r)
+		return
+	}
+	v.Gateway, v.Sandbox = g, sb
+	s.fragmentResponse(w, http.StatusOK, "terminal", v)
 }

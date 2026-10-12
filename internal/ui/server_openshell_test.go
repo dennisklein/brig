@@ -33,7 +33,7 @@ func TestOpenShellPages(t *testing.T) {
 		"/gateways/dev?tab=policies":                  {"OPENSHELL_SANDBOX_POLICY", "~/src/agent-openshell/policies/tools.yaml"},
 		"/gateways/dev?tab=templates":                 {"localhost/claude-agent:2026-10-01", "tools"},
 		"/gateways/airgap?tab=providers":              {"by hand"},
-		"/vms/dev?tab=sandboxes":                      {"kit-dev", "brig sandbox create dev --mount DIR:TARGET"},
+		"/vms/dev?tab=sandboxes":                      {"kit-dev", "New sandbox…"},
 		"/":                                           {"sandboxes", "webapp"},
 		"/palette?q=webapp":                           {"/sandboxes/dev/webapp"},
 		"/palette?q=brig-review%20%C2%B7%20templates": {"/gateways/review?tab=templates"},

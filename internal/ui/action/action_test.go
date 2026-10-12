@@ -22,7 +22,7 @@ func demoContext() action.Context {
 	imgs := demo.Images(now)
 	return action.Context{Home: demo.Home, Snap: store.Snapshot{
 		VMs: demo.VMs(now), Images: imgs, NewestImage: &imgs[0],
-		Profiles: demo.Profiles(), Config: demo.Config(),
+		Profiles: demo.Profiles(), Config: demo.Config(), Gateways: demo.Gateways(now),
 	}}
 }
 
@@ -125,6 +125,50 @@ func TestBuild(t *testing.T) {
 		{"image push space", "image-push", form("vm", "dev", "image", "a b"), "", "no image name"},
 		{"image push stopped", "image-push", form("vm", "airgap", "image", "x"), "", "before pushing"},
 		{"image push empty", "image-push", form("vm", "dev"), "", "name an image"},
+		{
+			"sandbox create", "sandbox-create", form("vm", "dev", "name", "scratch"),
+			"brig sandbox create dev -- --name scratch --detach --no-auto-providers", "",
+		},
+		{
+			"sandbox create everything", "sandbox-create", form(
+				"vm", "dev", "name", "kit2", "template", "pi", "provider", "llm", "provider", "github", "provider", "llm",
+				"policy", demo.Home+"/src/agent-openshell/policies/tools.yaml",
+				"mounts", "~/src/pi-kit:/usr/local/share/pi-kit\n\n/data/my notes:/mnt/notes\n",
+			),
+			"brig sandbox create dev --mount /home/dklein/src/pi-kit:/usr/local/share/pi-kit --mount '/data/my notes:/mnt/notes' -- " +
+				"--name kit2 --template pi --provider llm --provider github --policy /home/dklein/src/agent-openshell/policies/tools.yaml --detach --no-auto-providers", "",
+		},
+		{"sandbox create image", "sandbox-create", form("vm", "dev", "name", "x", "image", "localhost/pi-agent:2026-10-08"), "brig sandbox create dev -- --name x --from localhost/pi-agent:2026-10-08 --detach --no-auto-providers", ""},
+		{"sandbox create image option", "sandbox-create", form("vm", "dev", "name", "x", "image", "--privileged"), "", "no image name"},
+		{"sandbox create image and template", "sandbox-create", form("vm", "dev", "name", "x", "image", "a", "template", "pi"), "", "pick one"},
+		{"sandbox create unknown template", "sandbox-create", form("vm", "dev", "name", "x", "template", "nope"), "", "no sandbox template"},
+		{"sandbox create unknown provider", "sandbox-create", form("vm", "dev", "name", "x", "provider", "nope"), "", "no provider"},
+		{"sandbox create provider as option", "sandbox-create", form("vm", "dev", "name", "x", "provider", "--help"), "", "no provider"},
+		{"sandbox create policy elsewhere", "sandbox-create", form("vm", "dev", "name", "x", "policy", "/etc/shadow"), "", "no policy file"},
+		{"sandbox create no name", "sandbox-create", form("vm", "dev"), "", "say what to call"},
+		{"sandbox create option as name", "sandbox-create", form("vm", "dev", "name", "--help"), "", "name:"},
+		{"sandbox create long name", "sandbox-create", form("vm", "dev", "name", strings.Repeat("a", 64)), "", "at most 63"},
+		{"sandbox create taken", "sandbox-create", form("vm", "dev", "name", "webapp"), "", "has a sandbox webapp already"},
+		{"sandbox create stopped VM", "sandbox-create", form("vm", "airgap", "name", "x"), "", "before creating a sandbox"},
+		{"sandbox create mount without target", "sandbox-create", form("vm", "dev", "name", "x", "mounts", "/data/x"), "", "DIR:TARGET"},
+		{"sandbox create mount relative target", "sandbox-create", form("vm", "dev", "name", "x", "mounts", "/data/x:work"), "", "clean absolute"},
+		{"sandbox create mount root target", "sandbox-create", form("vm", "dev", "name", "x", "mounts", "/data/x:/"), "", "clean absolute"},
+		{"sandbox create mount relative source", "sandbox-create", form("vm", "dev", "name", "x", "mounts", "data:/x"), "", "in full"},
+		{"sandbox start", "sandbox-start", form("vm", "dev", "sandbox", "tools"), "openshell -g brig-dev sandbox start tools", ""},
+		{"sandbox start running", "sandbox-start", form("vm", "dev", "sandbox", "webapp"), "", "only a stopped sandbox"},
+		{"sandbox start unknown", "sandbox-start", form("vm", "dev", "sandbox", "nope"), "", "no sandbox nope"},
+		{"sandbox start stopped VM", "sandbox-start", form("vm", "airgap", "sandbox", "corpus-scan"), "", "start it before"},
+		{"sandbox start option", "sandbox-start", form("vm", "dev", "sandbox", "--all"), "", "no sandbox name"},
+		{"sandbox stop", "sandbox-stop", form("vm", "dev", "sandbox", "webapp"), "openshell -g brig-dev sandbox stop webapp", ""},
+		{"sandbox stop stopped", "sandbox-stop", form("vm", "dev", "sandbox", "tools"), "", "stopped already"},
+		{"sandbox delete", "sandbox-delete", form("vm", "dev", "sandbox", "kit-dev"), "openshell -g brig-dev sandbox delete kit-dev", ""},
+		{"sandbox delete on another VM", "sandbox-delete", form("vm", "review", "sandbox", "kit-dev"), "", "no sandbox kit-dev"},
+		{"sandbox attach", "sandbox-attach", form("vm", "dev", "sandbox", "kit-dev", "provider", "github"), "openshell -g brig-dev sandbox provider attach kit-dev github --wait", ""},
+		{"sandbox attach attached", "sandbox-attach", form("vm", "dev", "sandbox", "kit-dev", "provider", "llm"), "", "attached already"},
+		{"sandbox attach unknown", "sandbox-attach", form("vm", "dev", "sandbox", "kit-dev", "provider", "nope"), "", "no provider"},
+		{"sandbox attach stopped", "sandbox-attach", form("vm", "dev", "sandbox", "tools", "provider", "github"), "", "start it before attaching"},
+		{"sandbox detach", "sandbox-detach", form("vm", "dev", "sandbox", "webapp", "provider", "github"), "openshell -g brig-dev sandbox provider detach webapp github --wait", ""},
+		{"sandbox detach not attached", "sandbox-detach", form("vm", "dev", "sandbox", "webapp", "provider", "claude-code"), "", "attached"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, ok := action.Lookup(c.id)
@@ -144,8 +188,8 @@ func TestBuild(t *testing.T) {
 			if cmd.Display != c.want {
 				t.Errorf("display %q, want %q", cmd.Display, c.want)
 			}
-			if cmd.Argv[0] != "brig" {
-				t.Errorf("argv %q does not start with brig", cmd.Argv)
+			if cmd.Argv[0] != "brig" && cmd.Argv[0] != "openshell" {
+				t.Errorf("argv %q does not start with brig or openshell", cmd.Argv)
 			}
 		})
 	}
@@ -197,7 +241,8 @@ func TestRegistered(t *testing.T) {
 	// case in TestBuild too.
 	want := []string{
 		"config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
-		"mount-rm", "profile", "resources", "start", "stop", "sync", "sync-preview", "upgrade",
+		"mount-rm", "profile", "resources", "sandbox-attach", "sandbox-create", "sandbox-delete", "sandbox-detach",
+		"sandbox-start", "sandbox-stop", "start", "stop", "sync", "sync-preview", "upgrade",
 	}
 	got := action.IDs()
 	slices.Sort(got)
@@ -216,5 +261,34 @@ func TestTyped(t *testing.T) {
 	}
 	if start, _ := action.Lookup("start"); !start.Confirmed(form("vm", "dev")) {
 		t.Error("start wants a confirmation")
+	}
+	sd, _ := action.Lookup("sandbox-delete")
+	if sd.Confirmed(form("vm", "dev", "sandbox", "webapp")) || sd.Confirmed(form("vm", "dev", "sandbox", "webapp", "confirm", "dev")) {
+		t.Error("deleting a sandbox runs without its name typed")
+	}
+	if !sd.Confirmed(form("vm", "dev", "sandbox", "webapp", "confirm", "webapp")) {
+		t.Error("deleting a sandbox refuses its name typed")
+	}
+}
+
+// A new sandbox says what its providers open, since attaching one is what
+// opens its endpoints.
+func TestSandboxCreateSaysWhatItReaches(t *testing.T) {
+	a, _ := action.Lookup("sandbox-create")
+	cmd, err := a.Build(form("vm", "dev", "name", "x", "provider", "github", "mounts", "/data/x:/mnt/x"), demoContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := strings.Join(cmd.Notes, "\n")
+	for _, want := range []string{
+		"Provider github opens api.github.com:443, github.com:443 for /usr/bin/gh, /usr/bin/git",
+		"placeholders for GH_TOKEN",
+		"default policy of dev's config directories",
+		"read-only sandbox mount",
+		"without a terminal",
+	} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("notes lack %q:\n%s", want, notes)
+		}
 	}
 }
