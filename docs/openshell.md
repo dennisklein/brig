@@ -89,7 +89,7 @@ Six objects do all the work:
 | Sandbox | A container running your agent image, with workspace `/sandbox` | Placeholders only | `openshell sandbox create --from IMAGE` | Podman in the VM |
 
 A gateway starts with no profiles. OpenShell's
-[`providers/`](https://github.com/NVIDIA/OpenShell/tree/v0.1.2/providers)
+[`providers/`](https://github.com/NVIDIA/OpenShell/tree/v0.1.3/providers)
 directory has examples, such as `github.yaml`, `openai.yaml` and
 `claude-code.yaml`, to copy and adapt: their `binaries` must name the
 executables in your image.
@@ -574,7 +574,7 @@ secret-tool store --label='Claude Code token (agents)' service claude.ai user al
 ```
 
 Copy OpenShell's
-[`providers/claude-code.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/providers/claude-code.yaml)
+[`providers/claude-code.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.3/providers/claude-code.yaml)
 into `profiles/` and replace its API key with the subscription token. Keep
 `api.anthropic.com`, and add `platform.claude.com` read-only: Claude Code's
 first-run setup checks it and exits when it cannot reach it. With the image's
@@ -659,7 +659,7 @@ default.
 
 Both images above install `git` and `gh` at `/usr/bin`, the paths in
 OpenShell's
-[`providers/github.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/providers/github.yaml),
+[`providers/github.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.3/providers/github.yaml),
 and makes `gh` git's credential helper, so git sends the placeholder in Basic
 auth for the proxy to resolve. Copy that profile into `profiles/` unchanged.
 It sends `GITHUB_TOKEN` or `GH_TOKEN` as a bearer token to `api.github.com`
@@ -939,7 +939,7 @@ brig's package repository picks up each OpenShell release within a day.
 Upgrade in this order:
 
 1. `brig image build` builds a base image with the newest Fedora packages and
-   OpenShell; pin with `--openshell 0.1.2` to wait.
+   OpenShell; pin with `--openshell 0.1.3` to wait.
 2. `brig upgrade dev` moves the VM onto it and rolls back if its gateway does
    not answer, or on Ctrl-C. The data disk, and with it every provider, template, image and
    workspace, stays. If OpenShell's minor version changes, brig refuses
@@ -1023,14 +1023,14 @@ Podman refuses to remove an image a container still uses.
 
 ## Sources
 
-- OpenShell v0.1.2: its
-  [docs](https://github.com/NVIDIA/OpenShell/tree/v0.1.2/docs), including the
+- OpenShell v0.1.3: its
+  [docs](https://github.com/NVIDIA/OpenShell/tree/v0.1.3/docs), including the
   tutorials [Run Pi with
-  OpenRouter](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/docs/tutorials/run-pi-with-openrouter.mdx)
+  OpenRouter](https://github.com/NVIDIA/OpenShell/blob/v0.1.3/docs/tutorials/run-pi-with-openrouter.mdx)
   and [GitHub push
-  access](https://github.com/NVIDIA/OpenShell/blob/v0.1.2/docs/tutorials/github-push-access.mdx),
+  access](https://github.com/NVIDIA/OpenShell/blob/v0.1.3/docs/tutorials/github-push-access.mdx),
   its [provider
-  profiles](https://github.com/NVIDIA/OpenShell/tree/v0.1.2/providers), and
+  profiles](https://github.com/NVIDIA/OpenShell/tree/v0.1.3/providers), and
   its Podman driver source.
 - Claude Code's documentation at <https://code.claude.com/docs>: setup,
   authentication, environment variables, settings and network configuration.
