@@ -82,7 +82,7 @@ Six objects do all the work:
 | Object | What it is | Holds secrets | Created with | Lives |
 | --- | --- | --- | --- | --- |
 | Gateway | The control plane of one brig VM, registered on the host as `brig-NAME` | Yes, providers' | `brig create` | VM data disk |
-| Workspace | A tenant inside a gateway; brig uses `default` | No | built in | gateway |
+| Workspace | A tenant inside a gateway; brig ui shows all of them, brig sync works in `default` | No | built in | gateway |
 | Provider profile | A type definition: which env vars hold the credential, how it is sent (bearer, header, Basic, query), to which endpoints, from which binaries | No | `openshell profile import -f FILE` (workspace) or `--global` (platform) | gateway |
 | Provider | A named instance of a profile with your actual token | Yes | `brig sync` from a [config directory](#openshell-config-directories) | gateway |
 | Policy | Filesystem, process and network rules for one sandbox | No | `--policy FILE` or `OPENSHELL_SANDBOX_POLICY` at create; `openshell policy set` later | sandbox record |
