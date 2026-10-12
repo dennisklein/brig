@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
 // SPDX-License-Identifier: Apache-2.0
 
-// Package action turns the forms of brig ui's dialogs into the brig
-// commands they run.
+// Package action turns the forms of brig ui's dialogs into the brig and
+// openshell commands they run.
 //
 // Each Action's Build is the only place that makes a command's argument
 // vector. The dialog shows the command's Display, and the runner executes
@@ -28,7 +28,7 @@ type Form = url.Values
 // Command is what an action runs.
 type Command struct {
 	// Argv is the command line, run as it is with no shell. Argv[0] is
-	// "brig".
+	// "brig" or "openshell".
 	Argv []string
 	// Display is Argv quoted for a POSIX shell: what the dialog shows and
 	// Copy copies.
@@ -36,6 +36,9 @@ type Command struct {
 	// Notes say what the user should know before running the command, such
 	// as when a change takes effect.
 	Notes []string
+	// NextForm fills the fields of the dialog of the action's Next, as key
+	// and value pairs.
+	NextForm []string
 }
 
 // NewCommand returns the command with the arguments argv.
@@ -75,7 +78,7 @@ type Context struct {
 	Home string
 }
 
-// Action is a change that a dialog makes by running one brig command.
+// Action is a change that a dialog makes by running one command.
 type Action struct {
 	// ID names the action in URLs and templates.
 	ID string

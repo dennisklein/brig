@@ -50,6 +50,8 @@ type Spec struct {
 	// ShowOutput and Next are those of the action.
 	ShowOutput bool
 	Next       string
+	// NextForm fills the fields of Next's dialog, as key and value pairs.
+	NextForm []string
 }
 
 // Starter starts tasks. The runner executes them; the demo pretends to.
@@ -124,7 +126,7 @@ func (r *Runner) Start(s Spec) (string, error) {
 	}
 	t := store.Task{
 		ID: randomHex(8), Action: s.Action, Display: s.Command.Display, VM: s.VM, Trace: trace,
-		Start: time.Now(), Status: store.TaskRunning, ShowOutput: s.ShowOutput, Next: s.Next,
+		Start: time.Now(), Status: store.TaskRunning, ShowOutput: s.ShowOutput, Next: s.Next, NextForm: s.NextForm,
 	}
 	r.Store.AddTask(t)
 	r.mu.Lock()

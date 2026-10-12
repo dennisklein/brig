@@ -203,6 +203,8 @@ type Task struct {
 	// Next names the action to offer once the command succeeded, such as
 	// the sync after its preview.
 	Next string
+	// NextForm fills the fields of Next's dialog, as key and value pairs.
+	NextForm []string
 }
 
 // Done reports whether the command has ended.

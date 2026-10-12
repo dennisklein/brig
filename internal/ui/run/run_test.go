@@ -275,6 +275,20 @@ func TestRunOpenShellFails(t *testing.T) {
 	}
 }
 
+func TestRunKeepsTheNextForm(t *testing.T) {
+	r, st := newOpenShellRunner(t)
+	id, err := r.Start(Spec{
+		Action: "allow", Command: action.NewCommand("openshell", "-g", "brig-dev", "policy", "update", "webapp"),
+		Next: "policy-save-preview", NextForm: []string{"vm", "dev", "sandbox", "webapp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task := await(t, st, id); task.Next != "policy-save-preview" || strings.Join(task.NextForm, " ") != "vm dev sandbox webapp" {
+		t.Errorf("next: %q %q", task.Next, task.NextForm)
+	}
+}
+
 func TestRunOpenShellNeedsTheCLI(t *testing.T) {
 	r, _ := newRunner(t)
 	if _, err := r.Start(Spec{Command: action.NewCommand("openshell", "sandbox", "list")}); !errors.Is(err, openshell.ErrNotInstalled) {

@@ -55,7 +55,7 @@ func (h *Host) Start(sp run.Spec) (string, error) {
 	id, trace := randomHex(8), randomHex(16)
 	h.st.AddTask(store.Task{
 		ID: id, Action: sp.Action, Display: sp.Command.Display, VM: sp.VM, Trace: trace,
-		Start: time.Now(), Status: store.TaskRunning, ShowOutput: sp.ShowOutput, Next: sp.Next,
+		Start: time.Now(), Status: store.TaskRunning, ShowOutput: sp.ShowOutput, Next: sp.Next, NextForm: sp.NextForm,
 	})
 	h.wg.Add(1)
 	h.running.Add(1)
