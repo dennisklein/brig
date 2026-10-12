@@ -40,7 +40,7 @@ func TestSlowSubscriber(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := range 100 {
-			s.SetVMs([]VM{{State: "running"}}, "", nil, nil)
+			s.SetVMs(VMState{VMs: []VM{{State: "running"}}})
 			s.SetActivity(make([]Run, i))
 		}
 		close(done)
@@ -64,5 +64,39 @@ func TestSnapshotVM(t *testing.T) {
 	}
 	if _, ok := sn.VM("nope"); ok {
 		t.Error("found a VM that is not there")
+	}
+}
+
+func TestTasks(t *testing.T) {
+	s := New()
+	ch, unsubscribe := s.Subscribe()
+	defer unsubscribe()
+	s.AddTask(Task{ID: "t1", Status: TaskRunning})
+	s.AddTask(Task{ID: "t2", Status: TaskRunning})
+	before := s.Snapshot()
+	end := time.Now()
+	s.UpdateTask("t1", TopicTasks, func(t *Task) { t.End, t.Status = &end, TaskOK })
+	s.UpdateTask("t2", TopicOutput, func(t *Task) { t.Output = "hello" })
+	s.UpdateTask("gone", TopicTasks, func(*Task) { t.Error("updated a task that is not there") })
+	sn := s.Snapshot()
+	if t1, _ := sn.Task("t1"); !t1.Done() || t1.Status != TaskOK {
+		t.Errorf("t1: %+v", t1)
+	}
+	if t2, _ := sn.Task("t2"); t2.Output != "hello" || t2.Done() {
+		t.Errorf("t2: %+v", t2)
+	}
+	// A snapshot is never changed once published.
+	if t1, _ := before.Task("t1"); t1.Done() || t1.Status != TaskRunning {
+		t.Errorf("an earlier snapshot changed: %+v", t1)
+	}
+	want := []Topic{TopicTasks, TopicTasks, TopicTasks, TopicOutput, TopicTasks}
+	for i, w := range want {
+		if got := <-ch; got != w {
+			t.Errorf("notice %d is %q, want %q", i, got, w)
+		}
+	}
+	s.RemoveTask("t1")
+	if _, ok := s.Snapshot().Task("t1"); ok || len(s.Snapshot().Tasks) != 1 {
+		t.Errorf("tasks after removing t1: %+v", s.Snapshot().Tasks)
 	}
 }

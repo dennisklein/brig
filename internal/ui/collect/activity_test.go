@@ -89,6 +89,27 @@ func TestReducer(t *testing.T) {
 	}
 }
 
+func TestReducerTrace(t *testing.T) {
+	const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	tc, ok := progress.ParseTraceContext(traceparent, "")
+	if !ok {
+		t.Fatal("trace context does not parse")
+	}
+	var out bytes.Buffer
+	log := progress.NewLog(&out, progress.LogOptions{Program: "brig"})
+	bus := progress.NewBus(progress.BusOptions{Sinks: []progress.Sink{log}, Trace: tc})
+	_, span := progress.Start(progress.WithBus(context.Background(), bus), progress.KindCommand, "start dev")
+	span.End(nil)
+	bus.Close()
+	if err := log.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runs := reduce(out.Bytes())
+	if len(runs) != 1 || runs[0].Trace != "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Errorf("runs: %+v", runs)
+	}
+}
+
 func TestReducerInterleavedAndUnfinished(t *testing.T) {
 	a := bytes.SplitAfter(logRun(t, "start dev", startDev), []byte("\n"))
 	b := bytes.SplitAfter(logRun(t, "stop dev", failingStop), []byte("\n"))

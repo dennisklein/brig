@@ -36,6 +36,7 @@ type logLine struct {
 	V       int      `json:"v"`
 	Type    string   `json:"type"`
 	Run     string   `json:"run"`
+	Trace   string   `json:"trace"`
 	Program string   `json:"program"`
 	Version string   `json:"version"`
 	Time    string   `json:"time"`
@@ -60,10 +61,11 @@ type Reducer struct {
 }
 
 type run struct {
-	id, program, version string
-	root                 string
-	spans                map[string]*span
-	start                time.Time
+	id, trace        string
+	program, version string
+	root             string
+	spans            map[string]*span
+	start            time.Time
 }
 
 type span struct {
@@ -96,6 +98,7 @@ func (r *Reducer) Line(b []byte) {
 	}
 	if l.Type == "trace" {
 		ru.program, ru.version = clean(l.Program), clean(l.Version)
+		ru.trace = l.Trace
 		return
 	}
 	if l.Span == "" {
@@ -146,7 +149,7 @@ func (r *Reducer) Runs() []store.Run {
 			program = "brig"
 		}
 		sr := store.Run{
-			ID: ru.id, Title: program + " " + root.name, Start: ru.start,
+			ID: ru.id, Trace: ru.trace, Title: program + " " + root.name, Start: ru.start,
 			Status: root.status, Err: root.err, Program: program, Version: ru.version,
 			Steps: ru.steps(root),
 		}
