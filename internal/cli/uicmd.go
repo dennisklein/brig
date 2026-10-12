@@ -34,7 +34,9 @@ running one instead.
 				return err
 			}
 			o.Dirs = dirs
-			o.ActivityLog = dirs.ActivityLog()
+			// The commands that brig ui runs are told where the log is,
+			// so they create no state directory for it themselves.
+			o.ActivityLog = defaultActivityLog(dirs)
 			o.RuntimeDir = os.Getenv("XDG_RUNTIME_DIR")
 			o.Stdout, o.Stderr = cmd.OutOrStdout(), cmd.ErrOrStderr()
 			return ui.Run(cmd.Context(), o)
