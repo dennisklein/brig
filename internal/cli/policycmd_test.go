@@ -37,8 +37,8 @@ const sandboxBase = `{"filesystem_policy": {"include_workdir": true, "read_only"
 // policyFixture sets up VM dev with a config directory holding default.yaml
 // and webapp.yaml, and an openshell that prints sandboxPolicy (JSON) as the
 // base policy of any sandbox. It returns the VM's state directory file for
-// the sandbox choices.
-func policyFixture(t *testing.T, sandboxPolicy string) (choices string) {
+// the sandbox choices and the config directory's policies directory.
+func policyFixture(t *testing.T, sandboxPolicy string) (choices, policies string) {
 	t.Helper()
 	a := testApp(t)
 	v := testVM(t, a, "dev")
@@ -58,7 +58,7 @@ JSON
 ;;
 *) echo "unexpected: $*" >&2; exit 3;;
 esac`})
-	return a.vmFile(v, policySourcesFile)
+	return a.vmFile(v, policySourcesFile), filepath.Join(dir, "policies")
 }
 
 func exitCode(err error) int {
@@ -165,7 +165,7 @@ func TestPolicyDiffSourceUnknownThenChosen(t *testing.T) {
 }
 
 func TestPolicyDiffGivesUpAGoneRecordedFile(t *testing.T) {
-	choices := policyFixture(t, sandboxBase)
+	choices, _ := policyFixture(t, sandboxBase)
 	writeTestFile(t, choices, `{"webapp": "/nonexistent/webapp.yaml"}`, 0o600)
 	out, stderr, _, err := runSplit(t, "policy", "diff", "dev", "webapp", "-o", "json")
 	if err != nil {
