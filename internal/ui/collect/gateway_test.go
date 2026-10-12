@@ -74,8 +74,8 @@ func (c fakeClient) Sandboxes(context.Context) ([]store.Sandbox, error) {
 	return out, nil
 }
 
-// dflt is the key of a sandbox of the default workspace.
-func dflt(name string) sandboxKey { return keyOf("default", name) }
+// dfltWebapp is the key of the sandbox webapp of the default workspace.
+var dfltWebapp = keyOf("default", "webapp")
 
 func (c fakeClient) Workspaces(context.Context) ([]string, error) {
 	c.g.mu.Lock()
@@ -90,7 +90,7 @@ func (c fakeClient) Providers(context.Context) ([]store.Provider, error) {
 	return []store.Provider{{Name: "github", Type: "github", Credentials: []string{"GH_TOKEN"}}}, c.err()
 }
 
-func (c fakeClient) Profiles(_ context.Context, workspaces []string) ([]store.Profile, error) {
+func (c fakeClient) Profiles(_ context.Context, _ []string) ([]store.Profile, error) {
 	return []store.Profile{{ID: "github"}}, c.err()
 }
 
@@ -197,14 +197,14 @@ func TestGateways(t *testing.T) {
 
 	// A policy is read again only when its version changes.
 	time.Sleep(30 * time.Millisecond)
-	if n := fake.reads(dflt("webapp")); n != 1 {
+	if n := fake.reads(dfltWebapp); n != 1 {
 		t.Errorf("read the unchanged policy %d times", n)
 	}
 	fake.set(func(f *fakeGateway) { f.sandboxes[1].PolicyVersion = 2 })
 	waitFor(t, st, "the new policy version", func(gw store.Gateway) bool {
 		return len(gw.Sandboxes) == 2 && gw.Sandboxes[1].PolicyVersion == 2
 	})
-	if n := fake.reads(dflt("webapp")); n != 2 {
+	if n := fake.reads(dfltWebapp); n != 2 {
 		t.Errorf("read the changed policy %d times in all", n)
 	}
 
