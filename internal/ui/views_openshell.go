@@ -322,6 +322,7 @@ func openshellFuncs() template.FuncMap {
 		"oscmd":         oscmd,
 		"stubsVersion":  func() string { return osclient.StubsVersion },
 		"lower":         strings.ToLower,
+		"fileSize":      fileSize,
 		"readyGateways": readyGateways,
 		"unattached":    unattached,
 		"formHas":       func(f url.Values, key, v string) bool { return slices.Contains(f[key], v) },

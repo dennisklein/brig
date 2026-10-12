@@ -39,7 +39,8 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.Tab = pickTab(sandboxTabs, r.URL.Query().Get("tab"))
-	v.Events = eventsURL([]string{"rail", "sandbox"}, url.Values{"gw": {vmName}, "sb": {name}, "tab": {v.Tab}})
+	v.Path = filesPath(r.URL.Query().Get("path"))
+	v.Events = eventsURL([]string{"rail", "sandbox"}, url.Values{"gw": {vmName}, "sb": {name}, "tab": {v.Tab}, "path": {v.Path}})
 	s.render(w, http.StatusOK, "sandbox", v)
 }
 
@@ -88,6 +89,7 @@ func liveOpenShell(v *view, q url.Values) {
 	if sb := q.Get("sb"); sb != "" {
 		v.Sandbox, _ = v.Gateway.Sandbox(sb)
 		v.Tab = pickTab(sandboxTabs, q.Get("tab"))
+		v.Path = filesPath(q.Get("path"))
 		return
 	}
 	v.Tab = pickTab(gatewayTabs, q.Get("tab"))
@@ -98,6 +100,11 @@ func liveOpenShell(v *view, q url.Values) {
 func checkOpenShellQuery(q url.Values) bool {
 	for _, k := range []string{"gw", "filter"} {
 		if n := q.Get(k); n != "" && vm.ValidateName(n) != nil {
+			return false
+		}
+	}
+	if p := q.Get("path"); p != "" {
+		if _, ok := workspacePath(p); !ok {
 			return false
 		}
 	}

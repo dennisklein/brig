@@ -32,6 +32,7 @@ type testServer struct {
 	csrf   string
 	checks atomic.Int32
 	starts *fakeStarter
+	files  *fakeFiles
 }
 
 func newTestServer(t *testing.T) *testServer {
@@ -46,11 +47,12 @@ func newTestServer(t *testing.T) *testServer {
 	for _, g := range demo.Gateways(now) {
 		st.UpdateGateway(g.VM, func(gw *store.Gateway) bool { *gw = g; return true })
 	}
-	ts := &testServer{t: t, st: st, token: "the-token", starts: &fakeStarter{st: st}}
+	ts := &testServer{t: t, st: st, token: "the-token", starts: &fakeStarter{st: st}, files: &fakeFiles{}}
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: ts.token, Port: testPort, Home: "/home/dklein",
 		CheckHost: func(context.Context, *store.Store) { ts.checks.Add(1) },
 		Starter:   ts.starts,
+		Files:     ts.files,
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {

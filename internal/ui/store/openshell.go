@@ -130,6 +130,23 @@ type Policy struct {
 	Err string
 }
 
+// File is an entry of a directory in a sandbox.
+type File struct {
+	Name string
+	// Kind is dir, file, link or other.
+	Kind string
+	Size int64
+	Mod  time.Time
+}
+
+// Dir is the listing of a directory in a sandbox.
+type Dir struct {
+	// Files are the entries in the order the listing returned them.
+	Files []File
+	// Truncated says that the directory holds more entries than Files.
+	Truncated bool
+}
+
 // Provider is an OpenShell provider. It holds the names of its credentials
 // only, never their values.
 type Provider struct {
