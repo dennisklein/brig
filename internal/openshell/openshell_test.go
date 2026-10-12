@@ -402,3 +402,50 @@ func TestCompatibleVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestBasePolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, out, want, wantErr string
+	}{
+		{
+			name: "object",
+			out:  "WARN something\n{\n  \"version\": 3,\n  \"policy\": {\"network_policies\": {}}\n}",
+			want: `{"network_policies": {}}`,
+		},
+		{
+			name: "YAML text",
+			out:  `{"policy": "version: 1\nlandlock: {}\n"}`,
+			want: "version: 1\nlandlock: {}\n",
+		},
+		{name: "null", out: `{"policy": null}`, wantErr: "has no base policy"},
+		{name: "absent", out: `{"version": 3}`, wantErr: "has no base policy"},
+		{name: "garbage", out: "Version 3", wantErr: "parse openshell policy get"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, log := fakeCLI(t, "cat <<'EOF'\n"+tc.out+"\nEOF")
+			got, err := c.BasePolicy(context.Background(), "brig-dev", "webapp")
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("BasePolicy() error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("BasePolicy() = %q, want %q", got, tc.want)
+			}
+			if want := "-g brig-dev policy get webapp --base -o json\n"; readFile(t, log) != want {
+				t.Errorf("ran %q, want %q", readFile(t, log), want)
+			}
+		})
+	}
+	c, _ := fakeCLI(t, "exit 1")
+	if _, err := c.BasePolicy(context.Background(), "brig-dev", "-g"); err == nil {
+		t.Error("BasePolicy() accepted an option as the sandbox name")
+	}
+	if _, err := c.BasePolicy(context.Background(), "brig-dev", "webapp"); err == nil {
+		t.Error("BasePolicy() ignored the failing CLI")
+	}
+}
