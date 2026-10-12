@@ -163,7 +163,7 @@ starts with `brig-`.
 | Command | Purpose |
 |---|---|
 | `create NAME` | create and start a VM |
-| `list`, `show NAME` | list VMs (queried in parallel), show one (`-o json`) |
+| `list`, `show NAME` | list VMs (queried in parallel), show one (`-o json`, which adds cumulative CPU time and memory use of running VMs as `stats`) |
 | `start NAME`, `stop NAME` | boot and re-register the gateway, shut down |
 | `update NAME` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
 | `sync NAME` | apply the VM's OpenShell config directories to its gateway |

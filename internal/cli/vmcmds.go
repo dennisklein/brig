@@ -402,6 +402,9 @@ type vmStatus struct {
 	// OpenShellSync is the outcome of the last sync of the VM's OpenShell
 	// config directories; only show reports it.
 	OpenShellSync *ocsync.Record `json:"openshell_sync,omitempty"`
+	// Stats is a sample of the resource use of a running VM; the JSON
+	// output has it, and show prints the memory use.
+	Stats *libvirt.Stats `json:"stats,omitempty"`
 }
 
 // status returns the VMs it can read with their states, and an error about
@@ -419,7 +422,33 @@ func (a *app) status(ctx context.Context) ([]vmStatus, error) {
 	if cerr == nil {
 		state = conn.State
 	}
-	return vmStatuses(ctx, vms, state), errors.Join(err, cerr)
+	out := vmStatuses(ctx, vms, state)
+	var serr error
+	if cerr == nil {
+		serr = addStats(out, conn.Stats)
+	}
+	return out, errors.Join(err, cerr, serr)
+}
+
+// addStats samples the VMs in sts that are running, with stats, which takes
+// domain names. It leaves the others without stats.
+func addStats(sts []vmStatus, stats func(domains []string) (map[string]libvirt.Stats, error)) error {
+	var domains []string
+	for _, st := range sts {
+		if st.State == libvirt.StateRunning.String() {
+			domains = append(domains, st.DomainName())
+		}
+	}
+	if len(domains) == 0 {
+		return nil
+	}
+	m, err := stats(domains)
+	for i, st := range sts {
+		if s, ok := m[st.DomainName()]; ok {
+			sts[i].Stats = &s
+		}
+	}
+	return err
 }
 
 // statusLimit is how many domain states status asks libvirt for at once.
@@ -444,6 +473,29 @@ func vmStatuses(ctx context.Context, vms []*vm.VM, state func(domain string) (li
 		}
 	})
 	return out
+}
+
+// memoryUsed describes the memory use in s, or returns "" if s has none.
+func memoryUsed(s *libvirt.Stats) string {
+	if s == nil || s.Memory == nil {
+		return ""
+	}
+	m := s.Memory
+	// The host's view is the QEMU process's resident set, which overstates
+	// what an idle guest uses.
+	return fmt.Sprintf("%s of %s (%s view)", kib(m.UsedKiB), kib(m.TotalKiB), m.Source)
+}
+
+// kib formats n kibibytes with one decimal in the largest unit that keeps
+// the number at 1 or more.
+func kib(n uint64) string {
+	switch f := float64(n); {
+	case n >= uint64(bytesize.GiB/bytesize.KiB):
+		return fmt.Sprintf("%.1f GiB", f/float64(bytesize.GiB/bytesize.KiB))
+	case n >= uint64(bytesize.MiB/bytesize.KiB):
+		return fmt.Sprintf("%.0f MiB", f/float64(bytesize.MiB/bytesize.KiB))
+	}
+	return fmt.Sprintf("%d KiB", n)
 }
 
 func newListCmd() *cobra.Command {
@@ -490,6 +542,11 @@ func newShowCmd() *cobra.Command {
 			if s, err := conn.State(v.DomainName()); err == nil {
 				st.State = s.String()
 			}
+			one := []vmStatus{st}
+			if err := addStats(one, conn.Stats); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", termtext.Escape(err.Error()))
+			}
+			st = one[0]
 		}
 		if format == "json" {
 			return writeJSON(cmd.OutOrStdout(), st)
@@ -502,6 +559,9 @@ func newShowCmd() *cobra.Command {
 		row("Image", v.Image)
 		row("CPUs", v.CPUs)
 		row("Memory", v.Memory)
+		if m := memoryUsed(st.Stats); m != "" {
+			row("Memory used", m)
+		}
 		row("Root disk", v.RootDisk)
 		row("Data disk", v.DataDisk)
 		row("Network profile", v.NetworkProfile)
