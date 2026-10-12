@@ -330,7 +330,7 @@ func topoDetailOf(v *view, n topoNode, edges []topoEdge) *topoDetail {
 		d.VM, d.Name, _ = strings.Cut(rest, "/")
 		d.Gateway, _ = sn.Gateway(d.VM)
 		if kind == "sb" {
-			d.Sandbox, _ = d.Gateway.Sandbox(d.Name)
+			d.Sandbox, _ = d.Gateway.Sandbox(store.DefaultWorkspace, d.Name)
 			break
 		}
 		d.Provider, _ = d.Gateway.Provider(d.Name)

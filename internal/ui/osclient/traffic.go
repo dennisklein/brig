@@ -55,9 +55,9 @@ var ErrCursorLost = errors.New("the gateway no longer has the lines after the la
 // Watch follows a sandbox's log, calling each for every line its supervisor
 // sends and every gap, until the stream or ctx ends. It returns the error
 // that ended the stream.
-func (c *Client) Watch(ctx context.Context, sandbox string, from WatchFrom, each func(WatchEvent)) error {
+func (c *Client) Watch(ctx context.Context, workspace, sandbox string, from WatchFrom, each func(WatchEvent)) error {
 	req := &pb.WatchSandboxRequest{
-		WorkspaceScope:    scope(),
+		WorkspaceScope:    scope(workspace),
 		Sandbox:           sandbox,
 		FollowLogs:        true,
 		LogSources:        []string{"sandbox"},
@@ -101,9 +101,9 @@ func watchErr(err error) error {
 
 // Drafts lists the network rules that OpenShell drafted from a sandbox's
 // denied requests and that wait for approval.
-func (c *Client) Drafts(ctx context.Context, sandbox string) ([]store.Draft, error) {
+func (c *Client) Drafts(ctx context.Context, workspace, sandbox string) ([]store.Draft, error) {
 	r, err := call(ctx, func(ctx context.Context) (*pb.GetDraftPolicyResponse, error) {
-		return c.api.GetDraftPolicy(ctx, &pb.GetDraftPolicyRequest{WorkspaceScope: scope(), Sandbox: sandbox, StatusFilter: "pending"})
+		return c.api.GetDraftPolicy(ctx, &pb.GetDraftPolicyRequest{WorkspaceScope: scope(workspace), Sandbox: sandbox, StatusFilter: "pending"})
 	})
 	if err != nil {
 		return nil, err
@@ -113,14 +113,14 @@ func (c *Client) Drafts(ctx context.Context, sandbox string) ([]store.Draft, err
 		if ch.GetStatus() != "pending" {
 			continue
 		}
-		out = append(out, draft(sandbox, ch))
+		out = append(out, draft(workspace, sandbox, ch))
 	}
 	return out, nil
 }
 
-func draft(sandbox string, ch *pb.PolicyChunk) store.Draft {
+func draft(workspace, sandbox string, ch *pb.PolicyChunk) store.Draft {
 	d := store.Draft{
-		Sandbox: sandbox, ID: ch.GetId(), Rule: ch.GetRuleName(), Binary: ch.GetBinary(),
+		Workspace: workspace, Sandbox: sandbox, ID: ch.GetId(), Rule: ch.GetRuleName(), Binary: ch.GetBinary(),
 		Rationale: ch.GetRationale(), Validation: ch.GetValidationResult(), Security: ch.GetSecurityNotes(),
 		Error: ch.GetApplicationError(), Hits: int(ch.GetHitCount()),
 	}

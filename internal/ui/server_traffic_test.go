@@ -18,7 +18,7 @@ import (
 
 // npmDraft is the rule OpenShell drafts from webapp's denied npm requests.
 var npmDraft = store.Draft{
-	Sandbox: "webapp", ID: "ch-npm", Rule: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
+	Workspace: "default", Sandbox: "webapp", ID: "ch-npm", Rule: "allow_registry_npmjs_org_443", Binary: "/usr/bin/node",
 	Endpoints: []store.DraftEndpoint{{Host: "registry.npmjs.org", Port: 443}}, Binaries: []string{"/usr/bin/node"},
 	YAML: "allow_registry_npmjs_org_443:\n  name: allow_registry_npmjs_org_443\n", Validation: "no new findings", Hits: 3,
 }
@@ -29,14 +29,14 @@ var npmDraft = store.Draft{
 func addTraffic(ts *testServer) {
 	now := time.Now()
 	ts.st.AddRequests("dev", []store.Request{
-		{Sandbox: "kit-dev", Time: now.Add(-5 * time.Minute), Gap: "The gateway dropped lines of the log: 3 dropped"},
-		{Sandbox: "webapp", Time: now.Add(-4 * time.Minute), Verdict: "allow", Method: "GET", Process: "/usr/bin/gh", Host: "api.github.com", Port: 443, Path: "/user", Policy: "_provider_github", Engine: "l7"},
-		{Sandbox: "webapp", Time: now.Add(-3 * time.Minute), Raw: `HTTP:CONNECT [MED] DENIED <script>alert(1)</script>`},
-		{Sandbox: "webapp", Time: now.Add(-2 * time.Minute), Verdict: "deny", Process: "/usr/bin/node", PID: 7, Host: "registry.npmjs.org", Port: 443, Reason: "endpoint registry.npmjs.org:443 is not allowed by any policy"},
+		{Workspace: "default", Sandbox: "kit-dev", Time: now.Add(-5 * time.Minute), Gap: "The gateway dropped lines of the log: 3 dropped"},
+		{Workspace: "default", Sandbox: "webapp", Time: now.Add(-4 * time.Minute), Verdict: "allow", Method: "GET", Process: "/usr/bin/gh", Host: "api.github.com", Port: 443, Path: "/user", Policy: "_provider_github", Engine: "l7"},
+		{Workspace: "default", Sandbox: "webapp", Time: now.Add(-3 * time.Minute), Raw: `HTTP:CONNECT [MED] DENIED <script>alert(1)</script>`},
+		{Workspace: "default", Sandbox: "webapp", Time: now.Add(-2 * time.Minute), Verdict: "deny", Process: "/usr/bin/node", PID: 7, Host: "registry.npmjs.org", Port: 443, Reason: "endpoint registry.npmjs.org:443 is not allowed by any policy"},
 	})
-	ts.st.SetDrafts("dev", "webapp", []store.Draft{npmDraft})
+	ts.st.SetDrafts("dev", "default", "webapp", []store.Draft{npmDraft})
 	ts.st.AddRequests("review", []store.Request{
-		{Sandbox: "pr-review", Time: now.Add(-time.Minute), Verdict: "deny", Method: "POST", Process: "gh", Host: "uploads.github.com", Port: 443, Path: "/repos/a/b", Reason: "credential_endpoint_mismatch: GH_TOKEN"},
+		{Workspace: "default", Sandbox: "pr-review", Time: now.Add(-time.Minute), Verdict: "deny", Method: "POST", Process: "gh", Host: "uploads.github.com", Port: 443, Path: "/repos/a/b", Reason: "credential_endpoint_mismatch: GH_TOKEN"},
 	})
 }
 

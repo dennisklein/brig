@@ -143,7 +143,7 @@ func Gateways(now time.Time) []store.Gateway {
 	sandbox := func(name, phase, image, template string, created time.Duration, base string, version uint32, providers ...string) store.Sandbox {
 		providers = slices.Sorted(slices.Values(providers))
 		return store.Sandbox{
-			Name: name, Phase: phase, Image: image, Template: template, Providers: providers,
+			Workspace: store.DefaultWorkspace, Name: name, Phase: phase, Image: image, Template: template, Providers: providers,
 			Created: ago(created), PolicyVersion: version, Policy: policy(base, version, providers),
 		}
 	}
@@ -156,7 +156,7 @@ func Gateways(now time.Time) []store.Gateway {
 					creds = p.Credentials[0].EnvVars
 				}
 			}
-			out = append(out, store.Provider{Name: n, Type: demoProviders[n], Credentials: creds})
+			out = append(out, store.Provider{Workspace: store.DefaultWorkspace, Name: n, Type: demoProviders[n], Credentials: creds})
 		}
 		return out
 	}
@@ -183,7 +183,7 @@ func Gateways(now time.Time) []store.Gateway {
 	)
 	return []store.Gateway{
 		{
-			VM: "airgap", State: store.GatewayStopped, Version: "0.1.1", Seen: ago(6 * 24 * time.Hour),
+			Workspaces: []string{store.DefaultWorkspace}, VM: "airgap", State: store.GatewayStopped, Version: "0.1.1", Seen: ago(6 * 24 * time.Hour),
 			Sandboxes: []store.Sandbox{
 				sandbox("corpus-scan", "Stopped", "localhost/pi-agent:2026-09-15", "pi", 30*24*time.Hour, defaultPolicy, 1, "llm"),
 			},
@@ -192,7 +192,7 @@ func Gateways(now time.Time) []store.Gateway {
 			Templates: []store.Template{{Name: "pi", Image: "localhost/pi-agent:2026-09-15", CPU: "2", Memory: "4Gi"}},
 		},
 		{
-			VM: "dev", State: store.GatewayReady, Version: "0.1.2", Seen: now,
+			Workspaces: []string{store.DefaultWorkspace}, VM: "dev", State: store.GatewayReady, Version: "0.1.2", Seen: now,
 			Sandboxes: []store.Sandbox{
 				sandbox("kit-dev", "Ready", pi, "pi", 26*time.Hour, defaultPolicy, 1, "llm"),
 				sandbox("tools", "Stopped", claude, "claude", 17*24*time.Hour, toolsPolicy, 2, "claude-code", "gitlab-work"),
@@ -207,7 +207,7 @@ func Gateways(now time.Time) []store.Gateway {
 			Config: config("claude-code", "github", "gitlab-work", "llm"),
 		},
 		{
-			VM: "review", State: store.GatewayReady, Version: "0.1.2", Seen: now,
+			Workspaces: []string{store.DefaultWorkspace}, VM: "review", State: store.GatewayReady, Version: "0.1.2", Seen: now,
 			Sandboxes: []store.Sandbox{
 				sandbox("pr-review", "Ready", claude, "claude", 4*24*time.Hour, defaultPolicy, 1, "claude-code", "github"),
 			},

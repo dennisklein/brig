@@ -39,13 +39,16 @@ type Gateway struct {
 	Version string
 	// Seen is when the gateway last answered; zero if it never did.
 	Seen time.Time
-	// Sandboxes are sorted by name.
+	// Workspaces are the names of the gateway's workspaces, sorted.
+	Workspaces []string
+	// Sandboxes are sorted by workspace and name.
 	Sandboxes []Sandbox
-	// Providers are sorted by name.
+	// Providers are sorted by workspace and name.
 	Providers []Provider
-	// Profiles are the provider profiles the gateway offers, sorted by ID.
+	// Profiles are the provider profiles the gateway offers, sorted by
+	// workspace and ID.
 	Profiles []Profile
-	// Templates are the sandbox templates, sorted by name.
+	// Templates are the sandbox templates, sorted by workspace and name.
 	Templates []Template
 	// Config is what the VM's config directories define.
 	Config GatewayConfig
@@ -58,10 +61,15 @@ func (g Gateway) Name() string { return "brig-" + g.VM }
 // parts are worth showing.
 func (g Gateway) Answered() bool { return !g.Seen.IsZero() }
 
-// Sandbox returns the named sandbox of the gateway.
-func (g Gateway) Sandbox(name string) (Sandbox, bool) {
+// DefaultWorkspace is the workspace that holds an object whose metadata names
+// none.
+const DefaultWorkspace = "default"
+
+// Sandbox returns the named sandbox of the workspace. Names are unique per
+// workspace only.
+func (g Gateway) Sandbox(workspace, name string) (Sandbox, bool) {
 	for _, s := range g.Sandboxes {
-		if s.Name == name {
+		if s.Workspace == workspace && s.Name == name {
 			return s, true
 		}
 	}
@@ -90,7 +98,10 @@ func (g Gateway) Profile(id string) (Profile, bool) {
 
 // Sandbox is an OpenShell sandbox.
 type Sandbox struct {
-	Name string
+	// Workspace is the workspace the sandbox lives in; its name is unique
+	// there only.
+	Workspace string
+	Name      string
 	// Phase is the sandbox's phase as the openshell CLI names it, such as
 	// Ready, Provisioning or Stopped.
 	Phase string
@@ -150,7 +161,8 @@ type Dir struct {
 // Provider is an OpenShell provider. It holds the names of its credentials
 // only, never their values.
 type Provider struct {
-	Name string
+	Workspace string
+	Name      string
 	// Type is the ID of the provider profile it was created from.
 	Type string
 	// Credentials are the names of its credentials.
@@ -159,6 +171,9 @@ type Provider struct {
 
 // Profile is an OpenShell provider profile.
 type Profile struct {
+	// Workspace is the workspace the profile belongs to, empty for a
+	// profile of the platform, which every workspace sees.
+	Workspace   string
 	ID          string
 	Name        string
 	Description string
@@ -187,10 +202,11 @@ type ProfileCredential struct {
 
 // Template is a sandbox template.
 type Template struct {
-	Name   string
-	Image  string
-	CPU    string
-	Memory string
+	Workspace string
+	Name      string
+	Image     string
+	CPU       string
+	Memory    string
 }
 
 // GatewayConfig is what a VM's OpenShell config directories define, as

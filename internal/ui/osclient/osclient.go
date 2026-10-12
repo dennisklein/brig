@@ -28,15 +28,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/dennisklein/brig/internal/ui/store"
 )
 
 // StubsVersion is the OpenShell release whose generated stubs brig uses.
 // Bump it with the SDK's pin in go.mod.
 const StubsVersion = "0.1.3"
-
-// workspace is the gateway workspace that brig and its openshell commands
-// use: brig strips OPENSHELL_WORKSPACE from the CLI's environment.
-const workspace = "default"
 
 // callTimeout bounds each call to the gateway.
 const callTimeout = 10 * time.Second
@@ -148,9 +146,23 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// scope selects brig's workspace.
-func scope() *dm.WorkspaceSelector {
+// scope selects the named workspace.
+func scope(workspace string) *dm.WorkspaceSelector {
 	return &dm.WorkspaceSelector{Selection: &dm.WorkspaceSelector_Workspace{Workspace: workspace}}
+}
+
+// allScope selects every workspace, for the list calls that accept it.
+func allScope() *dm.WorkspaceSelector {
+	return &dm.WorkspaceSelector{Selection: &dm.WorkspaceSelector_AllWorkspaces{AllWorkspaces: &dm.AllWorkspaces{}}}
+}
+
+// workspaceOf returns the workspace an object's metadata names; an empty
+// one is the default workspace, as the gateway normalizes it.
+func workspaceOf(m *dm.ObjectMeta) string {
+	if w := m.GetWorkspace(); w != "" {
+		return w
+	}
+	return store.DefaultWorkspace
 }
 
 // call runs f with the call timeout.

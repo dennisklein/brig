@@ -79,7 +79,7 @@ func findSandbox(f Form, c Context, what string) (store.Gateway, store.Sandbox, 
 	if !ValidSandboxName(name) {
 		return g, store.Sandbox{}, fmt.Errorf("%q is no sandbox name", name)
 	}
-	s, ok := g.Sandbox(name)
+	s, ok := g.Sandbox(store.DefaultWorkspace, name)
 	if !ok {
 		return g, s, fmt.Errorf("%s has no sandbox %s", g.Name(), name)
 	}
@@ -98,7 +98,7 @@ func buildSandboxCreate(f Form, c Context) (Command, error) {
 	case !ValidSandboxName(name):
 		return Command{}, fmt.Errorf("name: letters, digits, dots, dashes and underscores, starting with a letter or digit, at most %d characters", maxSandboxName)
 	}
-	if _, ok := g.Sandbox(name); ok {
+	if _, ok := g.Sandbox(store.DefaultWorkspace, name); ok {
 		return Command{}, fmt.Errorf("%s has a sandbox %s already", g.Name(), name)
 	}
 	mounts, err := sandboxMounts(f, c)

@@ -155,7 +155,7 @@ func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 		}
 		slices.Sort(providers)
 		g.Sandboxes = append(slices.Clone(g.Sandboxes), store.Sandbox{
-			Name: name, Phase: "Ready", Image: image, Template: template, Providers: providers,
+			Workspace: store.DefaultWorkspace, Name: name, Phase: "Ready", Image: image, Template: template, Providers: providers,
 			Created: time.Now(), PolicyVersion: 1, Policy: policy(base, 1, providers),
 		})
 		slices.SortFunc(g.Sandboxes, func(a, b store.Sandbox) int { return strings.Compare(a.Name, b.Name) })
@@ -165,7 +165,7 @@ func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 
 // ListFiles implements ui.FileLister with the same made-up files in every
 // sandbox.
-func (h *Host) ListFiles(ctx context.Context, _, _, dir string) (store.Dir, error) {
+func (h *Host) ListFiles(ctx context.Context, _, _, _, dir string) (store.Dir, error) {
 	select {
 	case <-ctx.Done():
 		return store.Dir{}, ctx.Err()

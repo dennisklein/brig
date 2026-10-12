@@ -24,15 +24,16 @@ import (
 
 // Watch sends the lines after from, then each line logged later, until ctx
 // ends.
-func (c fakeClient) Watch(ctx context.Context, sandbox string, from osclient.WatchFrom, each func(osclient.WatchEvent)) error {
+func (c fakeClient) Watch(ctx context.Context, workspace, sandbox string, from osclient.WatchFrom, each func(osclient.WatchEvent)) error {
 	if err := c.err(); err != nil {
 		return err
 	}
+	k := keyOf(workspace, sandbox)
 	c.g.mu.Lock()
 	if c.g.watches == nil {
-		c.g.watches = map[string][]osclient.WatchFrom{}
+		c.g.watches = map[sandboxKey][]osclient.WatchFrom{}
 	}
-	c.g.watches[sandbox] = append(c.g.watches[sandbox], from)
+	c.g.watches[k] = append(c.g.watches[k], from)
 	lost := c.g.lost
 	c.g.mu.Unlock()
 	next := 0
@@ -44,7 +45,7 @@ func (c fakeClient) Watch(ctx context.Context, sandbox string, from osclient.Wat
 	}
 	for {
 		c.g.mu.Lock()
-		lines := slices.Clone(c.g.logs[sandbox][min(next, len(c.g.logs[sandbox])):])
+		lines := slices.Clone(c.g.logs[k][min(next, len(c.g.logs[k])):])
 		c.g.mu.Unlock()
 		for _, l := range lines {
 			next++
@@ -61,21 +62,22 @@ func (c fakeClient) Watch(ctx context.Context, sandbox string, from osclient.Wat
 	}
 }
 
-func (c fakeClient) Drafts(_ context.Context, sandbox string) ([]store.Draft, error) {
+func (c fakeClient) Drafts(_ context.Context, workspace, sandbox string) ([]store.Draft, error) {
+	k := keyOf(workspace, sandbox)
 	if err := c.err(); err != nil {
 		return nil, err
 	}
 	c.g.mu.Lock()
 	defer c.g.mu.Unlock()
 	if c.g.draftReads == nil {
-		c.g.draftReads = map[string]int{}
+		c.g.draftReads = map[sandboxKey]int{}
 	}
-	c.g.draftReads[sandbox]++
-	return slices.Clone(c.g.drafts[sandbox]), nil
+	c.g.draftReads[k]++
+	return slices.Clone(c.g.drafts[k]), nil
 }
 
-func (g *fakeGateway) log(sandbox string, ls ...osclient.LogLine) {
-	g.set(func(g *fakeGateway) { g.logs[sandbox] = append(g.logs[sandbox], ls...) })
+func (g *fakeGateway) log(k sandboxKey, ls ...osclient.LogLine) {
+	g.set(func(g *fakeGateway) { g.logs[k] = append(g.logs[k], ls...) })
 }
 
 // waitTraffic waits until cond holds for the traffic of dev.
@@ -97,16 +99,16 @@ func waitTraffic(t *testing.T, st *store.Store, what string, cond func(store.Tra
 func TestTraffic(t *testing.T) {
 	now := time.Now()
 	fake := &fakeGateway{
-		policyReads: map[string]int{}, draftReads: map[string]int{},
-		sandboxes: []store.Sandbox{{Name: "webapp", Phase: "Ready"}},
-		logs: map[string][]osclient.LogLine{"webapp": {
+		policyReads: map[sandboxKey]int{}, draftReads: map[sandboxKey]int{},
+		sandboxes: []store.Sandbox{{Workspace: "default", Name: "webapp", Phase: "Ready"}},
+		logs: map[sandboxKey][]osclient.LogLine{dflt("webapp"): {
 			// Older than the backfill.
 			{Time: now.Add(-2 * time.Hour), Level: "OCSF", Message: "NET:OPEN [INFO] ALLOWED curl(1) -> old.example:443"},
 			{Time: now.Add(-time.Minute), Level: "OCSF", Message: "NET:OPEN [INFO] ALLOWED curl(1) -> api.github.com:443"},
 			{Time: now.Add(-time.Minute), Level: "INFO", Message: "policy reloaded"},
 			{Time: now.Add(-time.Minute), Level: "OCSF", Message: "PROC:LAUNCH [INFO] python3(42)"},
 		}},
-		drafts: map[string][]store.Draft{},
+		drafts: map[sandboxKey][]store.Draft{},
 	}
 	g := &Gateways{
 		Dial:           func(store.VM) (GatewayClient, error) { fake.dials.Add(1); return fakeClient{fake}, nil },
@@ -125,13 +127,13 @@ func TestTraffic(t *testing.T) {
 	waitTraffic(t, st, "the backfill", func(tr store.Traffic) bool { return len(tr.Requests) > 0 })
 	time.Sleep(20 * time.Millisecond)
 	tr := st.Snapshot().TrafficOf("dev")
-	if len(tr.Requests) != 1 || tr.Requests[0].Host != "api.github.com" || tr.Requests[0].Sandbox != "webapp" ||
+	if len(tr.Requests) != 1 || tr.Requests[0].Host != "api.github.com" || tr.Requests[0].Workspace != "default" || tr.Requests[0].Sandbox != "webapp" ||
 		!tr.Requests[0].Time.Equal(now.Add(-time.Minute)) {
 		t.Fatalf("backfill: %+v", tr.Requests)
 	}
 	fake.mu.Lock()
-	from := fake.watches["webapp"][0]
-	reads := fake.draftReads["webapp"]
+	from := fake.watches[dflt("webapp")][0]
+	reads := fake.draftReads[dflt("webapp")]
 	fake.mu.Unlock()
 	if from.Cursor != "" || from.Tail != tailLines || now.Sub(from.Since) < 59*time.Minute {
 		t.Errorf("first watch: %+v", from)
@@ -142,9 +144,9 @@ func TestTraffic(t *testing.T) {
 
 	// A denial has the drafts read again a while later.
 	fake.set(func(f *fakeGateway) {
-		f.drafts["webapp"] = []store.Draft{{Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443"}}
+		f.drafts[dflt("webapp")] = []store.Draft{{Workspace: "default", Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443"}}
 	})
-	fake.log("webapp", osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "NET:OPEN [MED] DENIED /usr/bin/node(7) -> registry.npmjs.org:443"})
+	fake.log(dflt("webapp"), osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "NET:OPEN [MED] DENIED /usr/bin/node(7) -> registry.npmjs.org:443"})
 	tr = waitTraffic(t, st, "the draft", func(tr store.Traffic) bool { return len(tr.Drafts) == 1 })
 	if len(tr.Requests) != 2 || !tr.Requests[1].Denied() || tr.Requests[1].Process != "/usr/bin/node" {
 		t.Errorf("requests: %+v", tr.Requests)
@@ -155,15 +157,15 @@ func TestTraffic(t *testing.T) {
 	waitFor(t, st, "a second watch", func(store.Gateway) bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
-		return len(fake.watches["webapp"]) == 2
+		return len(fake.watches[dflt("webapp")]) == 2
 	})
 	fake.mu.Lock()
-	from = fake.watches["webapp"][1]
+	from = fake.watches[dflt("webapp")][1]
 	fake.mu.Unlock()
 	if from.Cursor != "5" {
 		t.Errorf("second watch: %+v", from)
 	}
-	fake.log("webapp", osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "HTTP:GET [INFO] ALLOWED GET https://api.github.com/user"})
+	fake.log(dflt("webapp"), osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "HTTP:GET [INFO] ALLOWED GET https://api.github.com/user"})
 	tr = waitTraffic(t, st, "the next line", func(tr store.Traffic) bool { return len(tr.Requests) == 3 })
 	if tr.Requests[2].Path != "/user" {
 		t.Errorf("after resuming: %+v", tr.Requests[2])
@@ -197,10 +199,10 @@ func TestTraffic(t *testing.T) {
 }
 
 func TestTrafficNoDrafts(t *testing.T) {
-	c := &noDrafts{fakeClient: fakeClient{&fakeGateway{policyReads: map[string]int{}, draftReads: map[string]int{}}}}
+	c := &noDrafts{fakeClient: fakeClient{&fakeGateway{policyReads: map[sandboxKey]int{}, draftReads: map[sandboxKey]int{}}}}
 	st := store.New()
-	tr := newTraffic(&Gateways{}, st, "dev", c, map[string]*position{})
-	sandboxes := []store.Sandbox{{Name: "webapp"}}
+	tr := newTraffic(&Gateways{}, st, "dev", c, map[sandboxKey]*position{})
+	sandboxes := []store.Sandbox{{Workspace: "default", Name: "webapp"}}
 	tr.readDrafts(context.Background(), sandboxes)
 	tr.readDrafts(context.Background(), sandboxes)
 	if c.calls != 1 {
@@ -213,7 +215,7 @@ type noDrafts struct {
 	calls int
 }
 
-func (c *noDrafts) Drafts(context.Context, string) ([]store.Draft, error) {
+func (c *noDrafts) Drafts(context.Context, string, string) ([]store.Draft, error) {
 	c.calls++
 	return nil, status.Error(codes.Unimplemented, "unknown method GetDraftPolicy")
 }
@@ -222,17 +224,17 @@ func TestTrafficLogsWhyItCannotWatch(t *testing.T) {
 	var buf bytes.Buffer
 	c := &watchFails{fakeClient: fakeClient{&fakeGateway{}}}
 	g := &Gateways{Backoff: time.Millisecond, Log: slog.New(slog.NewTextHandler(&buf, nil))}
-	tr := newTraffic(g, store.New(), "dev", c, map[string]*position{})
+	tr := newTraffic(g, store.New(), "dev", c, map[sandboxKey]*position{})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { tr.watch(ctx, "webapp", &position{}); close(done) }()
+	go func() { tr.watch(ctx, dflt("webapp"), &position{}); close(done) }()
 	for c.tries.Load() < 3 {
 		time.Sleep(time.Millisecond)
 	}
 	cancel()
 	<-done
 	// Once, however often it tried.
-	if got := strings.Count(buf.String(), "cannot follow"); got != 1 || !strings.Contains(buf.String(), "sandbox=webapp") ||
+	if got := strings.Count(buf.String(), "cannot follow"); got != 1 || !strings.Contains(buf.String(), "sandbox=webapp") || !strings.Contains(buf.String(), "workspace=default") ||
 		!strings.Contains(buf.String(), "permission denied") {
 		t.Errorf("log:\n%s", buf.String())
 	}
@@ -243,7 +245,125 @@ type watchFails struct {
 	tries atomic.Int32
 }
 
-func (c *watchFails) Watch(context.Context, string, osclient.WatchFrom, func(osclient.WatchEvent)) error {
+func (c *watchFails) Watch(context.Context, string, string, osclient.WatchFrom, func(osclient.WatchEvent)) error {
 	c.tries.Add(1)
 	return status.Error(codes.PermissionDenied, "permission denied")
+}
+
+// TestTrafficWorkspaces follows sandboxes of one name in two workspaces: each
+// has its own log position, requests and drafts, and a workspace that goes
+// ends only its own followers.
+func TestTrafficWorkspaces(t *testing.T) {
+	now := time.Now()
+	line := func(host string) osclient.LogLine {
+		return osclient.LogLine{Time: now.Add(-time.Minute), Level: "OCSF", Message: "NET:OPEN [MED] DENIED /usr/bin/node(7) -> " + host + ":443"}
+	}
+	fake := &fakeGateway{
+		policyReads: map[sandboxKey]int{}, draftReads: map[sandboxKey]int{},
+		workspaces: []string{"default", "team"},
+		sandboxes: []store.Sandbox{
+			{Workspace: "default", Name: "webapp", Phase: "Ready"},
+			{Workspace: "team", Name: "webapp", Phase: "Ready"},
+		},
+		logs: map[sandboxKey][]osclient.LogLine{
+			dflt("webapp"):          {line("default.example")},
+			keyOf("team", "webapp"): {line("team.example")},
+		},
+		drafts: map[sandboxKey][]store.Draft{
+			dflt("webapp"):          {{ID: "ch-1", Rule: "allow_default"}},
+			keyOf("team", "webapp"): {{ID: "ch-1", Rule: "allow_team"}},
+		},
+	}
+	g := &Gateways{
+		Dial:           func(store.VM) (GatewayClient, error) { return fakeClient{fake}, nil },
+		SandboxesEvery: 5 * time.Millisecond, RestEvery: time.Hour, Backoff: 5 * time.Millisecond,
+		FlushEvery: time.Millisecond, DraftsAfter: 20 * time.Millisecond, DraftsEvery: time.Hour,
+	}
+	st := store.New()
+	st.SetVMs(store.VMState{VMs: []store.VM{{VM: vm.VM{Name: "dev", Ports: vm.Ports{Gateway: 42443}}, State: "running"}}})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { g.Run(ctx, st); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	tr := waitTraffic(t, st, "both workspaces' traffic", func(tr store.Traffic) bool {
+		return len(tr.Requests) == 2 && len(tr.Drafts) == 2
+	})
+	hosts := map[string]string{}
+	for _, r := range tr.Requests {
+		hosts[r.Workspace+"/"+r.Sandbox] = r.Host
+	}
+	if hosts["default/webapp"] != "default.example" || hosts["team/webapp"] != "team.example" {
+		t.Errorf("requests by sandbox: %v", hosts)
+	}
+	for _, d := range tr.Drafts {
+		if want := "allow_" + d.Workspace; d.Rule != want {
+			t.Errorf("draft of %s/%s is %q, want %q", d.Workspace, d.Sandbox, d.Rule, want)
+		}
+	}
+	// The same draft ID in two workspaces is two drafts.
+	if d, ok := tr.Draft("team", "webapp", "ch-1"); !ok || d.Rule != "allow_team" {
+		t.Errorf("Draft(team) = %+v, %v", d, ok)
+	}
+	// A request is matched with its own workspace's draft only.
+	denied := tr.Requests[0]
+	if d, ok := tr.DraftFor(denied); ok && d.Workspace != denied.Workspace {
+		t.Errorf("request of %s matched a draft of %s", denied.Workspace, d.Workspace)
+	}
+	fake.mu.Lock()
+	watched := len(fake.watches[dflt("webapp")]) == 1 && len(fake.watches[keyOf("team", "webapp")]) == 1
+	fake.mu.Unlock()
+	if !watched {
+		t.Errorf("watches: %v", fake.watches)
+	}
+	// Each sandbox's policy was read in its workspace.
+	gw := waitFor(t, st, "both policies", func(gw store.Gateway) bool {
+		return len(gw.Sandboxes) == 2 && gw.Sandboxes[0].Policy != nil && gw.Sandboxes[1].Policy != nil
+	})
+	for _, s := range gw.Sandboxes {
+		if s.Policy.ProviderRules[0] != s.Workspace {
+			t.Errorf("policy of %s/%s was read in %s", s.Workspace, s.Name, s.Policy.ProviderRules[0])
+		}
+	}
+	if !slices.Equal(gw.Workspaces, []string{"default", "team"}) {
+		t.Errorf("Workspaces = %v", gw.Workspaces)
+	}
+	if _, ok := gw.Sandbox("team", "webapp"); !ok {
+		t.Error("Sandbox(team, webapp) not found")
+	}
+	if s, ok := gw.Sandbox("default", "webapp"); !ok || s.Workspace != "default" {
+		t.Errorf("Sandbox(default, webapp) = %+v, %v", s, ok)
+	}
+
+	// The team workspace goes: its sandbox's drafts go, the default's stay.
+	fake.set(func(f *fakeGateway) { f.sandboxes = f.sandboxes[:1]; f.workspaces = []string{"default"} })
+	tr = waitTraffic(t, st, "the team drafts to go", func(tr store.Traffic) bool { return len(tr.Drafts) == 1 })
+	if tr.Drafts[0].Workspace != "default" {
+		t.Errorf("drafts left: %+v", tr.Drafts)
+	}
+}
+
+func TestWorkspacesTooOld(t *testing.T) {
+	fake := &fakeGateway{policyReads: map[sandboxKey]int{}}
+	g := &Gateways{
+		Dial:           func(store.VM) (GatewayClient, error) { return oldGateway{fakeClient{fake}}, nil },
+		SandboxesEvery: 5 * time.Millisecond, RestEvery: time.Hour, Backoff: 5 * time.Millisecond,
+	}
+	st := store.New()
+	st.SetVMs(store.VMState{VMs: []store.VM{{VM: vm.VM{Name: "dev", Ports: vm.Ports{Gateway: 42443}}, State: "running"}}})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { g.Run(ctx, st); close(done) }()
+	defer func() { cancel(); <-done }()
+	gw := waitFor(t, st, "the gateway to be refused", func(gw store.Gateway) bool { return gw.State == store.GatewayUnreachable })
+	if !strings.Contains(gw.Err, "too old") {
+		t.Errorf("Err = %q", gw.Err)
+	}
+}
+
+// oldGateway has no ListWorkspaces.
+type oldGateway struct{ fakeClient }
+
+func (oldGateway) Workspaces(context.Context) ([]string, error) {
+	return nil, status.Error(codes.Unimplemented, "unknown method ListWorkspaces")
 }

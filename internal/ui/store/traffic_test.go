@@ -9,7 +9,7 @@ import (
 
 func TestAddRequests(t *testing.T) {
 	s := New()
-	s.AddRequests("dev", []Request{{Sandbox: "webapp", Host: "a.example"}, {Sandbox: "webapp", Host: "b.example"}})
+	s.AddRequests("dev", []Request{{Workspace: "default", Sandbox: "webapp", Host: "a.example"}, {Sandbox: "webapp", Host: "b.example"}})
 	s.AddRequests("review", []Request{{Sandbox: "pr-review", Host: "c.example"}})
 	before := s.Snapshot()
 	s.AddRequests("dev", []Request{{Sandbox: "webapp", Host: "d.example"}})
@@ -50,12 +50,12 @@ func TestSetDrafts(t *testing.T) {
 	ch, unsubscribe := s.Subscribe()
 	defer unsubscribe()
 	npm := Draft{ID: "ch-1", Rule: "npm", Binary: "/usr/bin/node", Endpoints: []DraftEndpoint{{Host: "registry.npmjs.org", Port: 443}}}
-	s.SetDrafts("dev", "webapp", []Draft{npm})
-	s.SetDrafts("dev", "kit-dev", []Draft{{ID: "ch-2", Rule: "raw"}})
+	s.SetDrafts("dev", "default", "webapp", []Draft{npm})
+	s.SetDrafts("dev", "default", "kit-dev", []Draft{{ID: "ch-2", Rule: "raw"}})
 	<-ch
 	<-ch
 	// The same drafts again change nothing.
-	s.SetDrafts("dev", "webapp", []Draft{npm})
+	s.SetDrafts("dev", "default", "webapp", []Draft{npm})
 	select {
 	case got := <-ch:
 		t.Errorf("notified %q for the same drafts", got)
@@ -65,7 +65,7 @@ func TestSetDrafts(t *testing.T) {
 	if len(tr.Drafts) != 2 || tr.Drafts[0].Sandbox != "kit-dev" || tr.Drafts[1].Sandbox != "webapp" {
 		t.Errorf("drafts: %+v", tr.Drafts)
 	}
-	if d, ok := tr.Draft("webapp", "ch-1"); !ok || d.Rule != "npm" {
+	if d, ok := tr.Draft("default", "webapp", "ch-1"); !ok || d.Rule != "npm" {
 		t.Errorf("Draft = %+v, %v", d, ok)
 	}
 
@@ -75,19 +75,19 @@ func TestSetDrafts(t *testing.T) {
 		r    Request
 		want bool
 	}{
-		{Request{Sandbox: "webapp", Process: "/usr/bin/node", Host: "registry.npmjs.org", Port: 443}, true},
-		{Request{Sandbox: "webapp", Process: "node", Host: "Registry.npmjs.org", Port: 443}, true},
-		{Request{Sandbox: "webapp", Host: "registry.npmjs.org", Port: 443}, true},
-		{Request{Sandbox: "webapp", Process: "/usr/bin/curl", Host: "registry.npmjs.org", Port: 443}, false},
-		{Request{Sandbox: "webapp", Process: "node", Host: "registry.npmjs.org", Port: 80}, false},
-		{Request{Sandbox: "kit-dev", Process: "node", Host: "registry.npmjs.org", Port: 443}, false},
+		{Request{Workspace: "default", Sandbox: "webapp", Process: "/usr/bin/node", Host: "registry.npmjs.org", Port: 443}, true},
+		{Request{Workspace: "default", Sandbox: "webapp", Process: "node", Host: "Registry.npmjs.org", Port: 443}, true},
+		{Request{Workspace: "default", Sandbox: "webapp", Host: "registry.npmjs.org", Port: 443}, true},
+		{Request{Workspace: "default", Sandbox: "webapp", Process: "/usr/bin/curl", Host: "registry.npmjs.org", Port: 443}, false},
+		{Request{Workspace: "default", Sandbox: "webapp", Process: "node", Host: "registry.npmjs.org", Port: 80}, false},
+		{Request{Workspace: "default", Sandbox: "kit-dev", Process: "node", Host: "registry.npmjs.org", Port: 443}, false},
 	} {
 		if _, ok := tr.DraftFor(c.r); ok != c.want {
 			t.Errorf("DraftFor(%+v) = %v", c.r, ok)
 		}
 	}
 
-	s.SetDrafts("dev", "webapp", nil)
+	s.SetDrafts("dev", "default", "webapp", nil)
 	if tr := s.Snapshot().TrafficOf("dev"); len(tr.Drafts) != 1 {
 		t.Errorf("drafts after clearing webapp's: %+v", tr.Drafts)
 	}
@@ -100,5 +100,50 @@ func TestRequest(t *testing.T) {
 	}
 	if (Request{Host: "a.example"}).Endpoint() != "a.example" {
 		t.Error("an endpoint without a port")
+	}
+}
+
+// TestDraftsPerWorkspace keeps the drafts of a sandbox name in two
+// workspaces apart.
+func TestDraftsPerWorkspace(t *testing.T) {
+	s := New()
+	s.SetDrafts("dev", "default", "webapp", []Draft{{ID: "ch-1", Rule: "a", Endpoints: []DraftEndpoint{{Host: "x.example", Port: 443}}}})
+	s.SetDrafts("dev", "team", "webapp", []Draft{{ID: "ch-1", Rule: "b", Endpoints: []DraftEndpoint{{Host: "x.example", Port: 443}}}})
+	tr := s.Snapshot().TrafficOf("dev")
+	if len(tr.Drafts) != 2 || tr.Drafts[0].Workspace != "default" || tr.Drafts[1].Workspace != "team" {
+		t.Fatalf("drafts: %+v", tr.Drafts)
+	}
+	for ws, rule := range map[string]string{"default": "a", "team": "b"} {
+		if d, ok := tr.Draft(ws, "webapp", "ch-1"); !ok || d.Rule != rule {
+			t.Errorf("Draft(%s) = %+v, %v", ws, d, ok)
+		}
+		d, ok := tr.DraftFor(Request{Workspace: ws, Sandbox: "webapp", Host: "x.example", Port: 443})
+		if !ok || d.Rule != rule {
+			t.Errorf("DraftFor in %s = %+v, %v", ws, d, ok)
+		}
+	}
+	if _, ok := tr.Draft("other", "webapp", "ch-1"); ok {
+		t.Error("found a draft in a workspace that has none")
+	}
+	// Clearing one workspace's drafts leaves the other's.
+	s.SetDrafts("dev", "team", "webapp", nil)
+	if tr := s.Snapshot().TrafficOf("dev"); len(tr.Drafts) != 1 || tr.Drafts[0].Workspace != "default" {
+		t.Errorf("after clearing team's: %+v", tr.Drafts)
+	}
+}
+
+func TestGatewaySandboxPerWorkspace(t *testing.T) {
+	g := Gateway{Sandboxes: []Sandbox{
+		{Workspace: "default", Name: "webapp", Phase: "Ready"},
+		{Workspace: "team", Name: "webapp", Phase: "Stopped"},
+	}}
+	if s, ok := g.Sandbox("team", "webapp"); !ok || s.Phase != "Stopped" {
+		t.Errorf("Sandbox(team) = %+v, %v", s, ok)
+	}
+	if s, ok := g.Sandbox("default", "webapp"); !ok || s.Phase != "Ready" {
+		t.Errorf("Sandbox(default) = %+v, %v", s, ok)
+	}
+	if _, ok := g.Sandbox("other", "webapp"); ok {
+		t.Error("found a sandbox in a workspace that has none")
 	}
 }

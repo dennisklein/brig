@@ -41,15 +41,17 @@ const (
 // GatewayClient reads one gateway; osclient.Client is one.
 type GatewayClient interface {
 	Version(ctx context.Context) (string, error)
+	Workspaces(ctx context.Context) ([]string, error)
+	// Sandboxes, Providers and Templates list every workspace.
 	Sandboxes(ctx context.Context) ([]store.Sandbox, error)
 	Providers(ctx context.Context) ([]store.Provider, error)
-	Profiles(ctx context.Context) ([]store.Profile, error)
+	Profiles(ctx context.Context, workspaces []string) ([]store.Profile, error)
 	Templates(ctx context.Context) ([]store.Template, error)
-	Policy(ctx context.Context, sandbox string) (*store.Policy, error)
+	Policy(ctx context.Context, workspace, sandbox string) (*store.Policy, error)
 	// Watch follows a sandbox's log until the stream or ctx ends.
-	Watch(ctx context.Context, sandbox string, from osclient.WatchFrom, each func(osclient.WatchEvent)) error
+	Watch(ctx context.Context, workspace, sandbox string, from osclient.WatchFrom, each func(osclient.WatchEvent)) error
 	// Drafts lists the rules OpenShell drafted for a sandbox.
-	Drafts(ctx context.Context, sandbox string) ([]store.Draft, error)
+	Drafts(ctx context.Context, workspace, sandbox string) ([]store.Draft, error)
 	BundleChanged() bool
 	Close() error
 }
@@ -181,6 +183,9 @@ func (g *Gateways) start(ctx context.Context, st *store.Store, v store.VM) *work
 	return w
 }
 
+// errNoWorkspaces ends a connection to a gateway that predates workspaces.
+var errNoWorkspaces = errors.New("the gateway is too old for brig ui: it has no workspaces")
+
 // errBundleChanged ends a connection whose client bundle was replaced.
 var errBundleChanged = errors.New("the mTLS client bundle changed")
 
@@ -193,7 +198,7 @@ func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
 	})
 	backoff := g.backoff()
 	// positions are where the traffic feed is in each sandbox's log.
-	positions := map[string]*position{}
+	positions := map[sandboxKey]*position{}
 	for {
 		c, err := g.Dial(v)
 		if err == nil {
@@ -233,7 +238,7 @@ func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
 
 // serve reads the gateway through c until an error or ctx ends. It reports
 // whether the gateway answered.
-func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient, positions map[string]*position) (bool, error) {
+func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient, positions map[sandboxKey]*position) (bool, error) {
 	version, err := c.Version(ctx)
 	if err != nil {
 		return false, err
@@ -250,13 +255,14 @@ func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c Gate
 		<-trafficDone
 	}()
 	var (
-		providers []store.Provider
-		profiles  []store.Profile
-		templates []store.Template
-		lastRest  time.Time
+		workspaces []string
+		providers  []store.Provider
+		profiles   []store.Profile
+		templates  []store.Template
+		lastRest   time.Time
 		// policies caches each sandbox's policy, with the version and
 		// providers it was read for.
-		policies = map[string]store.Sandbox{}
+		policies = map[sandboxKey]store.Sandbox{}
 		// lastRead is when the gateway last answered every call.
 		lastRead time.Time
 	)
@@ -281,10 +287,16 @@ func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c Gate
 			return true, err
 		}
 		if time.Since(lastRest) >= g.restEvery() {
+			if workspaces, err = c.Workspaces(ctx); err != nil {
+				if status.Code(err) == codes.Unimplemented {
+					err = errNoWorkspaces
+				}
+				return true, err
+			}
 			if providers, err = c.Providers(ctx); err != nil {
 				return true, err
 			}
-			if profiles, err = c.Profiles(ctx); err != nil {
+			if profiles, err = c.Profiles(ctx, workspaces); err != nil {
 				return true, err
 			}
 			if templates, err = c.Templates(ctx); err != nil {
@@ -299,12 +311,12 @@ func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c Gate
 		lastRead = time.Now()
 		st.UpdateGateway(vm, func(gw *store.Gateway) bool {
 			if gw.State == store.GatewayReady && gw.Version == version &&
-				reflect.DeepEqual(gw.Sandboxes, sandboxes) && reflect.DeepEqual(gw.Providers, providers) &&
+				reflect.DeepEqual(gw.Workspaces, workspaces) && reflect.DeepEqual(gw.Sandboxes, sandboxes) && reflect.DeepEqual(gw.Providers, providers) &&
 				reflect.DeepEqual(gw.Profiles, profiles) && reflect.DeepEqual(gw.Templates, templates) {
 				return false
 			}
 			gw.State, gw.Err, gw.Version, gw.Seen = store.GatewayReady, "", version, lastRead
-			gw.Sandboxes, gw.Providers, gw.Profiles, gw.Templates = sandboxes, providers, profiles, templates
+			gw.Workspaces, gw.Sandboxes, gw.Providers, gw.Profiles, gw.Templates = workspaces, sandboxes, providers, profiles, templates
 			return true
 		})
 		select {
@@ -318,26 +330,27 @@ func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c Gate
 // addPolicies sets the policy of each sandbox, reading those that the cache
 // does not hold for the sandbox's policy version and providers. A sandbox
 // whose policy could not be read gets the error in its place.
-func (g *Gateways) addPolicies(ctx context.Context, c GatewayClient, sandboxes []store.Sandbox, cache map[string]store.Sandbox) {
-	seen := map[string]bool{}
+func (g *Gateways) addPolicies(ctx context.Context, c GatewayClient, sandboxes []store.Sandbox, cache map[sandboxKey]store.Sandbox) {
+	seen := map[sandboxKey]bool{}
 	for i := range sandboxes {
 		s := &sandboxes[i]
-		seen[s.Name] = true
-		if old, ok := cache[s.Name]; ok && old.PolicyVersion == s.PolicyVersion && slices.Equal(old.Providers, s.Providers) {
+		k := keyOf(s.Workspace, s.Name)
+		seen[k] = true
+		if old, ok := cache[k]; ok && old.PolicyVersion == s.PolicyVersion && slices.Equal(old.Providers, s.Providers) {
 			s.Policy = old.Policy
 			continue
 		}
-		p, err := c.Policy(ctx, s.Name)
+		p, err := c.Policy(ctx, s.Workspace, s.Name)
 		if err != nil {
 			s.Policy = &store.Policy{Err: describeCall(err)}
 			continue
 		}
 		s.Policy = p
-		cache[s.Name] = *s
+		cache[k] = *s
 	}
-	for name := range cache {
-		if !seen[name] {
-			delete(cache, name)
+	for k := range cache {
+		if !seen[k] {
+			delete(cache, k)
 		}
 	}
 }
