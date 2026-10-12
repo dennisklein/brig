@@ -310,7 +310,12 @@ func taskView(sn store.Snapshot, t store.Task) taskCard {
 
 // nextAct returns the button that offers the action that follows a task.
 func nextAct(t taskCard) actButton {
-	return actButton{URL: dialogURL(t.Next, "vm", t.VM), Label: actionLabel(t.Next), Class: "sm primary"}
+	var kv []string
+	if t.VM != "" {
+		kv = append(kv, "vm", t.VM)
+	}
+	kv = append(kv, t.NextForm...)
+	return actButton{URL: dialogURL(t.Next, kv...), Label: actionLabel(t.Next), Class: "sm primary"}
 }
 
 // previewView is what the answer to a preview is rendered from.
@@ -441,7 +446,7 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.starter.Start(run.Spec{
-		Action: a.ID, Command: p.Cmd, VM: a.VM(f), ShowOutput: a.ShowOutput, Next: a.Next,
+		Action: a.ID, Command: p.Cmd, VM: a.VM(f), ShowOutput: a.ShowOutput, Next: a.Next, NextForm: p.Cmd.NextForm,
 	})
 	if err != nil {
 		s.log.Error("starting a task", "action", a.ID, "err", err)
