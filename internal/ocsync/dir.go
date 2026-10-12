@@ -18,6 +18,7 @@ package ocsync
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -46,6 +47,20 @@ type Set struct {
 	Providers []Provider
 	// DefaultPolicy is the path of the default sandbox policy, if any.
 	DefaultPolicy string
+	// Policies are all the policy files, default.yaml included, sorted by
+	// name and then path. Unlike the default policy, a name may occur in
+	// several directories: brig only reads these files to compare them with
+	// sandboxes (see PolicyFile).
+	Policies []PolicyFile
+}
+
+// PolicyFile is a sandbox policy file in a config directory's policies
+// directory, such as policies/webapp.yaml, which is a convention for one
+// project's policy: the default's content plus the project's network rules.
+type PolicyFile struct {
+	// Name is the file name without its extension.
+	Name string
+	Path string
 }
 
 // ProfileFile is an OpenShell provider profile file.
@@ -155,6 +170,13 @@ func Load(dirs []string) (*Set, error) {
 			providerAt[p.Name] = path
 			s.Providers = append(s.Providers, p)
 		}
+		if files, err = yamlFiles(filepath.Join(dir, "policies")); err != nil {
+			return nil, err
+		}
+		for _, path := range files {
+			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			s.Policies = append(s.Policies, PolicyFile{Name: name, Path: path})
+		}
 		policy := filepath.Join(dir, "policies", "default.yaml")
 		if fi, err := os.Stat(policy); err == nil {
 			if !fi.Mode().IsRegular() {
@@ -170,6 +192,9 @@ func Load(dirs []string) (*Set, error) {
 	}
 	slices.SortFunc(s.Profiles, func(a, b ProfileFile) int { return strings.Compare(a.ID, b.ID) })
 	slices.SortFunc(s.Providers, func(a, b Provider) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(s.Policies, func(a, b PolicyFile) int {
+		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.Path, b.Path))
+	})
 	return s, nil
 }
 
