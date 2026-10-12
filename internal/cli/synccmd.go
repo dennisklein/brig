@@ -66,9 +66,20 @@ A config directory may hold:
                              GH_TOKEN:
                                secret_tool:
                                  lookup: [service, github.com, user, alice]
+  workspaces/WS/profiles/*.yaml, workspaces/WS/providers/*.yaml
+                         the same for the workspace WS, which brig
+                         creates on the gateway if it is missing
   policies/default.yaml  the default policy for new sandboxes, which
                          brig use NAME and eval "$(brig env NAME)"
                          export as OPENSHELL_SANDBOX_POLICY
+
+Every workspace is synced on its own: the default workspace first, then
+the others by name, with a "workspace WS:" heading each when there is more
+than one. The same profile ID or provider name may appear in several
+workspaces; they are separate objects. --workspace WS (repeatable) syncs
+only the named workspaces. --prune deletes only what brig created in the
+workspace it is synced for, and brig never deletes a workspace itself.
+policies/ is not per workspace.
 
 Secrets never appear in config directories, on command lines or on the
 host's disk (the gateway keeps them encrypted on the VM's data disk): brig
@@ -83,11 +94,13 @@ brig start keeps back profile changes that would add endpoints for
 credentials the gateway holds already; brig sync applies them and says
 so. Check shared profiles with --dry-run first.`
 	cmd.Example = `  brig sync dev --dry-run
-  brig sync dev --prune`
+  brig sync dev --prune
+  brig sync dev --workspace team`
 	f := cmd.Flags()
 	f.BoolVar(&opts.DryRun, "dry-run", false, "show what would change, without changing it")
 	f.BoolVar(&opts.Prune, "prune", false, "delete profiles and providers that brig created but no config directory defines any more")
 	f.BoolVar(&opts.RefreshSecrets, "refresh-secrets", false, "update every provider's credentials, whether or not they changed")
+	f.StringArrayVarP(&opts.Workspaces, "workspace", "w", nil, "sync only this workspace (repeatable; default: every workspace the config directories define)")
 	f.StringVar(&secretTool, "secret-tool", "", "program to look secrets up with (default: openshell.secret_tool from config.yaml)")
 	return cmd
 }
@@ -130,7 +143,14 @@ func (a *app) applyConfigs(ctx context.Context, cli *openshell.CLI, v *vm.VM, st
 	if secretTool == "" {
 		secretTool = a.cfg.OpenShell.SecretTool
 	}
-	return ocsync.Sync(ctx, set, gw, ocsync.SecretTool{Path: secretTool}, st, opts)
+	return ocsync.SyncAll(ctx, set, workspaceHost{gw}, ocsync.SecretTool{Path: secretTool}, st, opts)
+}
+
+// workspaceHost adapts a gateway client to ocsync.Host.
+type workspaceHost struct{ *openshell.Gateway }
+
+func (h workspaceHost) In(workspace string) (ocsync.Gateway, error) {
+	return h.Gateway.In(workspace)
 }
 
 // lastSync returns the outcome of the VM's last sync, if any.

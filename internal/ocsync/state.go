@@ -30,10 +30,46 @@ type State struct {
 	// Key keys the credential fingerprints. It is stored beside them, so
 	// that they protect secrets only as well as this file is protected:
 	// someone who reads it can test guesses of a low-entropy secret.
-	Key       []byte                   `json:"key"`
+	Key []byte `json:"key"`
+	// Version is StateVersion; a file with another version is read for its
+	// Key and LastSync only.
+	Version int `json:"version"`
+	// Workspaces maps workspace names to what brig manages in them.
+	Workspaces map[string]*WorkspaceState `json:"workspaces,omitempty"`
+	LastSync   *Record                    `json:"last_sync,omitempty"`
+}
+
+// StateVersion is the layout of the state file: 2 keeps profiles and
+// providers per workspace. The flat layout before it is not read, so
+// objects that are on the gateway already count as not created by brig.
+const StateVersion = 2
+
+// WorkspaceState is what brig manages in one workspace.
+type WorkspaceState struct {
+	// Created is set when brig created the workspace; brig never deletes
+	// a workspace.
+	Created   bool                     `json:"created,omitempty"`
 	Profiles  map[string]ProfileState  `json:"profiles,omitempty"`
 	Providers map[string]ProviderState `json:"providers,omitempty"`
-	LastSync  *Record                  `json:"last_sync,omitempty"`
+}
+
+// Workspace returns the state of workspace name, creating it if needed.
+func (st *State) Workspace(name string) *WorkspaceState {
+	if st.Workspaces == nil {
+		st.Workspaces = map[string]*WorkspaceState{}
+	}
+	ws := st.Workspaces[name]
+	if ws == nil {
+		ws = &WorkspaceState{}
+		st.Workspaces[name] = ws
+	}
+	if ws.Profiles == nil {
+		ws.Profiles = map[string]ProfileState{}
+	}
+	if ws.Providers == nil {
+		ws.Providers = map[string]ProviderState{}
+	}
+	return ws
 }
 
 // ProfileState records the profile file content brig last applied.
@@ -79,11 +115,15 @@ func LoadState(path string) (*State, error) {
 	if err := json.Unmarshal(data, st); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if st.Version != StateVersion {
+		st.Workspaces = nil
+	}
 	return st, nil
 }
 
 // Save writes the state to path, readable only by the user.
 func (st *State) Save(path string) error {
+	st.Version = StateVersion
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err

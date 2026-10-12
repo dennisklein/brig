@@ -374,11 +374,11 @@ func readConfig(dirs []string) store.GatewayConfig {
 		return cfg
 	}
 	cfg.Providers = map[string]string{}
-	for _, p := range set.Providers {
+	for _, p := range set.Workspaces[openshell.DefaultWorkspace].Providers {
 		cfg.Providers[p.Name] = p.Path
 	}
 	cfg.Profiles = map[string]string{}
-	for _, p := range set.Profiles {
+	for _, p := range set.Workspaces[openshell.DefaultWorkspace].Profiles {
 		cfg.Profiles[p.ID] = p.Path
 	}
 	for _, p := range set.Policies {

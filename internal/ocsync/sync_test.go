@@ -18,8 +18,18 @@ import (
 	"github.com/dennisklein/brig/internal/openshell"
 )
 
-// fakeGateway keeps profiles and providers in memory and records calls.
+// dflt returns the state of the default workspace.
+func dflt(st *State) *WorkspaceState { return st.Workspace("default") }
+
+// fakeGateway keeps one workspace's profiles and providers in memory and
+// records calls. The one that newFakeGateway returns is the default
+// workspace and also the gateway as a whole (it implements Host): its other
+// workspaces are in others, and their calls are recorded in its calls with a
+// "NAME: " prefix.
 type fakeGateway struct {
+	root      *fakeGateway
+	workspace string
+	others    map[string]*fakeGateway
 	profiles  map[string]openshell.Profile
 	files     map[string]string // profile ID -> content of the last imported or updated file
 	providers map[string]*fakeProvider
@@ -36,19 +46,58 @@ type fakeProvider struct {
 }
 
 func newFakeGateway() *fakeGateway {
-	return &fakeGateway{profiles: map[string]openshell.Profile{}, files: map[string]string{}, providers: map[string]*fakeProvider{}}
+	g := &fakeGateway{workspace: "default", others: map[string]*fakeGateway{}, profiles: map[string]openshell.Profile{}, files: map[string]string{}, providers: map[string]*fakeProvider{}}
+	g.root = g
+	return g
+}
+
+// in returns the fake of workspace name, creating it on the way.
+func (g *fakeGateway) in(name string) *fakeGateway {
+	if name == "default" {
+		return g.root
+	}
+	w := g.root.others[name]
+	if w == nil {
+		w = &fakeGateway{root: g.root, workspace: name, profiles: map[string]openshell.Profile{}, files: map[string]string{}, providers: map[string]*fakeProvider{}}
+		g.root.others[name] = w
+	}
+	return w
 }
 
 func (g *fakeGateway) call(format string, args ...any) error {
 	c := fmt.Sprintf(format, args...)
-	g.calls = append(g.calls, c)
+	if g.workspace == "default" {
+		g.root.calls = append(g.root.calls, c)
+	} else {
+		g.root.calls = append(g.root.calls, g.workspace+": "+c)
+	}
 	if g.failOn != "" && strings.HasPrefix(c, g.failOn) {
 		return errors.New("gateway says no")
 	}
 	return nil
 }
 
-func (g *fakeGateway) Name() string { return "brig-dev" }
+func (g *fakeGateway) Name() string      { return "brig-dev" }
+func (g *fakeGateway) Workspace() string { return g.workspace }
+
+// Workspaces, CreateWorkspace and In make the default fake a Host.
+func (g *fakeGateway) Workspaces(context.Context) ([]string, error) {
+	g.root.calls = append(g.root.calls, "list-workspaces")
+	return append([]string{"default"}, slices.Sorted(maps.Keys(g.root.others))...), nil
+}
+
+func (g *fakeGateway) CreateWorkspace(_ context.Context, name string) error {
+	g.root.calls = append(g.root.calls, "create-workspace "+name)
+	g.in(name)
+	return nil
+}
+
+func (g *fakeGateway) In(name string) (Gateway, error) {
+	if name != "default" && g.root.others[name] == nil {
+		return nil, fmt.Errorf("no workspace %s", name)
+	}
+	return g.in(name), nil
+}
 
 func (g *fakeGateway) Profiles(context.Context) ([]openshell.Profile, error) {
 	return slices.Collect(maps.Values(g.profiles)), nil
@@ -171,8 +220,9 @@ func syncDir(t *testing.T, dir string, gw *fakeGateway, sec Secrets, st *State, 
 	var out bytes.Buffer
 	opts.Out = &out
 	gw.calls = nil
-	err = Sync(context.Background(), set, gw, sec, st, opts)
-	return out.String(), gw.calls, err
+	err = SyncAll(context.Background(), set, gw, sec, st, opts)
+	calls := slices.DeleteFunc(slices.Clone(gw.calls), func(c string) bool { return c == "list-workspaces" })
+	return out.String(), calls, err
 }
 
 func TestSyncLifecycle(t *testing.T) {
@@ -255,7 +305,7 @@ func TestSyncLifecycle(t *testing.T) {
 	if want := []string{"delete github", "delete-profile github"}; !slices.Equal(calls, want) {
 		t.Errorf("prune calls %q, want %q", calls, want)
 	}
-	if len(st.Profiles)+len(st.Providers) != 0 || len(gw.providers)+len(gw.profiles) != 0 {
+	if len(dflt(st).Profiles)+len(dflt(st).Providers) != 0 || len(gw.providers)+len(gw.profiles) != 0 {
 		t.Errorf("after prune: state %+v, gateway %+v %+v", st, gw.providers, gw.profiles)
 	}
 }
@@ -269,7 +319,7 @@ func TestSyncDryRunChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(calls, []string{"lint github.yaml"}) || len(st.Profiles)+len(st.Providers) != 0 {
+	if !slices.Equal(calls, []string{"lint github.yaml"}) || len(dflt(st).Profiles)+len(dflt(st).Providers) != 0 {
 		t.Errorf("dry run: calls %q, state %+v", calls, st)
 	}
 	for _, want := range []string{"profile github: would import", "provider github: would create (type github)"} {
@@ -293,7 +343,7 @@ func TestSyncCarriesOnAfterFailures(t *testing.T) {
 	if err == nil {
 		t.Fatal("no error")
 	}
-	for _, want := range []string{"unknown provider type nosuch", "no such secret", "with type anthropic, not github", "openshell -g brig-dev provider delete d"} {
+	for _, want := range []string{"unknown provider type nosuch", "no such secret", "with type anthropic, not github", "openshell -g brig-dev --workspace default provider delete d"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q: %v", want, err)
 		}
@@ -304,8 +354,8 @@ func TestSyncCarriesOnAfterFailures(t *testing.T) {
 	if !strings.Contains(out, "provider a: created (type github); GH_TOKEN may be sent to api.github.com:443") {
 		t.Errorf("report:\n%s", out)
 	}
-	if _, ok := st.Providers["a"]; !ok || len(st.Providers) != 1 {
-		t.Errorf("state %+v", st.Providers)
+	if _, ok := dflt(st).Providers["a"]; !ok || len(dflt(st).Providers) != 1 {
+		t.Errorf("state %+v", dflt(st).Providers)
 	}
 }
 
@@ -350,7 +400,7 @@ func TestStateRoundTrip(t *testing.T) {
 	if fp1 != fp2 || fp1 == fp3 || strings.Contains(fp1, "secret") {
 		t.Errorf("fingerprints %s %s %s", fp1, fp2, fp3)
 	}
-	st.Providers = map[string]ProviderState{"p": {Type: "t", Credentials: map[string]string{"K": fp1}}}
+	dflt(st).Providers = map[string]ProviderState{"p": {Type: "t", Credentials: map[string]string{"K": fp1}}}
 	if err := st.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +445,7 @@ func TestSyncNeverDeletesWhatItTookOver(t *testing.T) {
 	if err != nil || len(calls) != 0 || strings.Count(out, "since brig did not create it") != 2 {
 		t.Errorf("prune of taken-over resources: calls %q, report %q, %v", calls, out, err)
 	}
-	if len(st.Profiles)+len(st.Providers) != 0 || gw.providers["github"].creds["MANUAL"] != "m" {
+	if len(dflt(st).Profiles)+len(dflt(st).Providers) != 0 || gw.providers["github"].creds["MANUAL"] != "m" {
 		t.Errorf("state %+v, gateway provider %+v", st, gw.providers["github"])
 	}
 }
@@ -403,22 +453,22 @@ func TestSyncNeverDeletesWhatItTookOver(t *testing.T) {
 func TestSyncPruneSkipsAProviderOfAnotherType(t *testing.T) {
 	gw := newFakeGateway()
 	gw.providers["github"] = &fakeProvider{typ: "gitlab", creds: map[string]string{}}
-	st := &State{Providers: map[string]ProviderState{"github": {Type: "github", Created: true}}}
+	st := &State{Workspaces: map[string]*WorkspaceState{"default": {Providers: map[string]ProviderState{"github": {Type: "github", Created: true}}}}}
 	out, calls, err := syncDir(t, t.TempDir(), gw, fakeSecrets{}, st, Options{Prune: true})
-	if err != nil || len(calls) != 0 || !strings.Contains(out, "type gitlab now") || len(st.Providers) != 0 {
-		t.Errorf("calls %q, report %q, state %+v, %v", calls, out, st.Providers, err)
+	if err != nil || len(calls) != 0 || !strings.Contains(out, "type gitlab now") || len(dflt(st).Providers) != 0 {
+		t.Errorf("calls %q, report %q, state %+v, %v", calls, out, dflt(st).Providers, err)
 	}
 }
 
 func TestSyncForgetsAGoneResourceWithoutPrune(t *testing.T) {
 	gw := newFakeGateway()
-	st := &State{
+	st := &State{Workspaces: map[string]*WorkspaceState{"default": {
 		Providers: map[string]ProviderState{"github": {Type: "github", Created: true}},
 		Profiles:  map[string]ProfileState{"github": {Created: true}},
-	}
+	}}}
 	// Neither exists on the gateway, so a plain sync drops both records.
 	out, calls, err := syncDir(t, t.TempDir(), gw, fakeSecrets{}, st, Options{})
-	if err != nil || len(calls) != 0 || strings.Count(out, "already gone") != 2 || len(st.Providers)+len(st.Profiles) != 0 {
+	if err != nil || len(calls) != 0 || strings.Count(out, "already gone") != 2 || len(dflt(st).Providers)+len(dflt(st).Profiles) != 0 {
 		t.Errorf("calls %q, report %q, state %+v, %v", calls, out, st, err)
 	}
 	// A provider created by hand afterwards is not brig's to prune.
@@ -568,7 +618,7 @@ func TestSyncRecreatesAfterAFailedCreate(t *testing.T) {
 	}
 	gw.failOn = ""
 	_, calls, err := syncDir(t, dir, gw, sec, st, Options{})
-	if err != nil || !slices.Equal(calls, []string{"create github github map[GH_TOKEN:tok]"}) || !st.Providers["github"].Created {
-		t.Errorf("calls %q, state %+v, %v", calls, st.Providers, err)
+	if err != nil || !slices.Equal(calls, []string{"create github github map[GH_TOKEN:tok]"}) || !dflt(st).Providers["github"].Created {
+		t.Errorf("calls %q, state %+v, %v", calls, dflt(st).Providers, err)
 	}
 }

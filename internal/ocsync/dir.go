@@ -9,6 +9,9 @@
 //	profiles/*.yaml          OpenShell provider profile files, as they are
 //	providers/*.yaml         providers, whose credentials reference secrets
 //	                         in the user's keyring (see Provider)
+//	workspaces/NAME/profiles, workspaces/NAME/providers
+//	                         the same for the workspace NAME; the top-level
+//	                         directories are for the default workspace
 //	policies/default.yaml    the default policy for new sandboxes
 //
 // Profiles and policies contain no secrets and can be shared. Provider files
@@ -26,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,10 +45,11 @@ import (
 type Set struct {
 	// Dirs are the config directories, in the order they were given.
 	Dirs []string
-	// Profiles are sorted by ID.
-	Profiles []ProfileFile
-	// Providers are sorted by name.
-	Providers []Provider
+	// Workspaces holds the profiles and providers of each workspace. A
+	// directory's top-level profiles/ and providers/ fill the default
+	// workspace, which is always present; workspaces/NAME/profiles and
+	// workspaces/NAME/providers fill NAME.
+	Workspaces map[string]WorkspaceSet
 	// DefaultPolicy is the path of the default sandbox policy, if any.
 	DefaultPolicy string
 	// Policies are all the policy files, default.yaml included, sorted by
@@ -127,7 +132,7 @@ var (
 // default policy defined in more than one place is an error, so that one
 // directory never silently overrides another.
 func Load(dirs []string) (*Set, error) {
-	s := &Set{Dirs: dirs}
+	s := &Set{Dirs: dirs, Workspaces: map[string]WorkspaceSet{openshell.DefaultWorkspace: {}}}
 	profileAt := map[string]string{}
 	providerAt := map[string]string{}
 	for _, dir := range dirs {
@@ -141,36 +146,20 @@ func Load(dirs []string) (*Set, error) {
 		if !fi.IsDir() {
 			return nil, fmt.Errorf("OpenShell config directory %s is not a directory", dir)
 		}
-		files, err := yamlFiles(filepath.Join(dir, "profiles"))
+		if err := s.loadWorkspace(openshell.DefaultWorkspace, dir, profileAt, providerAt); err != nil {
+			return nil, err
+		}
+		names, err := workspaceDirs(filepath.Join(dir, "workspaces"))
 		if err != nil {
 			return nil, err
 		}
-		for _, path := range files {
-			p, err := loadProfile(path)
-			if err != nil {
+		for _, name := range names {
+			if err := s.loadWorkspace(name, filepath.Join(dir, "workspaces", name), profileAt, providerAt); err != nil {
 				return nil, err
 			}
-			if prev, ok := profileAt[p.ID]; ok {
-				return nil, fmt.Errorf("profile %s is defined in %s and %s", p.ID, prev, path)
-			}
-			profileAt[p.ID] = path
-			s.Profiles = append(s.Profiles, p)
 		}
-		if files, err = yamlFiles(filepath.Join(dir, "providers")); err != nil {
-			return nil, err
-		}
-		for _, path := range files {
-			p, err := loadProvider(path)
-			if err != nil {
-				return nil, err
-			}
-			if prev, ok := providerAt[p.Name]; ok {
-				return nil, fmt.Errorf("provider %s is defined in %s and %s", p.Name, prev, path)
-			}
-			providerAt[p.Name] = path
-			s.Providers = append(s.Providers, p)
-		}
-		if files, err = yamlFiles(filepath.Join(dir, "policies")); err != nil {
+		files, err := yamlFiles(filepath.Join(dir, "policies"))
+		if err != nil {
 			return nil, err
 		}
 		for _, path := range files {
@@ -190,21 +179,112 @@ func Load(dirs []string) (*Set, error) {
 			return nil, err
 		}
 	}
-	slices.SortFunc(s.Profiles, func(a, b ProfileFile) int { return strings.Compare(a.ID, b.ID) })
-	slices.SortFunc(s.Providers, func(a, b Provider) int { return strings.Compare(a.Name, b.Name) })
+	for name, ws := range s.Workspaces {
+		slices.SortFunc(ws.Profiles, func(a, b ProfileFile) int { return strings.Compare(a.ID, b.ID) })
+		slices.SortFunc(ws.Providers, func(a, b Provider) int { return strings.Compare(a.Name, b.Name) })
+		s.Workspaces[name] = ws
+	}
 	slices.SortFunc(s.Policies, func(a, b PolicyFile) int {
 		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.Path, b.Path))
 	})
 	return s, nil
 }
 
-// Profile returns the profile with the given ID, if the set has it.
-func (s *Set) Profile(id string) (ProfileFile, bool) {
-	i := slices.IndexFunc(s.Profiles, func(p ProfileFile) bool { return p.ID == id })
+// WorkspaceSet is what the config directories define for one workspace.
+type WorkspaceSet struct {
+	// Profiles are sorted by ID.
+	Profiles []ProfileFile
+	// Providers are sorted by name.
+	Providers []Provider
+}
+
+// Profile returns the profile with the given ID, if the workspace has it.
+func (w WorkspaceSet) Profile(id string) (ProfileFile, bool) {
+	i := slices.IndexFunc(w.Profiles, func(p ProfileFile) bool { return p.ID == id })
 	if i < 0 {
 		return ProfileFile{}, false
 	}
-	return s.Profiles[i], true
+	return w.Profiles[i], true
+}
+
+// loadWorkspace reads base/profiles and base/providers into workspace ws.
+// A profile ID or provider name may recur across workspaces but not within
+// one.
+func (s *Set) loadWorkspace(ws, base string, profileAt, providerAt map[string]string) error {
+	set := s.Workspaces[ws]
+	files, err := yamlFiles(filepath.Join(base, "profiles"))
+	if err != nil {
+		return err
+	}
+	for _, path := range files {
+		p, err := loadProfile(path)
+		if err != nil {
+			return err
+		}
+		key := ws + "\x00" + p.ID
+		if prev, ok := profileAt[key]; ok {
+			return fmt.Errorf("profile %s is defined in %s and %s", p.ID, prev, path)
+		}
+		profileAt[key] = path
+		set.Profiles = append(set.Profiles, p)
+	}
+	if files, err = yamlFiles(filepath.Join(base, "providers")); err != nil {
+		return err
+	}
+	for _, path := range files {
+		p, err := loadProvider(path)
+		if err != nil {
+			return err
+		}
+		key := ws + "\x00" + p.Name
+		if prev, ok := providerAt[key]; ok {
+			return fmt.Errorf("provider %s is defined in %s and %s", p.Name, prev, path)
+		}
+		providerAt[key] = path
+		set.Providers = append(set.Providers, p)
+	}
+	s.Workspaces[ws] = set
+	return nil
+}
+
+// workspaceDirs lists the workspace directories in dir, which may be
+// missing. Names are validated like OpenShell's.
+func workspaceDirs(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(dir, e.Name())); err != nil || !fi.IsDir() {
+			continue
+		}
+		if err := openshell.CheckWorkspace(e.Name()); err != nil {
+			return nil, fmt.Errorf("%s: %w", dir, err)
+		}
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
+
+// WorkspaceNames returns the names of the workspaces the set defines, the
+// default workspace first and the others sorted.
+func (s *Set) WorkspaceNames() []string {
+	return orderedWorkspaces(slices.Collect(maps.Keys(s.Workspaces)))
+}
+
+// orderedWorkspaces returns the distinct names with the default workspace
+// first, which is always included, and the others sorted.
+func orderedWorkspaces(names []string) []string {
+	others := slices.DeleteFunc(slices.Clone(names), func(n string) bool { return n == openshell.DefaultWorkspace })
+	slices.Sort(others)
+	return append([]string{openshell.DefaultWorkspace}, slices.Compact(others)...)
 }
 
 // yamlFiles lists the .yaml, .yml and .json files in dir, which may be
