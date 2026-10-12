@@ -101,7 +101,7 @@ func TestTraffic(t *testing.T) {
 	fake := &fakeGateway{
 		policyReads: map[sandboxKey]int{}, draftReads: map[sandboxKey]int{},
 		sandboxes: []store.Sandbox{{Workspace: "default", Name: "webapp", Phase: "Ready"}},
-		logs: map[sandboxKey][]osclient.LogLine{dflt("webapp"): {
+		logs: map[sandboxKey][]osclient.LogLine{dfltWebapp: {
 			// Older than the backfill.
 			{Time: now.Add(-2 * time.Hour), Level: "OCSF", Message: "NET:OPEN [INFO] ALLOWED curl(1) -> old.example:443"},
 			{Time: now.Add(-time.Minute), Level: "OCSF", Message: "NET:OPEN [INFO] ALLOWED curl(1) -> api.github.com:443"},
@@ -132,8 +132,8 @@ func TestTraffic(t *testing.T) {
 		t.Fatalf("backfill: %+v", tr.Requests)
 	}
 	fake.mu.Lock()
-	from := fake.watches[dflt("webapp")][0]
-	reads := fake.draftReads[dflt("webapp")]
+	from := fake.watches[dfltWebapp][0]
+	reads := fake.draftReads[dfltWebapp]
 	fake.mu.Unlock()
 	if from.Cursor != "" || from.Tail != tailLines || now.Sub(from.Since) < 59*time.Minute {
 		t.Errorf("first watch: %+v", from)
@@ -144,9 +144,9 @@ func TestTraffic(t *testing.T) {
 
 	// A denial has the drafts read again a while later.
 	fake.set(func(f *fakeGateway) {
-		f.drafts[dflt("webapp")] = []store.Draft{{Workspace: "default", Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443"}}
+		f.drafts[dfltWebapp] = []store.Draft{{Workspace: "default", Sandbox: "webapp", ID: "ch-1", Rule: "allow_registry_npmjs_org_443"}}
 	})
-	fake.log(dflt("webapp"), osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "NET:OPEN [MED] DENIED /usr/bin/node(7) -> registry.npmjs.org:443"})
+	fake.log(dfltWebapp, osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "NET:OPEN [MED] DENIED /usr/bin/node(7) -> registry.npmjs.org:443"})
 	tr = waitTraffic(t, st, "the draft", func(tr store.Traffic) bool { return len(tr.Drafts) == 1 })
 	if len(tr.Requests) != 2 || !tr.Requests[1].Denied() || tr.Requests[1].Process != "/usr/bin/node" {
 		t.Errorf("requests: %+v", tr.Requests)
@@ -157,15 +157,15 @@ func TestTraffic(t *testing.T) {
 	waitFor(t, st, "a second watch", func(store.Gateway) bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
-		return len(fake.watches[dflt("webapp")]) == 2
+		return len(fake.watches[dfltWebapp]) == 2
 	})
 	fake.mu.Lock()
-	from = fake.watches[dflt("webapp")][1]
+	from = fake.watches[dfltWebapp][1]
 	fake.mu.Unlock()
 	if from.Cursor != "5" {
 		t.Errorf("second watch: %+v", from)
 	}
-	fake.log(dflt("webapp"), osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "HTTP:GET [INFO] ALLOWED GET https://api.github.com/user"})
+	fake.log(dfltWebapp, osclient.LogLine{Time: time.Now(), Level: "OCSF", Message: "HTTP:GET [INFO] ALLOWED GET https://api.github.com/user"})
 	tr = waitTraffic(t, st, "the next line", func(tr store.Traffic) bool { return len(tr.Requests) == 3 })
 	if tr.Requests[2].Path != "/user" {
 		t.Errorf("after resuming: %+v", tr.Requests[2])
@@ -227,7 +227,7 @@ func TestTrafficLogsWhyItCannotWatch(t *testing.T) {
 	tr := newTraffic(g, store.New(), "dev", c, map[sandboxKey]*position{})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { tr.watch(ctx, dflt("webapp"), &position{}); close(done) }()
+	go func() { tr.watch(ctx, dfltWebapp, &position{}); close(done) }()
 	for c.tries.Load() < 3 {
 		time.Sleep(time.Millisecond)
 	}
@@ -266,11 +266,11 @@ func TestTrafficWorkspaces(t *testing.T) {
 			{Workspace: "team", Name: "webapp", Phase: "Ready"},
 		},
 		logs: map[sandboxKey][]osclient.LogLine{
-			dflt("webapp"):          {line("default.example")},
+			dfltWebapp:              {line("default.example")},
 			keyOf("team", "webapp"): {line("team.example")},
 		},
 		drafts: map[sandboxKey][]store.Draft{
-			dflt("webapp"):          {{ID: "ch-1", Rule: "allow_default"}},
+			dfltWebapp:              {{ID: "ch-1", Rule: "allow_default"}},
 			keyOf("team", "webapp"): {{ID: "ch-1", Rule: "allow_team"}},
 		},
 	}
@@ -311,7 +311,7 @@ func TestTrafficWorkspaces(t *testing.T) {
 		t.Errorf("request of %s matched a draft of %s", denied.Workspace, d.Workspace)
 	}
 	fake.mu.Lock()
-	watched := len(fake.watches[dflt("webapp")]) == 1 && len(fake.watches[keyOf("team", "webapp")]) == 1
+	watched := len(fake.watches[dfltWebapp]) == 1 && len(fake.watches[keyOf("team", "webapp")]) == 1
 	fake.mu.Unlock()
 	if !watched {
 		t.Errorf("watches: %v", fake.watches)
