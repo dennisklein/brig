@@ -172,6 +172,7 @@ starts with `brig-`.
 | `ssh NAME`, `console NAME` | shell (`--root` for root), serial console |
 | `use NAME` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)) |
 | `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`); NAME defaults to the VM that `brig use` selected |
+| `policy diff [NAME] SANDBOX` | compare a sandbox's network rules with the policy file it came from; exit status 1 if they differ (`-o json`) |
 | `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
