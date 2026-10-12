@@ -29,7 +29,7 @@
   <td class="mono">{{.Image}}</td>
   <td>{{template "chips" .Providers}}</td>
   <td class="num mono">{{with .Policy}}{{if .Global}}global {{end}}v{{.Version}}{{else}}<span class="faint">–</span>{{end}}</td>
-</tr>{{else}}<tr><td colspan="6" class="empty">{{if .Snap.Gateways}}No sandboxes{{with .Filter}} on {{.}}{{end}}. Create one in a terminal: <code>openshell sandbox create</code>, or <code>brig sandbox create VM</code> to share host directories.{{else}}No VMs with an OpenShell gateway yet.{{end}}</td></tr>{{end}}
+</tr>{{else}}<tr><td colspan="6" class="empty">{{if .Snap.Gateways}}No sandboxes{{with .Filter}} on {{.}}{{end}}. Create one with New sandbox.{{else}}No VMs with an OpenShell gateway yet.{{end}}</td></tr>{{end}}
 </tbody></table>
 {{end}}
 
@@ -43,6 +43,11 @@
 <div class="crumbs"><a href="/sandboxes">Sandboxes</a><span>/</span><a href="/vms/{{$g.VM}}">{{$g.VM}}</a><span>/</span><span>{{$s.Name}}</span></div>
 <div class="head"><div class="titles"><h1>{{$s.Name}}</h1>
   <div class="sub">{{template "phase" $s.Phase}}<span>on <a href="/gateways/{{$g.VM}}">{{$g.Name}}</a></span>{{with $s.Image}}<span class="mono">{{.}}</span>{{end}}{{if not $s.Created.IsZero}}<span>created {{rel $s.Created}}</span>{{end}}</div></div>
+  <div class="actions">
+    <button type="button" class="btn{{if $s.Ready}} primary{{end}}" hx-get="/terminal?vm={{$g.VM}}&amp;sandbox={{$s.Name}}" hx-target="#layer" hx-swap="innerHTML">Connect…</button>
+    {{if or (eq $s.Phase "Stopped") (eq $s.Phase "Error")}}{{template "act" (act $ "sandbox-start" "" "primary" "vm" $g.VM "sandbox" $s.Name)}}{{else if ne $s.Phase "Deleting"}}{{template "act" (act $ "sandbox-stop" "" "" "vm" $g.VM "sandbox" $s.Name)}}{{end}}
+    {{template "act" (act $ "sandbox-delete" "" "danger" "vm" $g.VM "sandbox" $s.Name)}}
+  </div>
 </div>
 {{template "gwnote" $g}}
 {{with $s.Problem}}<div class="callout bad gap-below">{{.}}</div>{{end}}
@@ -54,11 +59,12 @@
 
 {{define "sandbox-overview"}}{{$g := .Gateway}}{{$s := .Sandbox}}
 <div class="grid g2">
-  <section class="panel"><div class="ph"><h2>Providers</h2><span class="faint small">The agent sees placeholders. The proxy adds the real values.</span></div>
+  <section class="panel"><div class="ph"><h2>Providers</h2><span class="faint small">The agent sees placeholders.</span><span class="grow"></span>{{template "act" (act $ "sandbox-attach" "" "sm" "vm" $g.VM "sandbox" $s.Name)}}</div>
   <div class="tw"><table><tbody>
   {{range $s.Providers}}{{$p := providerOf $g .}}<tr><td class="strong">{{.}}</td>
     <td class="mono small">{{with $p}}{{range .Credentials}}{{.}}<br>{{end}}{{else}}<span class="faint">not on the gateway</span>{{end}}</td>
-    <td class="muted small">{{with $p}}{{with profileOf $g .Type}}{{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e}}{{end}}{{end}}{{end}}</td></tr>
+    <td class="muted small">{{with $p}}{{with profileOf $g .Type}}{{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e}}{{end}}{{end}}{{end}}</td>
+    <td class="num">{{template "act" (act $ "sandbox-detach" "" "sm ghost" "vm" $g.VM "sandbox" $s.Name "provider" .)}}</td></tr>
   {{else}}<tr><td class="empty">No providers. This sandbox reaches only what its policy allows, without credentials.</td></tr>{{end}}
   </tbody></table></div></section>
   <section class="panel"><div class="ph"><h2>Setup</h2></div><div class="pb">
@@ -188,9 +194,6 @@
 {{range $g.Sandboxes}}<tr class="click" data-href="/sandboxes/{{$v.Name}}/{{.Name}}"><td><a class="rowlink" href="/sandboxes/{{$v.Name}}/{{.Name}}">{{.Name}}</a></td><td>{{template "phase" .Phase}}</td><td class="mono">{{.Image}}</td><td>{{template "chips" .Providers}}</td></tr>
 {{else}}<tr><td colspan="4" class="empty">No sandboxes on {{$g.Name}}.</td></tr>{{end}}
 </tbody></table></section>
-<div class="stack gap-above">
-  {{template "cmd" (cmd "Create one with host directories" (print "brig sandbox create " $v.Name " --mount DIR:TARGET -- --name SANDBOX"))}}
-  {{template "cmd" (cmd "Create one without" (oscmd $v.Name "sandbox" "create" "--name" "SANDBOX"))}}
-</div>
+<div class="actions gap-above">{{template "act" (act $ "sandbox-create" "" "primary" "vm" $v.Name)}}</div>
 <p class="note"><a href="/gateways/{{$v.Name}}">{{$g.Name}}</a>: providers, profiles, policies and templates.</p>
 {{end}}

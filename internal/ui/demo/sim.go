@@ -38,6 +38,9 @@ type plan struct {
 	fail string
 	// apply changes the demo host when the command succeeds.
 	apply func(*store.VMState)
+	// gw changes the gateway of the VM gwVM when the command succeeds.
+	gw   func(*store.Gateway)
+	gwVM string
 }
 
 // Start implements run.Starter: it plays out the command's steps in the task
@@ -78,7 +81,7 @@ func (h *Host) Shutdown(time.Duration) {
 func (h *Host) play(id, trace string, sp run.Spec, p plan) {
 	defer h.wg.Done()
 	defer h.running.Add(-1)
-	r := store.Run{ID: id, Trace: trace, Title: title(sp.Command.Argv), Start: time.Now(), Program: "brig", Version: "demo"}
+	r := store.Run{ID: id, Trace: trace, Title: title(sp.Command.Argv), Start: time.Now(), Program: sp.Command.Argv[0], Version: "demo"}
 	h.setRun(r)
 	wait := func() bool {
 		select {
@@ -116,6 +119,9 @@ func (h *Host) play(id, trace string, sp run.Spec, p plan) {
 		h.publish()
 		h.mu.Unlock()
 	}
+	if p.fail == "" && p.gw != nil {
+		h.st.UpdateGateway(p.gwVM, func(g *store.Gateway) bool { p.gw(g); return true })
+	}
 	h.st.UpdateTask(id, store.TopicTasks, func(t *store.Task) {
 		t.End, t.Output = &end, p.output
 		if p.fail != "" {
@@ -146,6 +152,17 @@ func (h *Host) setRun(r store.Run) {
 
 // title names a run as brig does: the command and its first argument.
 func title(argv []string) string {
+	if argv[0] == "openshell" {
+		// The gateway option is no part of the command's name.
+		words := []string{"openshell"}
+		for _, a := range argv[3:] {
+			if strings.HasPrefix(a, "-") || len(words) > 5 {
+				break
+			}
+			words = append(words, a)
+		}
+		return strings.Join(words, " ")
+	}
 	words, n := []string{"brig"}, 2
 	if argv[1] == "image" {
 		n = 3
@@ -190,6 +207,9 @@ func parseFlags(argv []string) flags {
 
 // plan makes the made-up command for argv. h.mu is held.
 func (h *Host) plan(argv []string) (plan, error) {
+	if len(argv) > 0 && argv[0] == "openshell" {
+		return h.openshellPlan(argv)
+	}
 	if len(argv) < 3 || argv[0] != "brig" {
 		return plan{}, fmt.Errorf("the demo cannot play %q", argv)
 	}
@@ -225,6 +245,10 @@ func (h *Host) plan(argv []string) (plan, error) {
 		return h.syncPlan(vmName, f), nil
 	case "image":
 		return imagePlan(sub, f, st), nil
+	case "sandbox":
+		if len(rest) > 1 && rest[0] == "create" {
+			return h.sandboxCreatePlan(rest[1:])
+		}
 	}
 	return plan{}, fmt.Errorf("the demo cannot play brig %s", cmd)
 }
