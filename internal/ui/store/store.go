@@ -58,6 +58,8 @@ type Snapshot struct {
 	// Tasks are the commands that brig ui started, in the order they
 	// started: running ones, and finished ones until they are dismissed.
 	Tasks []Task
+	// Gateways are the OpenShell gateways of the VMs, sorted by VM name.
+	Gateways []Gateway
 }
 
 // Config is the part of config.yaml that the dialogs prefill.
@@ -255,6 +257,11 @@ func (s *Store) update(t Topic, fn func(*Snapshot)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	fn(&s.snap)
+	s.notify(t)
+}
+
+// notify tells the subscribers that t changed. The caller holds the lock.
+func (s *Store) notify(t Topic) {
 	for ch := range s.subs {
 		select {
 		case ch <- t:
