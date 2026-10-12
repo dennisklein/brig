@@ -36,7 +36,7 @@ func TestSandboxCreateUsesTheVMsSandboxMount(t *testing.T) {
 		t.Fatalf("brig sandbox create: %v: %s", err, out)
 	}
 	want := []string{
-		"openshell", "openshell", "-g", "brig-dev", "sandbox", "create", "--driver-config-json",
+		"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create", "--driver-config-json",
 		`{"podman":{"mounts":[{"type":"volume","source":"brig1","target":"/usr/local/share/kit"}]}}`,
 		"--name", "kit", "--", "pi", "-g",
 	}
@@ -60,7 +60,7 @@ func TestSandboxCreateTakesTheVMFromTheEnvironment(t *testing.T) {
 	if out, err := run(t, "sandbox", "create"); err != nil {
 		t.Fatalf("brig sandbox create: %v: %s", err, out)
 	}
-	if want := []string{"openshell", "openshell", "-g", "brig-dev", "sandbox", "create"}; !slices.Equal(*got, want) {
+	if want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create"}; !slices.Equal(*got, want) {
 		t.Errorf("exec %q, want %q", *got, want)
 	}
 	t.Setenv("OPENSHELL_GATEWAY", "other")
@@ -70,6 +70,19 @@ func TestSandboxCreateTakesTheVMFromTheEnvironment(t *testing.T) {
 	t.Setenv("OPENSHELL_GATEWAY", "")
 	if _, err := run(t, "sandbox", "create"); err == nil || !strings.Contains(err.Error(), "brig use") {
 		t.Errorf("no gateway: %v", err)
+	}
+}
+
+func TestSandboxCreateInAWorkspace(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	got := captureExec(t)
+	if out, err := run(t, "sandbox", "create", "dev", "--workspace", "team", "--", "--name", "kit", "--", "x", "--workspace", "y"); err != nil {
+		t.Fatalf("brig sandbox create: %v: %s", err, out)
+	}
+	want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "team", "sandbox", "create", "--name", "kit", "--", "x", "--workspace", "y"}
+	if !slices.Equal(*got, want) {
+		t.Errorf("exec %q\nwant %q", *got, want)
 	}
 }
 
@@ -89,6 +102,9 @@ func TestSandboxCreateRejects(t *testing.T) {
 		{[]string{"dev", "--", "-g", "brig-web"}, "picks the gateway"},
 		{[]string{"dev", "--", "--gateway=brig-web"}, "picks the gateway"},
 		{[]string{"dev", "--", "--driver-config-json", "{}"}, "sets it from --mount"},
+		{[]string{"dev", "--", "--workspace", "team"}, "give it to brig"},
+		{[]string{"dev", "--", "--workspace=team"}, "give it to brig"},
+		{[]string{"dev", "--workspace", "--name"}, "invalid workspace name"},
 	} {
 		if _, err := run(t, append([]string{"sandbox", "create"}, tc.args...)...); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Errorf("sandbox create %q: %v, want an error containing %q", tc.args, err, tc.wantErr)
