@@ -516,6 +516,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 	switch {
 	case state == libvirt.StateMissing || state == libvirt.StateShutoff:
 		vmnet.Stop(ctx, v.Name)
+		a.pruneUpgradeSnapshots(ctx, v)
 		return nil
 	case force:
 		err = inSpan(ctx, progress.KindStep, "power off the VM", func(context.Context) error {
@@ -535,6 +536,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 	}
 	if err == nil {
 		vmnet.Stop(ctx, v.Name)
+		a.pruneUpgradeSnapshots(ctx, v)
 	}
 	return err
 }
