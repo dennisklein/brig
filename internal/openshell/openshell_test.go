@@ -449,3 +449,21 @@ func TestBasePolicy(t *testing.T) {
 		t.Error("BasePolicy() ignored the failing CLI")
 	}
 }
+
+func TestEnviron(t *testing.T) {
+	c := &CLI{ConfigHome: "/cfg/openshell"}
+	got, err := c.Environ(
+		[]string{"HOME=/h", "XDG_CONFIG_HOME=/other", "OPENSHELL_GATEWAY=elsewhere", "OPENSHELL_WORKSPACE=w", "KEEP=1", "EXTRA=old"},
+		[]string{"EXTRA=new"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"XDG_CONFIG_HOME=/cfg", "HOME=/h", "KEEP=1", "EXTRA=new"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("Environ = %q, want %q", got, want)
+	}
+	if _, err := (&CLI{ConfigHome: "relative/openshell"}).Environ(nil, nil); err == nil {
+		t.Error("Environ accepted a relative config home")
+	}
+}
