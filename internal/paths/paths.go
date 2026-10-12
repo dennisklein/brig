@@ -21,6 +21,9 @@ type Dirs struct {
 	Data string
 	// Cache holds re-downloadable data such as the mkosi package cache.
 	Cache string
+	// State holds data that is worth keeping but not worth backing up, such
+	// as the activity log.
+	State string
 }
 
 // Default returns the XDG base directories for the current user.
@@ -54,6 +57,9 @@ func Default() (Dirs, error) {
 	if d.Cache, err = dir("XDG_CACHE_HOME", ".cache"); err != nil {
 		return Dirs{}, err
 	}
+	if d.State, err = dir("XDG_STATE_HOME", filepath.Join(".local", "state")); err != nil {
+		return Dirs{}, err
+	}
 	return d, nil
 }
 
@@ -68,6 +74,10 @@ func (d Dirs) VMsDir() string { return filepath.Join(d.Data, "vms") }
 
 // MkosiCacheDir holds mkosi's package cache.
 func (d Dirs) MkosiCacheDir() string { return filepath.Join(d.Cache, "mkosi") }
+
+// ActivityLog is the event log that brig commands append to unless told
+// otherwise.
+func (d Dirs) ActivityLog() string { return filepath.Join(d.State, "activity.jsonl") }
 
 // EnsurePrivate creates dir and its parents with mode 0700 and tightens the
 // mode of dir itself if it already exists.

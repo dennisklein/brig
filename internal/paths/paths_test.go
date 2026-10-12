@@ -14,17 +14,21 @@ func TestDefaultHonoursXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/x/config")
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "/x/cache")
+	t.Setenv("XDG_STATE_HOME", "")
 
 	d, err := Default()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Dirs{Config: "/x/config/brig", Data: "/home/u/.local/share/brig", Cache: "/x/cache/brig"}
+	want := Dirs{Config: "/x/config/brig", Data: "/home/u/.local/share/brig", Cache: "/x/cache/brig", State: "/home/u/.local/state/brig"}
 	if d != want {
 		t.Fatalf("Default() = %+v, want %+v", d, want)
 	}
 	if got := d.ConfigFile(); got != "/x/config/brig/config.yaml" {
 		t.Errorf("ConfigFile() = %q", got)
+	}
+	if got := d.ActivityLog(); got != "/home/u/.local/state/brig/activity.jsonl" {
+		t.Errorf("ActivityLog() = %q", got)
 	}
 }
 
@@ -32,6 +36,21 @@ func TestDefaultRejectsRelativeXDG(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "relative")
 	if _, err := Default(); err == nil {
 		t.Fatal("expected an error for a relative XDG_DATA_HOME")
+	}
+}
+
+func TestDefaultStateHome(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/x/state")
+	d, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.State != "/x/state/brig" {
+		t.Errorf("State = %q", d.State)
+	}
+	t.Setenv("XDG_STATE_HOME", "relative")
+	if _, err := Default(); err == nil {
+		t.Error("Default() accepted a relative XDG_STATE_HOME")
 	}
 }
 
