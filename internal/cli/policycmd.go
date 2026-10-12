@@ -37,9 +37,9 @@ const (
 func newPolicyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "policy",
-		Short: "Compare sandbox policies with the policy files in the config directories",
+		Short: "Compare sandbox policies with the policy files in the config directories, and save rules to them",
 	}
-	cmd.AddCommand(newPolicyDiffCmd())
+	cmd.AddCommand(newPolicyDiffCmd(), newPolicySaveCmd())
 	return cmd
 }
 
@@ -63,6 +63,9 @@ type policyReport struct {
 	// Drift is true when the sandbox and its source differ.
 	Drift bool `json:"drift"`
 	policy.Result
+
+	// base is the sandbox's base policy as openshell printed it.
+	base []byte
 }
 
 func newPolicyDiffCmd() *cobra.Command {
@@ -166,7 +169,7 @@ func (a *app) policyDiff(ctx context.Context, v *vm.VM, sandbox, source string, 
 	if err != nil {
 		return nil, fmt.Errorf("sandbox %s: %w", sandbox, err)
 	}
-	rep := &policyReport{VM: v.Name, Sandbox: sandbox, Result: policy.Result{Rules: []policy.RuleDiff{}, Fixed: []string{}}}
+	rep := &policyReport{VM: v.Name, Sandbox: sandbox, Result: policy.Result{Rules: []policy.RuleDiff{}, Fixed: []string{}}, base: raw}
 
 	choose := func(path, how string) (*policyReport, error) {
 		doc, err := readPolicyFile(path)
@@ -257,9 +260,17 @@ func policyFileNamed(set *ocsync.Set, source string) (string, error) {
 		if _, err := os.Stat(source); err == nil {
 			return filepath.Abs(source)
 		}
-		return "", fmt.Errorf("no policy file %q in the VM's OpenShell config directories; give its path", source)
+		return "", noPolicyFileError{source}
 	}
 	return "", fmt.Errorf("policy file %q is in several config directories: %s; give its path", source, strings.Join(found, ", "))
+}
+
+// noPolicyFileError is the error of policyFileNamed for a name that no
+// policy file has.
+type noPolicyFileError struct{ name string }
+
+func (e noPolicyFileError) Error() string {
+	return fmt.Sprintf("no policy file %q in the VM's OpenShell config directories; give its path", e.name)
 }
 
 func (a *app) recordedPolicySource(v *vm.VM, sandbox string) (string, error) {
