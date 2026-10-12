@@ -197,7 +197,7 @@ func TestSyncPrunesAfterLastConfigRemoved(t *testing.T) {
 		Providers: map[string]ocsync.ProviderState{"github": {Type: "github", Created: true}},
 		LastSync:  &ocsync.Record{Time: time.Now().UTC()},
 	}
-	if err := st.Save(a.vmFile(v, syncStateFile)); err != nil {
+	if err := st.Save(a.vmFile(v, ocsync.StateFile)); err != nil {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
@@ -250,7 +250,7 @@ esac
 	if err != nil || !strings.Contains(out, "provider github: would create (type github); GH_TOKEN may be sent to api.github.com:443") {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(a.vmFile(v, syncStateFile)); err == nil {
+	if _, err := os.Stat(a.vmFile(v, ocsync.StateFile)); err == nil {
 		t.Error("the dry run saved state")
 	}
 
@@ -268,7 +268,7 @@ esac
 	if seen, _ := os.ReadFile(secretSeen); string(seen) != "tok" {
 		t.Errorf("openshell got the secret %q", seen)
 	}
-	st, err := ocsync.LoadState(a.vmFile(v, syncStateFile))
+	st, err := ocsync.LoadState(a.vmFile(v, ocsync.StateFile))
 	if err != nil || st.LastSync == nil || st.LastSync.Error != "" || st.Providers["github"].Type != "github" {
 		t.Errorf("state %+v, %v", st, err)
 	}

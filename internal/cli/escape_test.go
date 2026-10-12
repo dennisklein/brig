@@ -24,7 +24,7 @@ func TestShowEscapesUntrustedText(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := &ocsync.State{LastSync: &ocsync.Record{Time: time.Now().UTC(), Error: "failed " + title}}
-	if err := st.Save(a.vmFile(v, syncStateFile)); err != nil {
+	if err := st.Save(a.vmFile(v, ocsync.StateFile)); err != nil {
 		t.Fatal(err)
 	}
 
