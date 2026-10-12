@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dennisklein/brig/internal/ui/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -32,6 +33,16 @@ type fakeGateway struct {
 	// bundleChanged makes BundleChanged report a change once.
 	bundleChanged atomic.Bool
 	dials         atomic.Int32
+	// logs are the lines of each sandbox's log, the cursor of each its
+	// index plus one.
+	logs map[string][]osclient.LogLine
+	// watches are the starts of the watches, by sandbox.
+	watches map[string][]osclient.WatchFrom
+	// lost makes the gateway refuse every cursor.
+	lost bool
+	// drafts are the drafted rules by sandbox; draftReads counts reads.
+	drafts     map[string][]store.Draft
+	draftReads map[string]int
 }
 
 type fakeClient struct{ g *fakeGateway }

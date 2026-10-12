@@ -145,7 +145,9 @@ func Run(ctx context.Context, o Options) error {
 		if home, err := openshell.ConfigHome(); err != nil {
 			log.Warn("brig ui cannot read OpenShell gateways", "err", err)
 		} else {
-			goRun(func() { collect.NewGateways(home).Run(ctx, st) })
+			gws := collect.NewGateways(home)
+			gws.Log = log
+			goRun(func() { gws.Run(ctx, st) })
 			files = collect.NewFiles(st, home)
 		}
 		if o.ActivityLog != "" {
