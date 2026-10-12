@@ -6,6 +6,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,9 +65,16 @@ step switch to the new image: ok
 }
 
 // TestUpgradeProgress upgrades a running VM successfully: it boots on the
-// new image, is stopped to delete the data disk snapshot and then starts
-// again.
+// new image and keeps running, with the data disk snapshot kept until the VM
+// stops. A VM that was stopped before is stopped again and loses the
+// snapshot.
 func TestUpgradeProgress(t *testing.T) {
+	for _, keepRunning := range []bool{true, false} {
+		t.Run(fmt.Sprint("keepRunning=", keepRunning), func(t *testing.T) { testUpgradeProgress(t, keepRunning) })
+	}
+}
+
+func testUpgradeProgress(t *testing.T, keepRunning bool) {
 	a := testApp(t)
 	v := testVM(t, a, "dev")
 	for _, f := range []string{rootDiskFile, dataDiskFile, clientKeyFile + ".pub"} {
@@ -80,14 +88,22 @@ func TestUpgradeProgress(t *testing.T) {
 	t.Cleanup(func() { startNetwork = orig })
 
 	dir := fakeGuest(t, "")
-	if err := os.WriteFile(filepath.Join(dir, "qemu-img"), []byte("#!/bin/sh\n"+qemuImgInfo+"\n"), 0o700); err != nil { //nolint:gosec // G306: scripts must be executable
+	// Snapshots are listed once one has been taken.
+	snapshots := filepath.Join(t.TempDir(), "snapshots")
+	qemuImg := `if [ "$1" = snapshot ]; then if [ "$4" = -c ]; then echo "$5"; fi > ` + snapshots + `; exit 0; fi
+if [ "$1" = info ] && [ -s ` + snapshots + ` ]; then
+  read -r name < ` + snapshots + `
+  echo '{"virtual-size": 4294967296, "format": "qcow2", "snapshots": [{"name": "'$name'"}]}'; exit 0
+fi
+` + qemuImgInfo
+	if err := os.WriteFile(filepath.Join(dir, "qemu-img"), []byte("#!/bin/sh\n"+qemuImg+"\n"), 0o700); err != nil { //nolint:gosec // G306: scripts must be executable
 		t.Fatal(err)
 	}
 
 	ctx, w := progresstest.Watch(t.Context(), t)
 	conn := &fakeDomains{state: libvirt.StateShutoff}
 	var out bytes.Buffer
-	if err := a.upgrade(ctx, conn, v, "f44-openshell0.1.3-20261008T120000Z", true, &out); err != nil {
+	if err := a.upgrade(ctx, conn, v, "f44-openshell0.1.3-20261008T120000Z", keepRunning, &out); err != nil {
 		t.Fatalf("upgrade: %v\n%s", err, &out)
 	}
 	t.Log(w.Tree())
@@ -96,21 +112,25 @@ func TestUpgradeProgress(t *testing.T) {
 		"step back up the data disk: ok",
 		"step switch to the new image: ok",
 		"step boot the VM: ok",
-		"step shut down the VM: ok",
-		"step delete the data disk snapshot: ok",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("progress lacks %q:\n%s", want, got)
 		}
 	}
-	// The check boot and the start afterwards each start the VM.
-	if got := strings.Count(got, "step start the VM: ok"); got != 2 {
-		t.Errorf("progress has %d starts of the VM, want 2", got)
+	// Only the check boot starts the VM.
+	if got := strings.Count(got, "step start the VM: ok"); got != 1 || started != 1 {
+		t.Errorf("progress has %d starts of the VM and %d network starts, want 1", got, started)
 	}
-	if started != 2 {
-		t.Errorf("network started %d times, want 2", started)
+	stopped := strings.Contains(got, "step shut down the VM: ok")
+	deleted := strings.Contains(got, "step delete the data disk snapshot: ok")
+	if stopped == keepRunning || deleted == keepRunning {
+		t.Errorf("VM stopped = %v, snapshot deleted = %v with keepRunning = %v:\n%s", stopped, deleted, keepRunning, got)
 	}
-	if v.Image != "f44-openshell0.1.3-20261008T120000Z" || conn.state != libvirt.StateRunning {
+	wantState := libvirt.StateShutoff
+	if keepRunning {
+		wantState = libvirt.StateRunning
+	}
+	if v.Image != "f44-openshell0.1.3-20261008T120000Z" || conn.state != wantState {
 		t.Errorf("image = %s, state = %s after the upgrade", v.Image, conn.state)
 	}
 	if !strings.HasSuffix(out.String(), "Upgraded dev to image f44-openshell0.1.3-20261008T120000Z.\n") {

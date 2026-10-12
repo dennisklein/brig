@@ -300,6 +300,10 @@ func newStartCmd() *cobra.Command {
 			return err
 		}
 		defer func() { _ = conn.Close() }()
+		if state, err := conn.State(v.DomainName()); err == nil && state != libvirt.StateRunning {
+			// A forced power off may have left an upgrade's snapshot behind.
+			a.pruneUpgradeSnapshots(ctx, v)
+		}
 		return a.start(ctx, conn, v, cmd.OutOrStdout())
 	})
 }

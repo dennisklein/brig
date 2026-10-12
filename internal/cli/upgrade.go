@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/progress"
@@ -89,10 +90,11 @@ func newUpgradeCmd() *cobra.Command {
 // boots it to check that it works and rolls everything back otherwise. The
 // data disk is snapshotted first, because the new OpenShell gateway may
 // migrate its database. After the check boot, the VM is stopped to delete
-// the snapshot and then, with keepRunning, started again.
+// the snapshot, unless keepRunning leaves the VM running: it then keeps the
+// snapshot until pruneUpgradeSnapshots runs at its next stop or start.
 func (a *app) upgrade(ctx context.Context, conn domains, v *vm.VM, id string, keepRunning bool, w io.Writer) (err error) {
 	root, prev, data := a.vmFile(v, rootDiskFile), a.vmFile(v, rootDiskFile+".prev"), a.vmFile(v, dataDiskFile)
-	snapshot := "brig-upgrade-" + time.Now().UTC().Format("20060102T150405Z")
+	snapshot := upgradeSnapshotPrefix + time.Now().UTC().Format("20060102T150405Z")
 	oldImage := v.Image
 
 	err = inSpan(ctx, progress.KindStep, "back up the data disk", func(ctx context.Context) error {
@@ -138,24 +140,41 @@ func (a *app) upgrade(ctx context.Context, conn domains, v *vm.VM, id string, ke
 	if err := os.Remove(prev); err != nil {
 		fmt.Fprintf(w, "Warning: %s\n", termtext.Escape(err.Error()))
 	}
-	// qemu-img cannot change the data disk while the VM has it open.
-	if err := a.stop(ctx, conn, v, false); err != nil {
-		return fmt.Errorf("upgraded %s to image %s, but stopping it to delete the data disk snapshot %s failed: %w", v.Name, id, snapshot, err)
-	}
-	err = inSpan(ctx, progress.KindStep, "delete the data disk snapshot", func(ctx context.Context) error {
-		return qemuimg.DeleteSnapshot(ctx, data, snapshot)
-	})
-	if err != nil {
-		fmt.Fprintf(w, "Warning: could not delete data disk snapshot %s: %s\n", snapshot, termtext.Escape(err.Error()))
-	}
-	if keepRunning {
-		fmt.Fprintf(w, "Starting %s again...\n", v.Name)
-		if err := a.start(ctx, conn, v, w); err != nil {
-			return fmt.Errorf("upgraded %s to image %s, but starting it again failed: %w", v.Name, id, err)
+	// qemu-img cannot change the data disk while the VM has it open, so a
+	// VM that keeps running keeps the snapshot until it stops or starts next.
+	if !keepRunning {
+		if err := a.stop(ctx, conn, v, false); err != nil {
+			return fmt.Errorf("upgraded %s to image %s, but stopping it to delete the data disk snapshot %s failed: %w", v.Name, id, snapshot, err)
 		}
 	}
 	fmt.Fprintf(w, "Upgraded %s to image %s.\n", v.Name, id)
 	return nil
+}
+
+// upgradeSnapshotPrefix starts the name of the data disk snapshot that an
+// upgrade takes.
+const upgradeSnapshotPrefix = "brig-upgrade-"
+
+// pruneUpgradeSnapshots deletes the snapshots that upgrades left on the data
+// disk of the VM, which must not be running. Failures are ignored: the next
+// stop or start tries again.
+func (a *app) pruneUpgradeSnapshots(ctx context.Context, v *vm.VM) {
+	data := a.vmFile(v, dataDiskFile)
+	if _, err := os.Stat(data); err != nil {
+		return
+	}
+	info, err := qemuimg.Inspect(ctx, data)
+	if err != nil {
+		return
+	}
+	for _, name := range info.Snapshots {
+		if !strings.HasPrefix(name, upgradeSnapshotPrefix) {
+			continue
+		}
+		_ = inSpan(ctx, progress.KindStep, "delete the data disk snapshot", func(ctx context.Context) error {
+			return qemuimg.DeleteSnapshot(ctx, data, name)
+		})
+	}
 }
 
 // restartAfter returns cause after a failed upgrade, starting the VM again
