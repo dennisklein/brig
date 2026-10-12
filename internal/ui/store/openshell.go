@@ -76,25 +76,37 @@ func (g Gateway) Sandbox(workspace, name string) (Sandbox, bool) {
 	return Sandbox{}, false
 }
 
-// Provider returns the named provider of the gateway.
-func (g Gateway) Provider(name string) (Provider, bool) {
+// Provider returns the named provider of the workspace. Names are unique per
+// workspace only.
+func (g Gateway) Provider(workspace, name string) (Provider, bool) {
 	for _, p := range g.Providers {
-		if p.Name == name {
+		if p.Workspace == workspace && p.Name == name {
 			return p, true
 		}
 	}
 	return Provider{}, false
 }
 
-// Profile returns the provider profile with the ID id.
-func (g Gateway) Profile(id string) (Profile, bool) {
+// Profile returns the provider profile with the ID id that the workspace
+// sees: its own, else one of the platform.
+func (g Gateway) Profile(workspace, id string) (Profile, bool) {
+	var platform Profile
+	found := false
 	for _, p := range g.Profiles {
-		if p.ID == id {
+		switch {
+		case p.ID != id:
+		case p.Workspace == workspace:
 			return p, true
+		case p.Workspace == "":
+			platform, found = p, true
 		}
 	}
-	return Profile{}, false
+	return platform, found
 }
+
+// MultiWorkspace reports whether the gateway has more than one workspace,
+// so that pages must say which one an object belongs to.
+func (g Gateway) MultiWorkspace() bool { return len(g.Workspaces) > 1 }
 
 // Sandbox is an OpenShell sandbox.
 type Sandbox struct {

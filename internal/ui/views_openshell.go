@@ -90,7 +90,7 @@ func providerRows(g store.Gateway) []providerRow {
 		out = append(out, providerRow{Name: p.Name, Type: p.Type, Credentials: p.Credentials, Source: g.Config.Providers[p.Name]})
 	}
 	for name, path := range g.Config.Providers {
-		if _, ok := g.Provider(name); !ok {
+		if _, ok := g.Provider(store.DefaultWorkspace, name); !ok {
 			out = append(out, providerRow{Name: name, Source: path, Missing: true})
 		}
 	}
@@ -334,13 +334,13 @@ func openshellFuncs() template.FuncMap {
 			return g
 		},
 		"providerOf": func(g store.Gateway, name string) *store.Provider {
-			if p, ok := g.Provider(name); ok {
+			if p, ok := g.Provider(store.DefaultWorkspace, name); ok {
 				return &p
 			}
 			return nil
 		},
 		"profileOf": func(g store.Gateway, id string) *store.Profile {
-			if p, ok := g.Profile(id); ok {
+			if p, ok := g.Profile(store.DefaultWorkspace, id); ok {
 				return &p
 			}
 			return nil

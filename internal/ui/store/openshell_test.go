@@ -63,3 +63,42 @@ func TestSandboxCount(t *testing.T) {
 		t.Errorf("%d/%d", ready, total)
 	}
 }
+
+func TestProviderAndProfileLookupPerWorkspace(t *testing.T) {
+	g := Gateway{
+		Workspaces: []string{"default", "team"},
+		Providers: []Provider{
+			{Workspace: "default", Name: "llm", Type: "openai"},
+			{Workspace: "team", Name: "llm", Type: "team-openai"},
+		},
+		Profiles: []Profile{
+			{ID: "openai", Name: "platform"},
+			{Workspace: "default", ID: "github", Name: "default's"},
+			{Workspace: "team", ID: "github", Name: "team's"},
+			{Workspace: "team", ID: "openai", Name: "team's own"},
+		},
+	}
+	if p, ok := g.Provider("team", "llm"); !ok || p.Type != "team-openai" {
+		t.Errorf("Provider(team, llm) = %+v, %v", p, ok)
+	}
+	if _, ok := g.Provider("other", "llm"); ok {
+		t.Error("a provider of another workspace was found")
+	}
+	for _, c := range []struct{ ws, id, want string }{
+		{"default", "github", "default's"},
+		{"team", "github", "team's"},
+		// A workspace sees the platform's profile unless it has its own.
+		{"default", "openai", "platform"},
+		{"team", "openai", "team's own"},
+	} {
+		if p, ok := g.Profile(c.ws, c.id); !ok || p.Name != c.want {
+			t.Errorf("Profile(%s, %s) = %+v, %v, want %s", c.ws, c.id, p, ok, c.want)
+		}
+	}
+	if _, ok := g.Profile("default", "nope"); ok {
+		t.Error("found a profile that does not exist")
+	}
+	if !g.MultiWorkspace() || (Gateway{Workspaces: []string{"default"}}).MultiWorkspace() {
+		t.Error("MultiWorkspace")
+	}
+}
