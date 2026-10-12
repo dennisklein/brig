@@ -41,11 +41,13 @@ type Host struct {
 	quit    chan struct{}
 	wg      sync.WaitGroup
 	running atomic.Int32
+
+	traffic *traffic
 }
 
 // New returns a demo host that writes to st.
 func New(st *store.Store) *Host {
-	return &Host{st: st, quit: make(chan struct{}), keyringLocked: true}
+	return &Host{st: st, quit: make(chan struct{}), keyringLocked: true, traffic: newTraffic(st)}
 }
 
 // Run fills the store with the demo host and moves its meters until ctx ends.
@@ -61,12 +63,21 @@ func (h *Host) Run(ctx context.Context, addr string) {
 	h.publish()
 	h.mu.Unlock()
 	h.st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
+	h.traffic.backfill(now, VMs(now))
 	tick := time.NewTicker(tickEvery)
 	defer tick.Stop()
+	requests := time.NewTicker(trafficEvery)
+	defer requests.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-requests.C:
+			h.mu.Lock()
+			vms := h.state.VMs
+			h.mu.Unlock()
+			h.traffic.tick(time.Now(), vms)
+			continue
 		case <-tick.C:
 		}
 		h.mu.Lock()

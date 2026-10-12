@@ -239,4 +239,5 @@ func followVMs(st *store.Store, vms []store.VM) {
 		})
 	}
 	st.RemoveGateways(func(vm string) bool { return names[vm] })
+	st.RemoveTraffic(func(vm string) bool { return names[vm] })
 }

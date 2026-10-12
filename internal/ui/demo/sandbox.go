@@ -19,10 +19,16 @@ const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:l
 // openshellPlan makes the made-up openshell command for argv, which names
 // the gateway with -g first.
 func (h *Host) openshellPlan(argv []string) (plan, error) {
-	if len(argv) < 6 || argv[1] != "-g" || !strings.HasPrefix(argv[2], "brig-") || argv[3] != "sandbox" {
+	if len(argv) < 6 || argv[1] != "-g" || !strings.HasPrefix(argv[2], "brig-") {
 		return plan{}, fmt.Errorf("the demo cannot play %q", argv)
 	}
 	vm := strings.TrimPrefix(argv[2], "brig-")
+	if argv[3] == "policy" || argv[3] == "rule" {
+		return h.rulePlan(vm, argv[3:])
+	}
+	if argv[3] != "sandbox" {
+		return plan{}, fmt.Errorf("the demo cannot play %q", argv)
+	}
 	rest := argv[4:]
 	switch {
 	case len(rest) == 2 && (rest[0] == "start" || rest[0] == "stop"):
