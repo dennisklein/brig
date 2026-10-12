@@ -244,7 +244,22 @@ func childEnv(env []string, activityLog, traceparent string) []string {
 func failure(program, out string, err error) string {
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		if msg, ok := strings.CutPrefix(lines[i], "Error: "); ok {
+		msg, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), "Error:")
+		if !ok {
+			continue
+		}
+		// The openshell CLI writes "Error:   × what failed", then a line per
+		// cause.
+		msg = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(msg), "×"))
+		for _, l := range lines[i+1:] {
+			l = strings.TrimSpace(l)
+			for _, arrow := range []string{"├─▶", "╰─▶", "|->", "`->"} {
+				if c, ok := strings.CutPrefix(l, arrow); ok {
+					msg += ": " + strings.TrimSpace(c)
+				}
+			}
+		}
+		if msg != "" {
 			return msg
 		}
 	}
