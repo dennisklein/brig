@@ -132,8 +132,11 @@ func Run(ctx context.Context, o Options) error {
 			}
 		}
 		collector := collect.NewBrig(o.Dirs)
+		// Without the openshell CLI, brig ui still shows gateways; its
+		// dialogs for sandboxes say what is missing.
+		cli, _ := openshell.Find()
 		starter = &run.Runner{
-			Brig: brig, ActivityLog: o.ActivityLog, Store: st, Ended: collector.Refresh, KeepOK: keepFinished,
+			Brig: brig, OpenShell: cli, ActivityLog: o.ActivityLog, Store: st, Ended: collector.Refresh, KeepOK: keepFinished,
 		}
 		st.SetHost(store.Host{Addr: addr})
 		goRun(func() { st.SetHost(collect.Host(ctx, addr)) })
