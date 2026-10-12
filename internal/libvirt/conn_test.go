@@ -57,7 +57,8 @@ type fakeClient struct {
 	shutdownBlock chan struct{}
 	// shutdownErr, if set, fails shutdown requests for running domains.
 	shutdownErr error
-	// statsErr fails ConnectGetAllDomainStats.
+	// events feeds LifecycleEvents; statsErr fails ConnectGetAllDomainStats.
+	events   chan golibvirt.DomainEventLifecycleMsg
 	statsErr error
 }
 
@@ -329,6 +330,10 @@ func (f *fakeClient) ConnectGetAllDomainStats(doms []golibvirt.Domain, stats, fl
 		}
 	}
 	return recs, nil
+}
+
+func (f *fakeClient) LifecycleEvents(context.Context) (<-chan golibvirt.DomainEventLifecycleMsg, error) {
+	return f.events, nil
 }
 
 func (f *fakeClient) Disconnect() error {
