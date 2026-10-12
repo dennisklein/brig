@@ -220,6 +220,15 @@ providers and base and effective policies, and the gateway's providers,
 provider profiles, default policy and templates; credentials only by name.
 Pages update live.
 
+Traffic shows each sandbox's requests as OpenShell's proxy decided them,
+from the gateway's log of the last hour, with the rule that allowed a
+request or the reason it was denied; a line brig ui cannot read shows as it
+came, and URL queries are cut, since they may hold tokens. Denials of the
+last hour show on the Overview, under Needs you and on the sandbox's Traffic
+tab. Topology draws the path from this host through each gateway and sandbox
+to the providers' endpoints and the hosts sandboxes reached or were denied.
+Drops by a VM's network profile are not logged yet.
+
 The UI also changes things: start, stop, create, delete and upgrade a VM,
 change its mounts, config directories, profile, CPUs, memory and disks,
 preview and run `brig sync`, and build, prune and push base images. For
@@ -237,6 +246,14 @@ with its steps and, if it failed, its output. A VM's buttons wait while a
 command works on it. Ctrl-C in the terminal that runs `brig ui` interrupts
 the running commands the way it does in a shell, so brig rolls back. The UI
 shows and takes no secrets.
+
+**Allow…** on a denied request offers the rule that OpenShell drafted from
+it, which names the program's full path (`openshell rule approve`), or a
+rule of your own with its access level and enforce or audit (`openshell
+policy update`). Either applies to that sandbox at once; **Save to file…**
+then previews and runs `brig policy save`, so that new sandboxes get the
+rule too. A request denied because a provider's credential may not go to
+its host is allowed only after you confirm that it goes out without it.
 
 Only you can open it. It prints a URL with a token that is new each run and
 swaps it for a cookie, answers only to `127.0.0.1` and `localhost`, refuses

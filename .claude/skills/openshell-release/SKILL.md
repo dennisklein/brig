@@ -130,6 +130,15 @@ configuration and the docs against what brig relies on:
   the calls in `internal/ui/osclient/reads.go`. `osclient/policy.go` writes
   policies the way `from_proto` in `crates/openshell-policy/src/lib.rs`
   does; carry over changes to it, such as new endpoint fields or enum values.
+- **brig ui's traffic feed** reads the supervisor's OCSF lines, which reach
+  the gateway only as display text. Check `git diff PREV TAG --
+  crates/openshell-ocsf/src/format/shorthand.rs` against
+  `internal/ui/osclient/shorthand.go`, and copy new shorthand test lines
+  into `shorthand_test.go`. Allow… runs `openshell rule approve` and
+  `openshell policy update --add-endpoint`: check their flags and the
+  endpoint spec in `crates/openshell-cli/src/policy_update.rs` against
+  `internal/ui/action/allow.go`. Drafts are polled because the gateway does
+  not stream them; see whether `WatchSandbox` sends `DraftPolicyUpdate` now.
 - **Version compatibility**: `openshell.CompatibleVersions` treats a new
   minor version as incompatible, so `brig upgrade` needs `--force` across
   minors. Revisit it if the release notes say otherwise.
