@@ -98,10 +98,12 @@
 {{end}}
 
 {{define "dlg-sync-preview"}}{{template "vmfield" .}}
+{{with .Gateway.Config.WorkspaceNames}}{{if gt (len .) 1}}<div class="field"><label for="y-ws">Workspace</label><select id="y-ws" name="workspace"><option value="">All of them</option>{{range .}}<option value="{{.}}"{{if eq . ($.Form.Get "workspace")}} selected{{end}}>{{.}}</option>{{end}}</select></div>{{end}}{{end}}
 <p class="muted">Compares the config directories of {{.Form.Get "vm"}} with its gateway and reports what a sync would create, update or leave. Nothing changes. The report shows in the task card; Sync is one press away.</p>
 {{end}}
 
 {{define "dlg-sync"}}{{template "vmfield" .}}
+{{with .Gateway.Config.WorkspaceNames}}{{if gt (len .) 1}}<div class="field"><label for="y-ws">Workspace</label><select id="y-ws" name="workspace"><option value="">All of them</option>{{range .}}<option value="{{.}}"{{if eq . ($.Form.Get "workspace")}} selected{{end}}>{{.}}</option>{{end}}</select></div>{{end}}{{end}}
 <p class="muted">Applies the config directories of {{.Form.Get "vm"}} to its gateway: profiles, providers and the default policy. A provider's secrets may be sent to the endpoints of its profile; preview first if a profile changed.</p>
 <div class="checks">
   <label><input type="checkbox" name="refresh"{{if .Form.Get "refresh"}} checked{{end}}> Refresh every provider's credentials <small>Even those that did not change in the keyring.</small></label>

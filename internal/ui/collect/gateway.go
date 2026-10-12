@@ -386,13 +386,16 @@ func readConfig(dirs []string) store.GatewayConfig {
 		cfg.Err = err.Error()
 		return cfg
 	}
-	cfg.Providers = map[string]string{}
-	for _, p := range set.Workspaces[openshell.DefaultWorkspace].Providers {
-		cfg.Providers[p.Name] = p.Path
-	}
-	cfg.Profiles = map[string]string{}
-	for _, p := range set.Workspaces[openshell.DefaultWorkspace].Profiles {
-		cfg.Profiles[p.ID] = p.Path
+	cfg.Workspaces = map[string]store.WorkspaceConfig{}
+	for _, ws := range set.WorkspaceNames() {
+		wc := store.WorkspaceConfig{Providers: map[string]string{}, Profiles: map[string]string{}}
+		for _, p := range set.Workspaces[ws].Providers {
+			wc.Providers[p.Name] = p.Path
+		}
+		for _, p := range set.Workspaces[ws].Profiles {
+			wc.Profiles[p.ID] = p.Path
+		}
+		cfg.Workspaces[ws] = wc
 	}
 	for _, p := range set.Policies {
 		cfg.Policies = append(cfg.Policies, p.Path)

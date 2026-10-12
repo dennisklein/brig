@@ -189,7 +189,7 @@ func TestGateways(t *testing.T) {
 		t.Errorf("policy of a sandbox gone meanwhile: %+v", p)
 	}
 	cfg := gw.Config
-	if cfg.Err != "" || cfg.Providers["github"] != filepath.Join(cfgDir, "providers/github.yaml") ||
+	if cfg.Err != "" || cfg.Workspaces["default"].Providers["github"] != filepath.Join(cfgDir, "providers/github.yaml") ||
 		cfg.DefaultPolicy != filepath.Join(cfgDir, "policies/default.yaml") || cfg.DefaultPolicyText != "version: 1\nnetwork_policies: {}\n" ||
 		len(cfg.Policies) != 2 {
 		t.Errorf("config: %+v", cfg)
@@ -284,7 +284,7 @@ func TestDescribe(t *testing.T) {
 }
 
 func TestReadConfig(t *testing.T) {
-	if cfg := readConfig(nil); cfg.Err != "" || cfg.Providers != nil {
+	if cfg := readConfig(nil); cfg.Err != "" || cfg.Workspaces != nil {
 		t.Errorf("no dirs: %+v", cfg)
 	}
 	if cfg := readConfig([]string{"/nonexistent"}); cfg.Err == "" {
