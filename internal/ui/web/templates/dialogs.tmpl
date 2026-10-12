@@ -194,3 +194,69 @@
 </div>
 </div>
 {{end}}
+
+{{/* Allow…: approve the rule that OpenShell drafted, or add one. The mode
+     radio shows one of the two sets of fields; the server builds only the
+     command of the mode chosen. */}}
+
+{{define "dlg-allow"}}{{template "sbfields" .}}{{with .Form.Get "req"}}<input type="hidden" name="req" value="{{.}}">{{end}}
+{{$r := .Request}}{{$d := .Draft}}{{$sb := .Form.Get "sandbox"}}
+{{if $d}}<div class="field"><span class="lbl">Rule</span><div class="checks">
+  <label><input type="radio" name="mode" value="draft"{{if eq (.Form.Get "mode") "draft"}} checked{{end}}> Approve OpenShell's draft <small>The rule OpenShell drafted from the denials, with the program's full path.</small></label>
+  <label><input type="radio" name="mode" value="rule"{{if eq (.Form.Get "mode") "rule"}} checked{{end}}> A rule of your own <small>Choose the access level and whether to enforce or audit.</small></label></div></div>
+<input type="hidden" name="draft" value="{{$d.ID}}">
+<div class="mode-draft stack">
+  <pre class="code">{{$d.YAML}}</pre>
+  <dl class="kv">
+    {{with $d.Rationale}}<dt>Why</dt><dd>{{.}}</dd>{{end}}
+    <dt>Prover</dt><dd>{{with $d.Validation}}{{.}}{{else}}<span class="faint">no verdict</span>{{end}}</dd>
+    <dt>Seen</dt><dd>{{$d.Hits}} time{{if ne $d.Hits 1}}s{{end}}{{if not $d.LastSeen.IsZero}}, last {{rel $d.LastSeen}}{{end}}</dd>
+  </dl>
+</div>
+{{else}}<input type="hidden" name="mode" value="rule">{{end}}
+<div class="mode-rule stack">
+<div class="row">
+  <div class="field"><label for="a-host">Host</label><input type="text" id="a-host" name="host" value="{{.Form.Get "host"}}" placeholder="registry.npmjs.org" autocapitalize="off" spellcheck="false"></div>
+  <div class="field"><label for="a-port">Port</label><input type="text" id="a-port" name="port" value="{{.Form.Get "port"}}" placeholder="443" inputmode="numeric"></div>
+</div>
+<div class="row">
+  <div class="field"><label for="a-binary">Program</label><input type="text" id="a-binary" name="binary" value="{{.Form.Get "binary"}}" placeholder="/usr/bin/node" autocapitalize="off" spellcheck="false">
+    <span class="hint">{{if and $r $r.NameOnly}}The log named only {{$r.Process}}, so this path is a guess. Check it with <span class="mono">{{.PathCheck}}</span>{{else}}Its full path in the sandbox.{{end}}</span></div>
+  <div class="field"><label for="a-rule">Rule name</label><input type="text" id="a-rule" name="rule" value="{{.Form.Get "rule"}}" placeholder="allow_HOST_PORT" autocapitalize="off" spellcheck="false"><span class="hint">An existing rule of that name gets the endpoint added.</span></div>
+</div>
+<div class="row">
+  <div class="field"><label for="a-protocol">Inspect</label><select id="a-protocol" name="protocol">
+    <option value="rest"{{if eq (.Form.Get "protocol") "rest"}} selected{{end}}>HTTP requests (rest)</option>
+    <option value=""{{if eq (.Form.Get "protocol") ""}} selected{{end}}>The whole connection</option></select></div>
+  <div class="field rest-only"><label for="a-access">Access</label><select id="a-access" name="access">
+    <option value="read-only"{{if eq (.Form.Get "access") "read-only"}} selected{{end}}>read-only: GET, HEAD, OPTIONS</option>
+    <option value="read-write"{{if eq (.Form.Get "access") "read-write"}} selected{{end}}>read-write: also POST, PUT, PATCH</option>
+    <option value="full"{{if eq (.Form.Get "access") "full"}} selected{{end}}>full: every method</option></select></div>
+</div>
+<div class="field rest-only"><span class="lbl">Mode</span><div class="checks">
+  <label><input type="radio" name="enforcement" value="enforce"{{if ne (.Form.Get "enforcement") "audit"}} checked{{end}}> Enforce <small>Allow what the access level allows, deny the rest.</small></label>
+  <label><input type="radio" name="enforcement" value="audit"{{if eq (.Form.Get "enforcement") "audit"}} checked{{end}}> Audit <small>Log what it would deny and let it pass, to learn what the agent needs.</small></label></div></div>
+</div>
+{{if and $r $r.CredentialMismatch}}<div class="callout warn">The provider's credential is not bound to {{$r.Host}}. A rule lets the request go out without the real credential. To send the credential, add the host to the endpoints of the provider's profile instead (<a href="/gateways/{{.Form.Get "vm"}}?tab=profiles">profiles</a>).</div>
+<div class="checks"><label><input type="checkbox" name="anyway"{{if .Form.Get "anyway"}} checked{{end}}> Allow anyway <small>Without the credential.</small></label></div>{{end}}
+<p class="note">Applies to {{$sb}} only, at once. To keep the rule for new sandboxes, save it to the policy file next.</p>
+{{end}}
+
+{{/* Save to file…: brig policy save, previewed first. */}}
+
+{{define "savefields"}}
+<div class="row">
+  <div class="field"><label for="s-rule">Rule</label><input type="text" id="s-rule" name="rule" value="{{.Form.Get "rule"}}" placeholder="every unsaved rule" autocapitalize="off" spellcheck="false"><span class="hint">Its key under network_policies. A rule the file has too is saved only when named here.</span></div>
+  <div class="field"><label for="s-to">File</label><input type="text" id="s-to" name="to" value="{{.Form.Get "to"}}" placeholder="the sandbox's policy file" autocapitalize="off" spellcheck="false"><span class="hint">A name such as {{.Form.Get "sandbox"}} creates policies/{{.Form.Get "sandbox"}}.yaml; or a path. Needed when the sandbox came from policies/default.yaml.</span></div>
+</div>
+{{end}}
+
+{{define "dlg-policy-save-preview"}}{{template "sbfields" .}}
+<p class="muted">Shows the change that saving the rules added to {{.Form.Get "sandbox"}}, such as with Allow…, makes to its policy file, so that sandboxes created from the file get them too. Nothing changes; Save is one press away.</p>
+{{template "savefields" .}}
+{{end}}
+
+{{define "dlg-policy-save"}}{{template "sbfields" .}}
+<p class="muted">Writes the rules added to {{.Form.Get "sandbox"}} into its policy file. The file is not applied to other sandboxes, nor committed.</p>
+{{template "savefields" .}}
+{{end}}

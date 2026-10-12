@@ -51,9 +51,10 @@
 </div>
 {{template "gwnote" $g}}
 {{with $s.Problem}}<div class="callout bad gap-below">{{.}}</div>{{end}}
-<div class="tabs">{{range sandboxTabs}}<a class="tab{{if eq .Key $.Tab}} on{{end}}" href="/sandboxes/{{$g.VM}}/{{$s.Name}}?tab={{.Key}}">{{.Label}}</a>{{end}}</div>
+<div class="tabs">{{range sandboxTabs}}<a class="tab{{if eq .Key $.Tab}} on{{end}}" href="/sandboxes/{{$g.VM}}/{{$s.Name}}?tab={{.Key}}">{{.Label}}{{if eq .Key "traffic"}}{{with sandboxDenials $}}<span class="n alert" title="Denied requests in the last hour">{{.}}</span>{{end}}{{end}}</a>{{end}}</div>
 {{if eq .Tab "overview"}}{{template "sandbox-overview" .}}
 {{else if eq .Tab "policy"}}{{template "sandbox-policy" .}}
+{{else if eq .Tab "traffic"}}<div sse-swap="sandbox-traffic">{{template "sandbox-traffic" .}}</div>
 {{else if eq .Tab "files"}}{{template "sandbox-files" .}}{{end}}
 {{end}}{{end}}
 
@@ -96,7 +97,10 @@
   </div></section>
 </div>
 <p class="note">{{if $p.Global}}A global policy on {{$g.Name}} overrides this sandbox's own. {{end}}Network rules reload at once. Filesystem and process settings are fixed once the sandbox starts.</p>
+<div class="stack gap-above">
 {{template "cmd" (cmd "Rules of the base policy that are not in your policy files" (print "brig policy diff " $g.VM " " $s.Name))}}
+<div>{{template "act" (saveAct $)}} <span class="faint small">Writes rules added here, such as with Allow…, into the sandbox's policy file.</span></div>
+</div>
 {{end}}
 {{end}}
 

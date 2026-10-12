@@ -22,17 +22,17 @@ import (
 )
 
 // pageNames are the page templates, one file each in web/templates.
-var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound", "sandboxes", "sandbox", "gateway"}
+var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound", "sandboxes", "sandbox", "gateway", "traffic", "topology"}
 
 // fragments are the parts of pages that live updates replace: each is a
 // template of the same name, rendered again when one of its topics changes,
 // and sent as the SSE event of that name.
 var fragments = map[string][]store.Topic{
 	"tasks":           {store.TopicTasks, store.TopicOutput, store.TopicActivity},
-	"rail":            {store.TopicVMs, store.TopicGateways},
+	"rail":            {store.TopicVMs, store.TopicGateways, store.TopicTraffic},
 	"overview-sub":    {store.TopicVMs, store.TopicActivity},
 	"vm-cards":        {store.TopicVMs, store.TopicGateways},
-	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways},
+	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways, store.TopicTraffic},
 	"recent-activity": {store.TopicActivity},
 	"vm-table":        {store.TopicVMs, store.TopicTasks, store.TopicActivity},
 	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity, store.TopicGateways},
@@ -42,6 +42,10 @@ var fragments = map[string][]store.Topic{
 	"sandbox-table":   {store.TopicGateways},
 	"sandbox":         {store.TopicGateways},
 	"gateway":         {store.TopicVMs, store.TopicGateways},
+	"recent-denials":  {store.TopicTraffic, store.TopicTasks, store.TopicActivity},
+	"traffic-table":   {store.TopicTraffic, store.TopicTasks, store.TopicActivity},
+	"sandbox-traffic": {store.TopicTraffic, store.TopicTasks, store.TopicActivity},
+	"topology":        {store.TopicVMs, store.TopicGateways, store.TopicTraffic},
 }
 
 // vmTabs are the tabs of a VM's page, in order.
@@ -66,7 +70,7 @@ type templates struct {
 
 func newTemplates(fsys fs.FS, funcs template.FuncMap, dev bool) (*templates, error) {
 	t := &templates{dev: dev, load: func() (*template.Template, map[string]*template.Template, error) {
-		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl")
+		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl", "templates/trafficparts.tmpl")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -140,8 +144,13 @@ type view struct {
 	Sandbox store.Sandbox
 	// Path is the directory that a sandbox's Files tab shows.
 	Path string
-	// Filter names the VM whose sandboxes a list shows, empty for all.
+	// Filter names the VM whose sandboxes a list shows, or whose topology
+	// the Topology page draws, empty for all.
 	Filter string
+	// TrafficQ picks the rows of the Traffic page.
+	TrafficQ trafficQuery
+	// Sel is the selected node of the topology.
+	Sel string
 	// Query is the jump box's query, for the palette.
 	Query string
 	// Asset returns the URL of a static file.
@@ -208,6 +217,7 @@ func needs(sn store.Snapshot) []need {
 		}
 	}
 	out = append(out, gatewayNeeds(sn)...)
+	out = append(out, trafficNeeds(sn)...)
 	order := map[string]int{"bad": 0, "warn": 1, "info": 2}
 	slices.SortStableFunc(out, func(a, b need) int { return order[a.Sev] - order[b.Sev] })
 	return out
@@ -320,6 +330,9 @@ func funcs(home string) template.FuncMap {
 		},
 	}
 	for name, fn := range openshellFuncs() {
+		m[name] = fn
+	}
+	for name, fn := range trafficFuncs() {
 		m[name] = fn
 	}
 	return m
@@ -465,6 +478,7 @@ func palette(sn store.Snapshot, q string) []paletteItem {
 		{"Activity", "page", "/activity"},
 		{"Sandboxes", "page", "/sandboxes"},
 	}
+	items = append(items, trafficPalette()...)
 	for _, v := range sn.VMs {
 		items = append(items, paletteItem{"VM " + v.Name, v.State, "/vms/" + v.Name})
 		for _, t := range vmTabs[1:] {

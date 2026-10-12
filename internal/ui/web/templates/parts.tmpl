@@ -52,6 +52,8 @@
 <h6>OpenShell</h6>
 <a class="nav{{if eq .Page "sandboxes"}} on{{end}}" href="/sandboxes"><span class="ico">▣</span>Sandboxes<span class="count">{{sandboxCount .Snap}}</span></a>
 <a class="nav{{if eq .Page "gateway"}} on{{end}}" href="/gateway"><span class="ico">⇄</span>Gateway</a>
+{{$d := recentDenials .}}<a class="nav{{if eq .Page "traffic"}} on{{end}}" href="/traffic"><span class="ico">⇅</span>Traffic{{if $d}}<span class="count alert" title="Denied requests in the last hour">{{$d}}</span>{{end}}</a>
+<a class="nav{{if eq .Page "topology"}} on{{end}}" href="/topology"><span class="ico">⋈</span>Topology</a>
 {{end}}
 
 {{/* Overview. */}}

@@ -97,6 +97,14 @@ var dialogSpecs = map[string]dialogSpec{
 		Defaults: func(d *dialog) { d.def("fedora", fmt.Sprint(d.Snap.Config.Defaults.FedoraRelease)) },
 	},
 	"image-prune": {OK: "Prune", Open: "Prune…", Title: func(*dialog) string { return "Prune base images" }},
+	"allow": {
+		OK: "Allow", Open: "Allow…", Title: sandboxTitle("Allow a request for %s"), Sub: allowSub,
+		Defaults: allowDefaults,
+	},
+	"policy-save-preview": {
+		OK: "Run the preview", Open: "Save to file…", Title: sandboxTitle("Save the rules of %s to its policy file"),
+	},
+	"policy-save": {OK: "Save", Open: "Save…", Title: sandboxTitle("Save the rules of %s to its policy file")},
 	"image-push": {
 		OK: "Push", Open: "Push an image…", Title: func(*dialog) string { return "Push a container image into a VM" },
 		Defaults: func(d *dialog) {
