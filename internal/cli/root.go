@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -26,6 +27,12 @@ func Execute() int {
 
 	var p progressRun
 	err := newRootCmd(&p).ExecuteContext(ctx)
+	// An exit status with no message is an outcome, not a failure.
+	var exit exitError
+	if errors.As(err, &exit) {
+		p.end(nil)
+		return exit.code
+	}
 	// End the display before the error line, which it would tear.
 	p.end(err)
 	if err != nil {
@@ -60,7 +67,7 @@ Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
-		newSandboxCmd(),
+		newSandboxCmd(), newPolicyCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)

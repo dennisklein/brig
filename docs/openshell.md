@@ -993,6 +993,7 @@ Podman refuses to remove an image a container still uses.
 | Base vs effective policy | `openshell policy get N --base`, `--full` |
 | Add one network rule | `openshell policy update N --rule-name R --binary PATH --add-endpoint HOST:443:read-only:rest:enforce --wait` |
 | Replace the policy | `openshell policy set N --policy FILE --wait` |
+| Rules added to a sandbox but not in its policy file, and the reverse | `brig policy diff dev N` |
 | Copy files out, in | `openshell sandbox download N PATH DEST`; `openshell sandbox upload N SRC DEST` |
 | Push an image into the VM | `brig image push dev localhost/IMAGE:TAG` |
 | Upgrade VM, keep data | `brig image build && brig upgrade dev` |
