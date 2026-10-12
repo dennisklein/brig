@@ -288,6 +288,30 @@ func (c *CLI) keepActive(gateway string) (restore func() error, err error) {
 // select another workspace than the gateway's default one.
 var gatewayEnv = []string{"OPENSHELL_GATEWAY", "OPENSHELL_GATEWAY_ENDPOINT", "OPENSHELL_GATEWAY_INSECURE", "OPENSHELL_WORKSPACE"}
 
+// Environ returns the environment for running the CLI: environ with the
+// variables that name another gateway or workspace left out, the CLI's
+// configuration home set so that it and brig agree on where gateways are
+// registered, and the additional variables extra, each KEY=VALUE, which
+// replace those of environ with the same name.
+func (c *CLI) Environ(environ, extra []string) ([]string, error) {
+	if !filepath.IsAbs(c.ConfigHome) || filepath.Base(c.ConfigHome) != "openshell" {
+		return nil, fmt.Errorf("openshell config home %q is not an absolute path ending in /openshell", c.ConfigHome)
+	}
+	replaced := map[string]bool{}
+	for _, kv := range extra {
+		name, _, _ := strings.Cut(kv, "=")
+		replaced[name] = true
+	}
+	out := []string{"XDG_CONFIG_HOME=" + filepath.Dir(c.ConfigHome)}
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if name != "XDG_CONFIG_HOME" && !slices.Contains(gatewayEnv, name) && !replaced[name] {
+			out = append(out, kv)
+		}
+	}
+	return append(out, extra...), nil
+}
+
 // run runs the CLI and returns its standard output. Errors include what the
 // CLI reported.
 func (c *CLI) run(ctx context.Context, args ...string) ([]byte, error) {
@@ -297,23 +321,12 @@ func (c *CLI) run(ctx context.Context, args ...string) ([]byte, error) {
 // runEnv is run with the additional environment variables env, each
 // KEY=VALUE, which replace inherited variables of the same name.
 func (c *CLI) runEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
-	if !filepath.IsAbs(c.ConfigHome) || filepath.Base(c.ConfigHome) != "openshell" {
-		return nil, fmt.Errorf("openshell config home %q is not an absolute path ending in /openshell", c.ConfigHome)
-	}
-	extra := map[string]bool{}
-	for _, kv := range env {
-		name, _, _ := strings.Cut(kv, "=")
-		extra[name] = true
+	environ, err := c.Environ(os.Environ(), env)
+	if err != nil {
+		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, c.Path, args...)
-	cmd.Env = []string{"XDG_CONFIG_HOME=" + filepath.Dir(c.ConfigHome)}
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if name != "XDG_CONFIG_HOME" && !slices.Contains(gatewayEnv, name) && !extra[name] {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	cmd.Env = append(cmd.Env, env...)
+	cmd.Env = environ
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
