@@ -18,6 +18,10 @@ import (
 	"github.com/dennisklein/brig/internal/vm"
 )
 
+// StateFile is the name of the file in a VM's directory that holds its
+// State.
+const StateFile = "openshell-sync.json"
+
 // State is what brig remembers about a VM's gateway between syncs: which
 // profiles and providers it manages, and fingerprints of the credentials it
 // set, so that it updates a provider only when a secret changed. It lives in

@@ -20,10 +20,6 @@ import (
 	"github.com/dennisklein/brig/internal/vm"
 )
 
-// syncStateFile holds what brig remembers between syncs of a VM's OpenShell
-// config directories.
-const syncStateFile = "openshell-sync.json"
-
 func newSyncCmd() *cobra.Command {
 	var (
 		opts       ocsync.Options
@@ -38,7 +34,7 @@ func newSyncCmd() *cobra.Command {
 		if len(v.OpenShellConfigs) == 0 {
 			// Removing the last directory leaves providers from an earlier
 			// sync for --prune to delete, so only a VM never synced is refused.
-			st, err := ocsync.LoadState(a.vmFile(v, syncStateFile))
+			st, err := ocsync.LoadState(a.vmFile(v, ocsync.StateFile))
 			if err != nil {
 				return err
 			}
@@ -99,7 +95,7 @@ so. Check shared profiles with --dry-run first.`
 // syncOpenShell applies the VM's OpenShell config directories to its
 // registered gateway and, unless it is a dry run, records the outcome.
 func (a *app) syncOpenShell(ctx context.Context, cli *openshell.CLI, v *vm.VM, opts ocsync.Options, secretTool string) error {
-	statePath := a.vmFile(v, syncStateFile)
+	statePath := a.vmFile(v, ocsync.StateFile)
 	st, err := ocsync.LoadState(statePath)
 	if err != nil {
 		return err
@@ -139,7 +135,7 @@ func (a *app) applyConfigs(ctx context.Context, cli *openshell.CLI, v *vm.VM, st
 
 // lastSync returns the outcome of the VM's last sync, if any.
 func (a *app) lastSync(v *vm.VM) *ocsync.Record {
-	st, err := ocsync.LoadState(a.vmFile(v, syncStateFile))
+	st, err := ocsync.LoadState(a.vmFile(v, ocsync.StateFile))
 	if err != nil {
 		return nil
 	}
