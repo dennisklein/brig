@@ -27,7 +27,9 @@
   </header>
   <nav class="rail" id="rail" sse-swap="rail">{{template "rail" .}}</nav>
   <main class="main">{{template "content" .}}</main>
+  <div class="tasks" id="tasks" sse-swap="tasks" aria-live="polite">{{template "tasks" .}}</div>
 </div>
+<div id="layer"></div>
 <div class="scrim" id="palette" hidden>
   <div class="modal palette" role="dialog" aria-label="Jump to">
     <input name="q" placeholder="Jump to…" aria-label="Search" autocomplete="off"

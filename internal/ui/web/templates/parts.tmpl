@@ -13,6 +13,32 @@
 
 {{define "netchips"}}{{$p := .}}<span class="flags"><span class="chip{{if not $p.Internet}} off{{end}}">internet</span><span class="chip{{if not $p.LAN}} off{{end}}">lan</span><span class="chip{{if not $p.Host}} off{{end}}">host</span>{{with $p.HostPorts}}<span class="chip">host:{{hostPorts .}}</span>{{end}}<span class="chip{{if not $p.IPv6}} off{{end}}">ipv6</span></span>{{end}}
 
+{{/* A button that opens an action's dialog. */}}
+
+{{define "act"}}<button type="button" class="btn{{with .Class}} {{.}}{{end}}" hx-get="{{.URL}}" hx-target="#layer" hx-swap="innerHTML"{{if .Disabled}} disabled title="{{.Why}}"{{end}}>{{.Label}}</button>{{end}}
+
+{{/* The task cards: a command that brig ui runs, with its steps from the activity log. */}}
+
+{{define "tasks"}}{{$sn := .Snap}}{{range .Snap.Tasks}}{{template "task" (taskView $sn .)}}{{end}}{{end}}
+
+{{define "task"}}
+<div class="task {{.Status}}" id="task-{{.ID}}">
+  <div class="th">{{if .Done}}<span class="dot{{if eq .Status "failed"}} bad{{end}}"></span>{{else}}<span class="spin" aria-hidden="true">◐</span>{{end}}<b class="mono">{{.Display}}</b>{{if .Done}}<button type="button" class="btn ghost sm" hx-post="/tasks/{{.ID}}/dismiss" hx-target="#tasks" hx-swap="innerHTML" aria-label="Dismiss">×</button>{{end}}</div>
+  {{with .Run}}{{template "tree" .Steps}}{{else}}{{if not .Done}}<div class="faint small">Starting…</div>{{end}}{{end}}
+  {{with .Err}}<div class="callout bad">{{.}}</div>{{end}}
+  {{if .Output}}{{if or .ShowOutput (eq .Status "failed")}}<pre class="out">{{.Output}}</pre>{{end}}{{end}}
+  {{if and (eq .Status "ok") .Next}}<div class="tf">{{template "act" (nextAct .)}}</div>{{end}}
+</div>
+{{end}}
+
+{{/* The answer to a dialog's preview: the command, what to know, why it cannot run. */}}
+
+{{define "preview"}}{{if .Cmd.Display}}{{template "cmd" (cmd "Runs" .Cmd.Display)}}<input type="hidden" name="shown" value="{{.Cmd.Display}}">{{end}}
+{{range .Cmd.Notes}}<div class="callout">{{.}}</div>{{end}}
+{{with .Warn}}<div class="callout warn">{{.}}</div>{{end}}
+{{with .Err}}<div class="callout bad">{{.}}</div>{{end}}
+<button type="submit" class="btn {{if .Danger}}danger{{else}}primary{{end}}" id="dialog-ok" hx-swap-oob="true"{{if .Blocked}} disabled{{end}}>{{.OK}}</button>{{end}}
+
 {{/* The rail. */}}
 
 {{define "rail"}}
@@ -20,6 +46,7 @@
 <a class="nav{{if eq .Page "overview"}} on{{end}}" href="/"><span class="ico">◎</span>Overview</a>
 <h6>brig</h6>
 <a class="nav{{if eq .Page "vms"}} on{{end}}" href="/vms"><span class="ico">▥</span>VMs<span class="count">{{running .Snap.VMs}}/{{len .Snap.VMs}}</span></a>
+<a class="nav{{if eq .Page "images"}} on{{end}}" href="/images"><span class="ico">◧</span>Images<span class="count">{{len .Snap.Images}}</span></a>
 <a class="nav{{if eq .Page "host"}} on{{end}}" href="/host"><span class="ico">✓</span>Host</a>
 <a class="nav{{if eq .Page "activity"}} on{{end}}" href="/activity"><span class="ico">≡</span>Activity</a>
 {{end}}
@@ -34,7 +61,7 @@
 
 {{define "vm-cards"}}
 {{range .Snap.VMs}}{{template "vm-card" (cardOf $ .)}}{{else}}
-<section class="panel empty">No VMs yet. Create one in a terminal: <code>brig create NAME</code></section>
+<section class="panel empty">No VMs yet. Create one with New VM, or in a terminal: <code>brig create NAME</code></section>
 {{end}}
 {{end}}
 
@@ -62,7 +89,7 @@
 {{define "needs"}}{{$n := needs .Snap}}
 <div class="ph"><h2>Needs you</h2><span class="grow"></span><span class="faint small">{{len $n}} item{{if ne (len $n) 1}}s{{end}}</span></div>
 <div class="attn">
-{{range $n}}<div class="it"><span class="bar {{.Sev}}"></span><div><div class="t">{{.Title}}</div>{{with .Detail}}<div class="d">{{.}}</div>{{end}}</div><div><a class="btn sm" href="{{.Link}}">{{.Action}}</a></div></div>
+{{range $n}}<div class="it"><span class="bar {{.Sev}}"></span><div><div class="t">{{.Title}}</div>{{with .Detail}}<div class="d">{{.}}</div>{{end}}</div><div class="actions">{{if .Dialog}}<button type="button" class="btn sm" hx-get="{{.Dialog}}" hx-target="#layer" hx-swap="innerHTML">{{.Action}}</button><a class="btn sm ghost" href="{{.Link}}">Open</a>{{else}}<a class="btn sm" href="{{.Link}}">{{.Action}}</a>{{end}}</div></div>
 {{else}}<div class="empty">Nothing needs you.</div>{{end}}
 </div>
 {{end}}
@@ -77,14 +104,15 @@
 {{/* VMs. */}}
 
 {{define "vm-table"}}
-<table><thead><tr><th>Name</th><th>State</th><th>Gateway</th><th class="num">CPUs</th><th class="num">Memory</th><th>Network</th><th>Base image</th><th class="num">Mounts</th></tr></thead><tbody>
+<table><thead><tr><th>Name</th><th>State</th><th>Gateway</th><th class="num">CPUs</th><th class="num">Memory</th><th>Network</th><th>Base image</th><th class="num">Mounts</th><th></th></tr></thead><tbody>
 {{range .Snap.VMs}}<tr class="click" data-href="/vms/{{.Name}}">
   <td><a class="rowlink" href="/vms/{{.Name}}">{{.Name}}</a></td><td>{{template "pill" .State}}</td>
   <td class="mono">{{.GatewayName}} <span class="faint">{{.OpenShell}}</span></td>
   <td class="num">{{.CPUs}}</td><td class="num">{{size .Memory}}</td><td>{{.NetworkProfile}}</td>
   <td class="mono">{{.Image}}{{if older $.Snap .}} <span class="pill info">older</span>{{end}}</td>
   <td class="num">{{len .Mounts}}</td>
-</tr>{{else}}<tr><td colspan="8" class="empty">No VMs yet. Create one in a terminal: <code>brig create NAME</code></td></tr>{{end}}
+  <td class="act">{{if .Running}}{{template "act" (act $ "stop" "" "sm" "vm" .Name)}}{{else}}{{template "act" (act $ "start" "" "sm" "vm" .Name)}}{{end}}</td>
+</tr>{{else}}<tr><td colspan="9" class="empty">No VMs yet. Create one with New VM, or in a terminal: <code>brig create NAME</code></td></tr>{{end}}
 </tbody></table>
 {{end}}
 
@@ -97,6 +125,11 @@
 <div class="crumbs"><a href="/vms">VMs</a><span>/</span><span>{{$v.Name}}</span></div>
 <div class="head"><div class="titles"><h1>{{$v.Name}}</h1>
   <div class="sub">{{template "pill" $v.State}}<span class="mono">{{$v.GatewayName}}</span>{{with $v.OpenShell}}<span>OpenShell {{.}}</span>{{end}}<span>{{if and $v.Running (not $v.Up.IsZero)}}up {{since $v.Up}}{{else}}created {{rel $v.CreatedAt}}{{end}}</span></div></div>
+  <div class="actions">
+    {{if $v.Running}}{{template "act" (act $ "stop" "" "" "vm" $v.Name)}}{{else}}{{template "act" (act $ "start" "" "primary" "vm" $v.Name)}}{{end}}
+    {{if older .Snap $v}}{{template "act" (act $ "upgrade" "" "" "vm" $v.Name)}}{{end}}
+    {{template "act" (act $ "delete" "" "danger" "vm" $v.Name)}}
+  </div>
 </div>
 <div class="tabs">{{range vmTabs}}<a class="tab{{if eq .Key $.Tab}} on{{end}}" href="/vms/{{$v.Name}}?tab={{.Key}}">{{.Label}}{{if eq .Key "mounts"}}<span class="n">{{len $v.Mounts}}</span>{{end}}</a>{{end}}</div>
 {{if eq .Tab "summary"}}{{template "vm-summary" .}}
@@ -108,7 +141,7 @@
 
 {{define "vm-summary"}}{{$v := .VM}}
 <div class="grid g2">
-  <section class="panel"><div class="ph"><h2>Resources</h2></div><div class="pb">
+  <section class="panel"><div class="ph"><h2>Resources</h2><span class="grow"></span>{{template "act" (act $ "resources" "" "sm" "vm" $v.Name)}}</div><div class="pb">
     <dl class="kv"><dt>CPUs</dt><dd>{{$v.CPUs}}</dd><dt>Memory</dt><dd>{{size $v.Memory}}</dd>
     <dt>Root disk</dt><dd>{{size $v.RootDisk}} <span class="faint">overlay of the base image, thrown away on upgrade</span></dd>
     <dt>Data disk</dt><dd>{{size $v.DataDisk}} at /home/agent{{with stat $v "data"}}, {{pct .}} used{{end}} <span class="faint">gateway state, secrets, images, workspaces</span></dd></dl>
@@ -122,25 +155,25 @@
 {{end}}
 
 {{define "vm-mounts"}}{{$v := .VM}}
-<section class="panel"><div class="ph"><h2>Host directories</h2><span class="faint small">virtiofs. brig update {{$v.Name}} --add-mount changes them on a running VM at once.</span></div>
-<div class="tw"><table><thead><tr><th>Host</th><th>In the VM</th><th>Access</th><th>Sandbox volume</th></tr></thead><tbody>
-{{range $v.Mounts}}<tr><td class="mono">{{tilde .Source}}</td><td class="mono">{{.Target}}</td><td>{{if .ReadOnly}}<span class="chip">ro</span>{{else}}<span class="chip acc">rw</span>{{end}}</td><td>{{if .Sandbox}}<span class="chip">{{.Tag}}</span>{{else}}<span class="faint">–</span>{{end}}</td></tr>
-{{else}}<tr><td colspan="4" class="empty">No host directories are shared with this VM.</td></tr>{{end}}
+<section class="panel"><div class="ph"><h2>Host directories</h2><span class="faint small">virtiofs. brig update {{$v.Name}} --add-mount changes them on a running VM at once.</span><span class="grow"></span>{{template "act" (act $ "mount-add" "" "sm" "vm" $v.Name)}}</div>
+<div class="tw"><table><thead><tr><th>Host</th><th>In the VM</th><th>Access</th><th>Sandbox volume</th><th></th></tr></thead><tbody>
+{{range $v.Mounts}}<tr><td class="mono">{{tilde .Source}}</td><td class="mono">{{.Target}}</td><td>{{if .ReadOnly}}<span class="chip">ro</span>{{else}}<span class="chip acc">rw</span>{{end}}</td><td>{{if .Sandbox}}<span class="chip">{{.Tag}}</span>{{else}}<span class="faint">–</span>{{end}}</td><td class="act">{{template "act" (act $ "mount-rm" "" "sm ghost" "vm" $v.Name "target" .Target)}}</td></tr>
+{{else}}<tr><td colspan="5" class="empty">No host directories are shared with this VM.</td></tr>{{end}}
 </tbody></table></div></section>
 <p class="note">In the VM, user agent owns what you own on the host. Sandbox volumes are always read-only.</p>
 {{end}}
 
 {{define "vm-openshell"}}{{$v := .VM}}
-<section class="panel"><div class="ph"><h2>Config directories</h2></div><div class="pb stack">
-  {{range $v.OpenShellConfigs}}<div class="mono">{{tilde .}}</div>{{else}}<p class="muted">None. Providers on this gateway were created by hand, if any.</p>{{end}}
+<section class="panel"><div class="ph"><h2>Config directories</h2><span class="grow"></span>{{template "act" (act $ "config-add" "" "sm" "vm" $v.Name)}}</div><div class="pb stack">
+  {{range $v.OpenShellConfigs}}<div class="dirrow"><span class="mono">{{tilde .}}</span>{{template "act" (act $ "config-rm" "" "sm ghost" "vm" $v.Name "dir" .)}}</div>{{else}}<p class="muted">None. Providers on this gateway were created by hand, if any.</p>{{end}}
   {{with $v.LastSync}}{{if .Error}}<div class="callout bad"><b>The last sync, {{rel .Time}}, failed.</b><br>{{.Error}}</div>{{else}}<div><span class="pill ok"><span class="dot"></span>synced {{rel .Time}}</span></div>{{end}}{{else}}{{if $v.OpenShellConfigs}}<div><span class="pill">never synced</span></div>{{end}}{{end}}
-  {{if $v.OpenShellConfigs}}{{template "cmd" (cmd "Preview what a sync would change" (print "brig sync " $v.Name " --dry-run"))}}{{end}}
+  {{if $v.OpenShellConfigs}}<div class="actions">{{template "act" (act $ "sync-preview" "" "" "vm" $v.Name)}}{{template "act" (act $ "sync" "" "primary" "vm" $v.Name)}}</div>{{end}}
 </div></section>
 {{end}}
 
 {{define "vm-network"}}{{$v := .VM}}{{$p := profile .Snap $v.NetworkProfile}}
 <div class="grid g2">
-  <section class="panel"><div class="ph"><h2>Network profile <span class="chip acc">{{$v.NetworkProfile}}</span></h2></div>
+  <section class="panel"><div class="ph"><h2>Network profile <span class="chip acc">{{$v.NetworkProfile}}</span></h2><span class="grow"></span>{{template "act" (act $ "profile" "" "sm" "vm" $v.Name)}}</div>
   {{if $p}}<table><tbody>
     {{template "netrow" (netrow $p.Internet "Internet" "public addresses, DNS from the host")}}
     {{template "netrow" (netrow $p.LAN "LAN" "private ranges, VPN intranets, host networks")}}
@@ -163,6 +196,16 @@
   {{template "cmd" (cmd "Serial console" (print "brig console " $v.Name))}}
   {{template "cmd" (cmd "Point this shell's openshell CLI at the VM" (print "brig use " $v.Name))}}
 </div></section>
+{{end}}
+
+{{/* Images. */}}
+
+{{define "images"}}
+<table><thead><tr><th>ID</th><th class="num">Fedora</th><th>OpenShell</th><th>Built</th><th>Used by</th></tr></thead><tbody>
+{{range $i, $img := .Snap.Images}}<tr><td class="mono">{{$img.ID}}{{if eq $i 0}} <span class="pill ok">newest</span>{{end}}</td><td class="num">{{$img.Fedora}}</td><td class="mono">{{$img.OpenShell}}</td><td>{{rel $img.CreatedAt}}</td>
+  <td>{{range $img.UsedBy}}<a class="chip" href="/vms/{{.}}">{{.}}</a> {{else}}<span class="faint">no VM</span>{{end}}</td></tr>
+{{else}}<tr><td colspan="5" class="empty">No base image yet. Build one, or create a VM and brig builds it first.</td></tr>{{end}}
+</tbody></table>
 {{end}}
 
 {{/* Host. */}}

@@ -31,6 +31,7 @@ import (
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/ui/collect"
 	"github.com/dennisklein/brig/internal/ui/demo"
+	"github.com/dennisklein/brig/internal/ui/run"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -50,6 +51,9 @@ type Options struct {
 	Dirs paths.Dirs
 	// ActivityLog is the event log that Activity shows, empty for none.
 	ActivityLog string
+	// Brig is the brig executable that runs the commands of dialogs;
+	// empty for this one.
+	Brig string
 	// RuntimeDir is $XDG_RUNTIME_DIR, where the running UI is recorded so
 	// that a second brig ui opens it instead of starting another. Empty
 	// records nothing.
@@ -57,6 +61,14 @@ type Options struct {
 	Stdout     io.Writer
 	Stderr     io.Writer
 }
+
+const (
+	// keepFinished is how long a command that succeeded stays among the
+	// task cards.
+	keepFinished = 10 * time.Second
+	// interruptGrace is how long commands get to roll back after Ctrl-C.
+	interruptGrace = 60 * time.Second
+)
 
 // runtimeRecord is what $XDG_RUNTIME_DIR/brig/ui.json holds.
 type runtimeRecord struct {
@@ -104,22 +116,44 @@ func Run(ctx context.Context, o Options) error {
 	}
 	home, _ := os.UserHomeDir()
 	checkHost := collect.Doctor
+	var starter run.Starter
 	if o.Demo {
 		home = demo.Home
 		checkHost = demo.CheckHost
-		goRun(func() { demo.Run(ctx, st, addr) })
+		host := demo.New(st)
+		starter = host
+		goRun(func() { host.Run(ctx, addr) })
 	} else {
+		brig := o.Brig
+		if brig == "" {
+			if brig, err = os.Executable(); err != nil {
+				return fmt.Errorf("finding brig's own executable: %w", err)
+			}
+		}
+		collector := collect.NewBrig(o.Dirs)
+		starter = &run.Runner{
+			Brig: brig, ActivityLog: o.ActivityLog, Store: st, Ended: collector.Refresh, KeepOK: keepFinished,
+		}
 		st.SetHost(store.Host{Addr: addr})
 		goRun(func() { st.SetHost(collect.Host(ctx, addr)) })
-		goRun(func() { collect.NewBrig(o.Dirs).Run(ctx, st) })
+		goRun(func() { collector.Run(ctx, st) })
 		if o.ActivityLog != "" {
 			goRun(func() { collect.Activity(ctx, st, o.ActivityLog) })
 		}
 	}
 
+	// Commands that dialogs started get Ctrl-C too, so that brig rolls back
+	// what it began.
+	defer func() {
+		if n := starter.Running(); n > 0 {
+			fmt.Fprintf(o.Stderr, "Interrupting %d running brig command(s); they roll back what they began.\n", n)
+			starter.Shutdown(interruptGrace)
+		}
+	}()
+
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: token, Port: port, Demo: o.Demo, Home: home,
-		DevAssets: o.DevAssets, CheckHost: checkHost, Log: log,
+		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Log: log,
 	})
 	if err != nil {
 		return err

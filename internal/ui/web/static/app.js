@@ -78,6 +78,13 @@
     }
   }
 
+  // Dialogs are fetched into #layer. They close with Cancel, Escape, a click
+  // beside them, and once their command has started.
+  function closeDialog() {
+    const layer = document.getElementById('layer');
+    if (layer) layer.replaceChildren();
+  }
+
   function setLive(on) {
     const el = document.getElementById('live');
     if (!el) return;
@@ -99,6 +106,7 @@
       }
       if (t.closest('[data-palette-open]')) { ev.preventDefault(); openPalette(); return; }
       if (t.id === 'palette') { closePalette(); return; }
+      if (t.closest('[data-dialog-close]') || t.hasAttribute('data-dialog')) { closeDialog(); return; }
       const row = t.closest('tr[data-href]');
       if (row && !t.closest('a, button')) { location.href = row.dataset.href; }
     });
@@ -115,14 +123,31 @@
         }
         return;
       }
+      if (ev.key === 'Escape' && document.getElementById('dialog')) { closeDialog(); ev.preventDefault(); return; }
       const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName);
       if (!typing && (ev.key === '/' || (ev.key === 'k' && (ev.ctrlKey || ev.metaKey)))) {
         ev.preventDefault();
         openPalette();
       }
     });
+    // A dialog that is refused answers 422 with the reason, which htmx
+    // would drop as an error.
+    document.body.addEventListener('htmx:beforeSwap', ev => {
+      if (ev.detail.xhr.status === 422) {
+        ev.detail.shouldSwap = true;
+        ev.detail.isError = false;
+      }
+    });
+    document.body.addEventListener('htmx:afterRequest', ev => {
+      const elt = ev.detail.elt;
+      if (ev.detail.successful && elt && elt.matches && elt.matches('#dialog form')) closeDialog();
+    });
     document.body.addEventListener('htmx:afterSwap', ev => {
       const target = ev.detail.target || ev.target;
+      if (target.id === 'layer') {
+        const first = target.querySelector('input[type=text], select');
+        if (first) first.focus();
+      }
       if (target.closest && target.closest('#palette')) {
         const first = palette().querySelector('li[data-link]');
         if (first) first.classList.add('on');

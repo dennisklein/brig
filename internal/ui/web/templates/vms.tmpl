@@ -2,6 +2,7 @@
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
 {{define "content"}}
-<div class="head"><div class="titles"><h1>VMs</h1><div class="sub">Each VM runs one OpenShell gateway, registered on this host as brig-NAME.</div></div></div>
+<div class="head"><div class="titles"><h1>VMs</h1><div class="sub">Each VM runs one OpenShell gateway, registered on this host as brig-NAME.</div></div>
+  <div class="actions">{{template "act" (act $ "create" "" "primary")}}</div></div>
 <section class="panel tw" sse-swap="vm-table">{{template "vm-table" .}}</section>
 {{end}}

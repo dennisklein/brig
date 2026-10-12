@@ -1,0 +1,130 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{/*
+  Dialogs. "dialog" is the frame around the fields of an action, which "dlg-ID"
+  holds. The frame asks /a/ID/preview for the command as the form changes, and
+  runs it with /a/ID/run. A dialog shows the command it runs; it never sends one.
+*/}}
+
+{{define "dialog"}}
+<div class="scrim" id="dialog" data-dialog>
+<form class="modal" autocomplete="off" role="dialog" aria-label="{{.Heading}}" hx-post="/a/{{.ID}}/run" hx-target="#tasks" hx-swap="innerHTML">
+  <div class="mh"><h2>{{.Heading}}</h2>{{with .Lead}}<div class="muted">{{.}}</div>{{end}}</div>
+  <div class="mb">
+    {{.Body}}
+    {{with .Typed}}<div class="field"><label for="d-confirm">Type <b class="mono">{{.}}</b> to confirm</label><input type="text" id="d-confirm" name="confirm" autocomplete="off" spellcheck="false"></div>{{end}}
+    <div id="preview" class="stack" hx-post="/a/{{.ID}}/preview" hx-target="this" hx-trigger="load, input from:closest form delay:150ms, change from:closest form" hx-swap="innerHTML"></div>
+  </div>
+  <div class="mf"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn {{if .Spec.Danger}}danger{{else}}primary{{end}}" id="dialog-ok" disabled>{{.Spec.OK}}</button></div>
+</form>
+</div>
+{{end}}
+
+{{define "vmfield"}}<input type="hidden" name="vm" value="{{.Form.Get "vm"}}">{{end}}
+
+{{define "dlg-start"}}{{template "vmfield" .}}
+<p class="muted">Boots {{.Form.Get "vm"}}, waits for its OpenShell gateway, registers the gateway with your openshell CLI as <span class="mono">brig-{{.Form.Get "vm"}}</span> and applies the VM's config directories.</p>
+{{end}}
+
+{{define "dlg-stop"}}{{template "vmfield" .}}
+<p class="muted">Asks the guest to shut down. Sandboxes in {{.Form.Get "vm"}} stop with it; their workspaces stay on the data disk.</p>
+<div class="checks"><label><input type="checkbox" name="force"{{if .Form.Get "force"}} checked{{end}}> Power off at once <small>Does not wait for the guest. Unsaved work in the VM can be lost.</small></label></div>
+{{end}}
+
+{{define "dlg-delete"}}{{template "vmfield" .}}
+<div class="callout bad">This deletes the data disk too: every sandbox workspace, the providers' secrets in the gateway and pushed images. Push agent branches first.</div>
+{{end}}
+
+{{define "dlg-upgrade"}}{{template "vmfield" .}}
+<div class="callout">The data disk stays, with every provider, template, image and workspace. The root disk is replaced by a fresh one on the new base image. brig starts the VM once to check it, and rolls back if the gateway does not answer.</div>
+{{end}}
+
+{{define "dlg-mount-add"}}{{template "vmfield" .}}
+<div class="row">
+  <div class="field"><label for="m-src">Host directory</label><input type="text" id="m-src" name="src" value="{{.Form.Get "src"}}" placeholder="~/src/notes" autocapitalize="off" spellcheck="false"></div>
+  <div class="field"><label for="m-target">In the VM</label><input type="text" id="m-target" name="target" value="{{.Form.Get "target"}}" placeholder="/mnt/notes" autocapitalize="off" spellcheck="false"><span class="hint">Default: /mnt/ and the directory's name.</span></div>
+</div>
+<div class="field"><span class="lbl">Access</span><div class="checks">
+  <label><input type="radio" name="access" value="ro"{{if ne (.Form.Get "access") "rw"}} checked{{end}}> Read-only <small>The default.</small></label>
+  <label><input type="radio" name="access" value="rw"{{if eq (.Form.Get "access") "rw"}} checked{{end}}> Read-write <small>What the agent user writes in the VM is yours on the host.</small></label></div></div>
+<div class="checks"><label><input type="checkbox" name="sandbox"{{if .Form.Get "sandbox"}} checked{{end}}> Offer to sandboxes <small>Sandboxes can attach it as a read-only Podman volume. This replaces read-write.</small></label></div>
+{{end}}
+
+{{define "dlg-mount-rm"}}{{template "vmfield" .}}<input type="hidden" name="target" value="{{.Form.Get "target"}}">
+{{$t := .Form.Get "target"}}
+<p class="muted">Stops sharing {{range .VM.Mounts}}{{if eq .Target $t}}<span class="mono">{{tilde .Source}}</span> {{end}}{{end}}at <span class="mono">{{$t}}</span>. The directory on the host stays as it is.</p>
+{{end}}
+
+{{define "dlg-profile"}}{{template "vmfield" .}}
+<div class="field"><label for="n-profile">Profile</label><select id="n-profile" name="profile">{{range profileNames .Snap}}<option value="{{.}}"{{if eq . ($.Form.Get "profile")}} selected{{end}}>{{.}}</option>{{end}}</select>
+  <span class="hint">Profiles live in config.yaml. This is fence 2: it applies to every sandbox in the VM, from outside the VM.</span></div>
+{{end}}
+
+{{define "dlg-resources"}}{{template "vmfield" .}}
+<div class="row">
+  <div class="field"><label for="z-cpus">CPUs</label><input type="text" id="z-cpus" name="cpus" value="{{.Form.Get "cpus"}}" inputmode="numeric"></div>
+  <div class="field"><label for="z-memory">Memory</label><input type="text" id="z-memory" name="memory" value="{{.Form.Get "memory"}}" placeholder="16GiB"></div>
+</div>
+<div class="row">
+  <div class="field"><label for="z-root">Root disk</label><input type="text" id="z-root" name="root-disk" value="{{.Form.Get "root-disk"}}" placeholder="30GiB"></div>
+  <div class="field"><label for="z-data">Data disk</label><input type="text" id="z-data" name="data-disk" value="{{.Form.Get "data-disk"}}" placeholder="80GiB"></div>
+</div>
+<p class="note">Disks only grow. The guest grows its file systems at the next boot.</p>
+{{end}}
+
+{{define "dlg-config-add"}}{{template "vmfield" .}}
+<div class="field"><label for="c-dir">Directory</label><input type="text" id="c-dir" name="dir" value="{{.Form.Get "dir"}}" placeholder="~/src/agent-openshell" autocapitalize="off" spellcheck="false"><span class="hint">With profiles/*.yaml, providers/*.yaml and policies/default.yaml. Secrets stay in your keyring.</span></div>
+{{end}}
+
+{{define "dlg-config-rm"}}{{template "vmfield" .}}<input type="hidden" name="dir" value="{{.Form.Get "dir"}}">
+<p class="muted">Stops applying <span class="mono">{{tilde (.Form.Get "dir")}}</span> to {{.Form.Get "vm"}}. The directory itself stays.</p>
+{{end}}
+
+{{define "dlg-create"}}
+<div class="row">
+  <div class="field"><label for="v-name">Name</label><input type="text" id="v-name" name="name" value="{{.Form.Get "name"}}" placeholder="scratch" autocapitalize="off" spellcheck="false"><span class="hint">Lowercase letters, digits and dashes.</span></div>
+  <div class="field"><label for="v-profile">Network</label><select id="v-profile" name="profile">{{range profileNames .Snap}}<option value="{{.}}"{{if eq . ($.Form.Get "profile")}} selected{{end}}>{{.}}</option>{{end}}</select></div>
+</div>
+<div class="row">
+  <div class="field"><label for="v-cpus">CPUs</label><input type="text" id="v-cpus" name="cpus" value="{{.Form.Get "cpus"}}" inputmode="numeric"></div>
+  <div class="field"><label for="v-memory">Memory</label><input type="text" id="v-memory" name="memory" value="{{.Form.Get "memory"}}" placeholder="8GiB"></div>
+</div>
+<div class="checks">
+  {{if .Snap.Config.OpenShellConfigs}}<label><input type="checkbox" name="configs"{{if .Form.Get "configs"}} checked{{end}}> Apply the config directories from config.yaml <small>{{range .Snap.Config.OpenShellConfigs}}<span class="mono">{{tilde .}}</span> {{end}}</small></label>{{end}}
+  <label><input type="checkbox" name="start"{{if .Form.Get "start"}} checked{{end}}> Start it after creating</label>
+</div>
+<p class="note">Add host directories on the VM's Mounts tab once it exists.</p>
+{{end}}
+
+{{define "dlg-sync-preview"}}{{template "vmfield" .}}
+<p class="muted">Compares the config directories of {{.Form.Get "vm"}} with its gateway and reports what a sync would create, update or leave. Nothing changes. The report shows in the task card; Sync is one press away.</p>
+{{end}}
+
+{{define "dlg-sync"}}{{template "vmfield" .}}
+<p class="muted">Applies the config directories of {{.Form.Get "vm"}} to its gateway: profiles, providers and the default policy. A provider's secrets may be sent to the endpoints of its profile; preview first if a profile changed.</p>
+<div class="checks">
+  <label><input type="checkbox" name="refresh"{{if .Form.Get "refresh"}} checked{{end}}> Refresh every provider's credentials <small>Even those that did not change in the keyring.</small></label>
+  <label><input type="checkbox" name="prune"{{if .Form.Get "prune"}} checked{{end}}> Prune <small>Deletes profiles and providers that brig created but no directory defines any more.</small></label>
+</div>
+{{end}}
+
+{{define "dlg-image-build"}}
+<div class="row">
+  <div class="field"><label for="b-fedora">Fedora</label><input type="text" id="b-fedora" name="fedora" value="{{.Form.Get "fedora"}}" inputmode="numeric"></div>
+  <div class="field"><label for="b-openshell">OpenShell</label><input type="text" id="b-openshell" name="openshell" value="{{.Form.Get "openshell"}}" placeholder="newest in the repository" autocapitalize="off" spellcheck="false"><span class="hint">A version such as 0.1.2.</span></div>
+</div>
+{{end}}
+
+{{define "dlg-image-prune"}}
+<p class="muted">Removes base images that no VM uses, except the newest, and mkosi's package cache.</p>
+{{end}}
+
+{{define "dlg-image-push"}}
+{{if runningVMs .Snap}}
+<div class="row">
+  <div class="field"><label for="p-vm">VM</label><select id="p-vm" name="vm">{{range runningVMs .Snap}}<option value="{{.Name}}"{{if eq .Name ($.Form.Get "vm")}} selected{{end}}>{{.Name}}</option>{{end}}</select></div>
+  <div class="field"><label for="p-image">Image in your Podman</label><input type="text" id="p-image" name="image" value="{{.Form.Get "image"}}" placeholder="localhost/my-agent:latest" autocapitalize="off" spellcheck="false"><span class="hint">As podman images lists it.</span></div>
+</div>
+{{else}}<div class="callout warn">No VM is running. Start one first: the image is loaded into its Podman.</div><input type="hidden" name="vm" value="">{{end}}
+{{end}}

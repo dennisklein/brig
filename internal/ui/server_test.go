@@ -31,6 +31,7 @@ type testServer struct {
 	cookie *http.Cookie
 	csrf   string
 	checks atomic.Int32
+	starts *fakeStarter
 }
 
 func newTestServer(t *testing.T) *testServer {
@@ -40,12 +41,13 @@ func newTestServer(t *testing.T) *testServer {
 	st := store.New()
 	now := time.Now()
 	st.SetHost(store.Host{Name: "zeta", BrigVersion: "v0.6.0", OpenShellCLI: "0.1.2", Addr: "127.0.0.1:7878"})
-	st.SetVMs(store.VMState{VMs: demo.VMs(now), Images: demo.Images(now), Profiles: demo.Profiles()})
+	st.SetVMs(store.VMState{VMs: demo.VMs(now), Images: demo.Images(now), Profiles: demo.Profiles(), Config: demo.Config()})
 	st.SetActivity(demo.Activity(now))
-	ts := &testServer{t: t, st: st, token: "the-token"}
+	ts := &testServer{t: t, st: st, token: "the-token", starts: &fakeStarter{st: st}}
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: ts.token, Port: testPort, Home: "/home/dklein",
 		CheckHost: func(context.Context, *store.Store) { ts.checks.Add(1) },
+		Starter:   ts.starts,
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
@@ -226,6 +228,7 @@ func TestPages(t *testing.T) {
 		"/vms/dev?tab=network":      "Host ports 11434",
 		"/vms/dev?tab=shell":        "brig ssh dev --root",
 		"/vms/dev?tab=bogus":        "Image and gateway",
+		"/images":                   "newest",
 		"/host":                     "Check again",
 		"/activity":                 "brig start review",
 		"/palette?q=rev":            "/vms/review",
