@@ -222,10 +222,17 @@ Pages update live.
 
 The UI also changes things: start, stop, create, delete and upgrade a VM,
 change its mounts, config directories, profile, CPUs, memory and disks,
-preview and run `brig sync`, and build, prune and push base images. Every
-change is a dialog that shows the `brig` command it runs, with a Copy
-button, and runs exactly that command; the browser never sends a command
-line. Deleting a VM asks you to type its name. A running command is a card
+preview and run `brig sync`, and build, prune and push base images. For
+sandboxes it creates them from a template or an image with providers, a
+policy file and host directories (`brig sandbox create`), starts, stops and
+deletes them, and attaches and detaches providers (`openshell`, always with
+`-g brig-NAME`). Connect shows the commands to run in your own terminal;
+there is no terminal in the browser. A sandbox's Files tab lists `/sandbox`
+and its directories by running one read-only `find` in the sandbox through its
+gateway, and shows the command that does the same. Every
+change is a dialog that shows the `brig` or `openshell` command it runs, with
+a Copy button, and runs exactly that command; the browser never sends a
+command line. Deleting a VM or a sandbox asks you to type its name. A running command is a card
 with its steps and, if it failed, its output. A VM's buttons wait while a
 command works on it. Ctrl-C in the terminal that runs `brig ui` interrupts
 the running commands the way it does in a shell, so brig rolls back. The UI
