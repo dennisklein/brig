@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package demo holds the made-up host that brig ui --demo shows: three VMs,
-// their images, a few runs and the host checks, the data of the design mock.
+// their images and OpenShell gateways, a few runs and the host checks, the
+// data of the design mock.
 // Nothing in it touches the real host.
 package demo
 
@@ -51,6 +52,9 @@ func New(st *store.Store) *Host {
 func (h *Host) Run(ctx context.Context, addr string) {
 	now := time.Now()
 	h.st.SetHost(store.Host{Name: "zeta", BrigVersion: version.Version(), OpenShellCLI: "0.1.2", Addr: addr})
+	for _, g := range Gateways(now) {
+		h.st.UpdateGateway(g.VM, func(gw *store.Gateway) bool { *gw = g; return true })
+	}
 	h.mu.Lock()
 	h.state = store.VMState{VMs: VMs(now), Images: Images(now), Profiles: Profiles(), Config: Config()}
 	h.runs = Activity(now)
@@ -72,10 +76,12 @@ func (h *Host) Run(ctx context.Context, addr string) {
 	}
 }
 
-// publish writes the state and the runs to the store. h.mu is held.
+// publish writes the state and the runs to the store, and makes the
+// gateways follow the VMs. h.mu is held.
 func (h *Host) publish() {
 	h.st.SetVMs(h.state)
 	h.st.SetActivity(h.runs)
+	followVMs(h.st, h.state.VMs)
 }
 
 // CheckHost pretends to run the host checks again.
