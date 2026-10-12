@@ -1,0 +1,390 @@
+// SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+// SPDX-License-Identifier: Apache-2.0
+
+package collect
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"reflect"
+	"slices"
+	"strings"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/dennisklein/brig/internal/ocsync"
+	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/ui/osclient"
+	"github.com/dennisklein/brig/internal/ui/store"
+)
+
+const (
+	// sandboxesEvery is how often a gateway's sandboxes are listed:
+	// OpenShell has no call that streams changes to the list.
+	sandboxesEvery = 5 * time.Second
+	// restEvery is how often providers, profiles, templates, policies and
+	// the config directories are read again.
+	restEvery = 30 * time.Second
+	// maxBackoff is the longest wait before dialing a gateway again.
+	maxBackoff = 30 * time.Second
+	// maxPolicyFile bounds the default policy file that is read to show.
+	maxPolicyFile = 256 << 10
+)
+
+// GatewayClient reads one gateway; osclient.Client is one.
+type GatewayClient interface {
+	Version(ctx context.Context) (string, error)
+	Sandboxes(ctx context.Context) ([]store.Sandbox, error)
+	Providers(ctx context.Context) ([]store.Provider, error)
+	Profiles(ctx context.Context) ([]store.Profile, error)
+	Templates(ctx context.Context) ([]store.Template, error)
+	Policy(ctx context.Context, sandbox string) (*store.Policy, error)
+	BundleChanged() bool
+	Close() error
+}
+
+// Gateways keeps the store's OpenShell gateways up to date: it reads each
+// running VM's gateway over gRPC, and every VM's config directories.
+type Gateways struct {
+	// Dial returns a client of a VM's gateway.
+	Dial func(v store.VM) (GatewayClient, error)
+	// SandboxesEvery and RestEvery are the polling intervals; zero picks
+	// the defaults.
+	SandboxesEvery, RestEvery time.Duration
+	// Backoff is the first wait before dialing a gateway again; zero picks
+	// a second.
+	Backoff time.Duration
+}
+
+// NewGateways returns a collector that reaches each gateway with the mTLS
+// bundle that brig keeps in the openshell CLI's config directory.
+func NewGateways(configHome string) *Gateways {
+	return &Gateways{Dial: func(v store.VM) (GatewayClient, error) {
+		return osclient.Dial(v.Ports.Gateway, openshell.MTLSDir(configHome, v.GatewayName()))
+	}}
+}
+
+// worker reads one VM's gateway until stopped.
+type worker struct {
+	port   int
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+func (w *worker) stop() {
+	w.cancel()
+	<-w.done
+}
+
+// Run keeps the store's gateways up to date until ctx ends.
+func (g *Gateways) Run(ctx context.Context, st *store.Store) {
+	changes, unsubscribe := st.Subscribe()
+	defer unsubscribe()
+	workers := map[string]*worker{}
+	defer func() {
+		for _, w := range workers {
+			w.stop()
+		}
+	}()
+	dirs := map[string][]string{}
+	tick := time.NewTicker(g.restEvery())
+	defer tick.Stop()
+	g.reconcile(ctx, st, workers, dirs, true)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t := <-changes:
+			if t != store.TopicVMs {
+				continue
+			}
+			g.reconcile(ctx, st, workers, dirs, false)
+		case <-tick.C:
+			g.reconcile(ctx, st, workers, dirs, true)
+		}
+	}
+}
+
+// reconcile starts a worker for each running VM and stops the others, and
+// reads the config directories of the VMs whose directories changed, or of
+// all with reread.
+func (g *Gateways) reconcile(ctx context.Context, st *store.Store, workers map[string]*worker, dirs map[string][]string, reread bool) {
+	sn := st.Snapshot()
+	names := map[string]bool{}
+	for _, v := range sn.VMs {
+		names[v.Name] = true
+		if prev, ok := dirs[v.Name]; reread || !ok || !slices.Equal(prev, v.OpenShellConfigs) {
+			dirs[v.Name] = slices.Clone(v.OpenShellConfigs)
+			cfg := readConfig(v.OpenShellConfigs)
+			st.UpdateGateway(v.Name, func(gw *store.Gateway) bool {
+				if reflect.DeepEqual(gw.Config, cfg) {
+					return false
+				}
+				gw.Config = cfg
+				return true
+			})
+		}
+		w := workers[v.Name]
+		if w != nil && (!v.Running() || w.port != v.Ports.Gateway) {
+			w.stop()
+			delete(workers, v.Name)
+			w = nil
+			st.UpdateGateway(v.Name, func(gw *store.Gateway) bool {
+				gw.State, gw.Err = store.GatewayStopped, ""
+				return true
+			})
+		}
+		if w == nil && v.Running() {
+			workers[v.Name] = g.start(ctx, st, v)
+		}
+	}
+	for name, w := range workers {
+		if !names[name] {
+			w.stop()
+			delete(workers, name)
+		}
+	}
+	for name := range dirs {
+		if !names[name] {
+			delete(dirs, name)
+		}
+	}
+	st.RemoveGateways(func(vm string) bool { return names[vm] })
+}
+
+// start starts a worker for the gateway of v.
+func (g *Gateways) start(ctx context.Context, st *store.Store, v store.VM) *worker {
+	ctx, cancel := context.WithCancel(ctx)
+	w := &worker{port: v.Ports.Gateway, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(w.done)
+		g.work(ctx, st, v)
+	}()
+	return w
+}
+
+// errBundleChanged ends a connection whose client bundle was replaced.
+var errBundleChanged = errors.New("the mTLS client bundle changed")
+
+// work reads the gateway of v until ctx ends, dialing again after an error,
+// with a growing wait.
+func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
+	st.UpdateGateway(v.Name, func(gw *store.Gateway) bool {
+		gw.State, gw.Err = store.GatewayConnecting, ""
+		return true
+	})
+	backoff := g.backoff()
+	for {
+		c, err := g.Dial(v)
+		if err == nil {
+			var answered bool
+			answered, err = g.serve(ctx, st, v.Name, c)
+			_ = c.Close()
+			if answered {
+				backoff = g.backoff()
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if errors.Is(err, errBundleChanged) {
+			st.UpdateGateway(v.Name, func(gw *store.Gateway) bool {
+				gw.State, gw.Err = store.GatewayConnecting, ""
+				return true
+			})
+			continue
+		}
+		msg := describe(v, err)
+		st.UpdateGateway(v.Name, func(gw *store.Gateway) bool {
+			if gw.State == store.GatewayUnreachable && gw.Err == msg {
+				return false
+			}
+			gw.State, gw.Err = store.GatewayUnreachable, msg
+			return true
+		})
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, maxBackoff)
+	}
+}
+
+// serve reads the gateway through c until an error or ctx ends. It reports
+// whether the gateway answered.
+func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient) (bool, error) {
+	version, err := c.Version(ctx)
+	if err != nil {
+		return false, err
+	}
+	var (
+		providers []store.Provider
+		profiles  []store.Profile
+		templates []store.Template
+		lastRest  time.Time
+		// policies caches each sandbox's policy, with the version and
+		// providers it was read for.
+		policies = map[string]store.Sandbox{}
+		// lastRead is when the gateway last answered every call.
+		lastRead time.Time
+	)
+	// Seen changes only with what the gateway holds, so that an unchanged
+	// gateway costs browsers nothing; when it stops answering, or its VM
+	// stops, what it held is as of the last read.
+	defer st.UpdateGateway(vm, func(gw *store.Gateway) bool {
+		if lastRead.IsZero() || gw.Seen.Equal(lastRead) {
+			return false
+		}
+		gw.Seen = lastRead
+		return true
+	})
+	tick := time.NewTicker(g.sandboxesEvery())
+	defer tick.Stop()
+	for {
+		if c.BundleChanged() {
+			return true, errBundleChanged
+		}
+		sandboxes, err := c.Sandboxes(ctx)
+		if err != nil {
+			return true, err
+		}
+		if time.Since(lastRest) >= g.restEvery() {
+			if providers, err = c.Providers(ctx); err != nil {
+				return true, err
+			}
+			if profiles, err = c.Profiles(ctx); err != nil {
+				return true, err
+			}
+			if templates, err = c.Templates(ctx); err != nil {
+				return true, err
+			}
+			lastRest = time.Now()
+			clear(policies)
+		}
+		g.addPolicies(ctx, c, sandboxes, policies)
+		lastRead = time.Now()
+		st.UpdateGateway(vm, func(gw *store.Gateway) bool {
+			if gw.State == store.GatewayReady && gw.Version == version &&
+				reflect.DeepEqual(gw.Sandboxes, sandboxes) && reflect.DeepEqual(gw.Providers, providers) &&
+				reflect.DeepEqual(gw.Profiles, profiles) && reflect.DeepEqual(gw.Templates, templates) {
+				return false
+			}
+			gw.State, gw.Err, gw.Version, gw.Seen = store.GatewayReady, "", version, lastRead
+			gw.Sandboxes, gw.Providers, gw.Profiles, gw.Templates = sandboxes, providers, profiles, templates
+			return true
+		})
+		select {
+		case <-ctx.Done():
+			return true, ctx.Err()
+		case <-tick.C:
+		}
+	}
+}
+
+// addPolicies sets the policy of each sandbox, reading those that the cache
+// does not hold for the sandbox's policy version and providers. A sandbox
+// whose policy could not be read gets the error in its place.
+func (g *Gateways) addPolicies(ctx context.Context, c GatewayClient, sandboxes []store.Sandbox, cache map[string]store.Sandbox) {
+	seen := map[string]bool{}
+	for i := range sandboxes {
+		s := &sandboxes[i]
+		seen[s.Name] = true
+		if old, ok := cache[s.Name]; ok && old.PolicyVersion == s.PolicyVersion && slices.Equal(old.Providers, s.Providers) {
+			s.Policy = old.Policy
+			continue
+		}
+		p, err := c.Policy(ctx, s.Name)
+		if err != nil {
+			s.Policy = &store.Policy{Err: describeCall(err)}
+			continue
+		}
+		s.Policy = p
+		cache[s.Name] = *s
+	}
+	for name := range cache {
+		if !seen[name] {
+			delete(cache, name)
+		}
+	}
+}
+
+// describe says why the gateway of v could not be read.
+func describe(v store.VM, err error) string {
+	msg := describeCall(err)
+	switch {
+	case strings.Contains(msg, "handshake"), strings.Contains(msg, "certificate"):
+		return fmt.Sprintf("brig ui and %s do not trust each other: %s. brig start %s fetches the gateway's client bundle again.", v.GatewayName(), msg, v.Name)
+	case status.Code(err) == codes.Unavailable:
+		return fmt.Sprintf("%s does not answer on 127.0.0.1:%d: %s", v.GatewayName(), v.Ports.Gateway, msg)
+	}
+	return msg
+}
+
+// describeCall returns a call error's message without gRPC's framing.
+func describeCall(err error) string {
+	if s, ok := status.FromError(err); ok && s.Code() != codes.OK {
+		return s.Message()
+	}
+	return err.Error()
+}
+
+// readConfig reads what the config directories dirs define.
+func readConfig(dirs []string) store.GatewayConfig {
+	cfg := store.GatewayConfig{Dirs: slices.Clone(dirs)}
+	if len(dirs) == 0 {
+		return cfg
+	}
+	set, err := ocsync.Load(dirs)
+	if err != nil {
+		cfg.Err = err.Error()
+		return cfg
+	}
+	cfg.Providers = map[string]string{}
+	for _, p := range set.Providers {
+		cfg.Providers[p.Name] = p.Path
+	}
+	cfg.Profiles = map[string]string{}
+	for _, p := range set.Profiles {
+		cfg.Profiles[p.ID] = p.Path
+	}
+	for _, p := range set.Policies {
+		cfg.Policies = append(cfg.Policies, p.Path)
+	}
+	if set.DefaultPolicy != "" {
+		cfg.DefaultPolicy = set.DefaultPolicy
+		text, err := readCapped(set.DefaultPolicy, maxPolicyFile)
+		if err != nil {
+			cfg.Err = err.Error()
+		}
+		cfg.DefaultPolicyText = text
+	}
+	return cfg
+}
+
+// readCapped reads at most limit bytes of the file at path.
+func readCapped(path string, limit int64) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > limit {
+		return string(data[:limit]), fmt.Errorf("%s is larger than %d KiB; showing its start", path, limit>>10)
+	}
+	return string(data), nil
+}
+
+func (g *Gateways) sandboxesEvery() time.Duration { return cmp.Or(g.SandboxesEvery, sandboxesEvery) }
+func (g *Gateways) restEvery() time.Duration      { return cmp.Or(g.RestEvery, restEvery) }
+func (g *Gateways) backoff() time.Duration        { return cmp.Or(g.Backoff, time.Second) }
