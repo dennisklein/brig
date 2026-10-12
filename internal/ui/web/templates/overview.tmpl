@@ -4,6 +4,7 @@
 {{define "content"}}
 <div class="head"><div class="titles"><h1>Overview</h1>
   <div class="sub" sse-swap="overview-sub">{{template "overview-sub" .}}</div></div>
+  <div class="actions">{{template "act" (act $ "create" "" "primary")}}</div>
 </div>
 <div class="grid g3 gap-below" sse-swap="vm-cards">{{template "vm-cards" .}}</div>
 <div class="grid g2">

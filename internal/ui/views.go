@@ -22,19 +22,21 @@ import (
 )
 
 // pageNames are the page templates, one file each in web/templates.
-var pageNames = []string{"overview", "vms", "vm", "host", "activity", "notfound"}
+var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound"}
 
 // fragments are the parts of pages that live updates replace: each is a
 // template of the same name, rendered again when one of its topics changes,
 // and sent as the SSE event of that name.
 var fragments = map[string][]store.Topic{
+	"tasks":           {store.TopicTasks, store.TopicOutput, store.TopicActivity},
 	"rail":            {store.TopicVMs},
 	"overview-sub":    {store.TopicVMs, store.TopicActivity},
 	"vm-cards":        {store.TopicVMs},
 	"needs":           {store.TopicVMs, store.TopicHost},
 	"recent-activity": {store.TopicActivity},
-	"vm-table":        {store.TopicVMs},
-	"vm":              {store.TopicVMs},
+	"vm-table":        {store.TopicVMs, store.TopicTasks, store.TopicActivity},
+	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity},
+	"images":          {store.TopicVMs},
 	"host-checks":     {store.TopicHost},
 	"activity-list":   {store.TopicActivity},
 }
@@ -60,7 +62,7 @@ type templates struct {
 
 func newTemplates(fsys fs.FS, funcs template.FuncMap, dev bool) (*templates, error) {
 	t := &templates{dev: dev, load: func() (*template.Template, map[string]*template.Template, error) {
-		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl")
+		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -102,14 +104,15 @@ func (t *templates) page(name string, v *view) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-// fragment renders the named fragment.
-func (t *templates) fragment(name string, v *view) (string, error) {
+// fragment renders the named fragment from data, which is a *view or a
+// value that embeds one.
+func (t *templates) fragment(name string, data any) (string, error) {
 	base, _, err := t.get()
 	if err != nil {
 		return "", err
 	}
 	var buf bytes.Buffer
-	err = base.ExecuteTemplate(&buf, name, v)
+	err = base.ExecuteTemplate(&buf, name, data)
 	return buf.String(), err
 }
 
@@ -136,7 +139,8 @@ type view struct {
 // eventsURL returns the URL of the live updates of the named fragments,
 // with the parameters they need.
 func eventsURL(names []string, params url.Values) string {
-	q := url.Values{"f": names}
+	// Every page shows the task cards.
+	q := url.Values{"f": append([]string{"tasks"}, names...)}
 	for k, v := range params {
 		q[k] = v
 	}
@@ -148,7 +152,10 @@ type need struct {
 	Sev    string // bad, warn or info
 	Title  string
 	Detail string
+	// Link is the page that shows more; Dialog, if set, is the URL of the
+	// dialog that fixes it, which the button opens instead.
 	Link   string
+	Dialog string
 	Action string
 }
 
@@ -160,7 +167,11 @@ func needs(sn store.Snapshot) []need {
 	}
 	for _, v := range sn.VMs {
 		if v.LastSync != nil && v.LastSync.Error != "" {
-			out = append(out, need{Sev: "bad", Title: "The last sync of " + v.Name + " failed", Detail: v.LastSync.Error, Link: "/vms/" + v.Name + "?tab=openshell", Action: "Open"})
+			n := need{Sev: "bad", Title: "The last sync of " + v.Name + " failed", Detail: v.LastSync.Error, Link: "/vms/" + v.Name + "?tab=openshell", Action: "Open"}
+			if v.Running() {
+				n.Dialog, n.Action = dialogURL("sync", "vm", v.Name), "Sync again…"
+			}
+			out = append(out, n)
 		}
 	}
 	if d := sn.Doctor; d != nil {
@@ -180,7 +191,7 @@ func needs(sn store.Snapshot) []need {
 			out = append(out, need{
 				Sev: "info", Title: v.Name + " runs an older base image",
 				Detail: fmt.Sprintf("%s (OpenShell %s) is newer. brig upgrade %s keeps the data disk.", sn.NewestImage.ID, sn.NewestImage.OpenShell, v.Name),
-				Link:   "/vms/" + v.Name, Action: "Open",
+				Link:   "/vms/" + v.Name, Dialog: dialogURL("upgrade", "vm", v.Name), Action: "Upgrade…",
 			})
 		}
 	}
@@ -282,8 +293,17 @@ func funcs(home string) template.FuncMap {
 			}
 			return strings.Join(s, ", ")
 		},
-		"lines":   func(s string) []string { return strings.Split(s, "\n") },
-		"palette": palette,
+		"lines":        func(s string) []string { return strings.Split(s, "\n") },
+		"palette":      palette,
+		"act":          act,
+		"busy":         busyVM,
+		"taskView":     taskView,
+		"nextAct":      nextAct,
+		"actionLabel":  actionLabel,
+		"profileNames": profileNames,
+		"runningVMs": func(sn store.Snapshot) []store.VM {
+			return slices.DeleteFunc(slices.Clone(sn.VMs), func(v store.VM) bool { return !v.Running() })
+		},
 	}
 }
 
@@ -421,6 +441,7 @@ func palette(sn store.Snapshot, q string) []paletteItem {
 	items := []paletteItem{
 		{"Overview", "page", "/"},
 		{"VMs", "page", "/vms"},
+		{"Images", "page", "/images"},
 		{"Host checks", "page", "/host"},
 		{"Activity", "page", "/activity"},
 	}

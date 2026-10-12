@@ -44,13 +44,24 @@ type Brig struct {
 	// samples are the last resource samples by domain: a CPU share needs
 	// two of them.
 	samples map[string]libvirt.Stats
+
+	wake chan struct{}
+}
+
+// Refresh makes Run read everything again now, such as when a command that
+// changes a VM has ended, instead of at the next poll.
+func (b *Brig) Refresh() {
+	select {
+	case b.wake <- struct{}{}:
+	default:
+	}
 }
 
 // NewBrig returns a collector for the brig state in dirs.
 func NewBrig(dirs paths.Dirs) *Brig {
 	return &Brig{Dirs: dirs, Connect: func(ctx context.Context) (Domains, error) {
 		return libvirt.Connect(ctx)
-	}}
+	}, wake: make(chan struct{}, 1)}
 }
 
 // Run keeps the store's VMs up to date until ctx ends.
@@ -69,6 +80,7 @@ func (b *Brig) Run(ctx context.Context, st *store.Store) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		case <-b.wake:
 		}
 	}
 }

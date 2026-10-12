@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dennisklein/brig/internal/ui/run"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -34,6 +35,8 @@ type Server struct {
 	log       *slog.Logger
 	checkHost func(context.Context, *store.Store)
 	checking  atomic.Bool
+	starter   run.Starter
+	home      string
 	// ctx ends the live update streams when the server stops.
 	ctx context.Context
 	mux *http.ServeMux
@@ -51,7 +54,9 @@ type serverConfig struct {
 	DevAssets string
 	// CheckHost runs the host checks into the store.
 	CheckHost func(context.Context, *store.Store)
-	Log       *slog.Logger
+	// Starter runs the commands that dialogs make.
+	Starter run.Starter
+	Log     *slog.Logger
 }
 
 func newServer(ctx context.Context, c serverConfig) (*Server, error) {
@@ -65,16 +70,21 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	}
 	s := &Server{
 		st: c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a,
-		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, ctx: ctx, mux: http.NewServeMux(),
+		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
 	s.mux.HandleFunc("GET /{$}", s.overview)
 	s.mux.HandleFunc("GET /vms", s.vms)
 	s.mux.HandleFunc("GET /vms/{name}", s.vm)
+	s.mux.HandleFunc("GET /images", s.images)
 	s.mux.HandleFunc("GET /host", s.host)
 	s.mux.HandleFunc("POST /host/check", s.check)
 	s.mux.HandleFunc("GET /activity", s.activity)
 	s.mux.HandleFunc("GET /palette", s.palette)
+	s.mux.HandleFunc("GET /a/{id}", s.dialog)
+	s.mux.HandleFunc("POST /a/{id}/preview", s.preview)
+	s.mux.HandleFunc("POST /a/{id}/run", s.runAction)
+	s.mux.HandleFunc("POST /tasks/{id}/dismiss", s.dismiss)
 	s.mux.HandleFunc("GET /events", s.events)
 	s.mux.HandleFunc("/", s.notFound)
 	return s, nil
@@ -186,6 +196,12 @@ func tab(key string) string {
 	return vmTabs[0].Key
 }
 
+func (s *Server) images(w http.ResponseWriter, r *http.Request) {
+	v := s.newView(r, "images", "Images")
+	v.Events = eventsURL([]string{"rail", "images"}, nil)
+	s.render(w, http.StatusOK, "images", v)
+}
+
 func (s *Server) host(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "host", "Host")
 	if v.Snap.Doctor == nil {
@@ -250,7 +266,9 @@ func (s *Server) palette(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusNotFound, "notfound", s.newView(r, "", "Not found"))
+	v := s.newView(r, "", "Not found")
+	v.Events = eventsURL([]string{"rail"}, nil)
+	s.render(w, http.StatusNotFound, "notfound", v)
 }
 
 // listen opens brig ui's listener on 127.0.0.1: on port, or a free port if

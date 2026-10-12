@@ -9,6 +9,8 @@ package demo
 import (
 	"context"
 	"math/rand/v2"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
@@ -22,15 +24,39 @@ import (
 // tickEvery is how often the demo's CPU and memory meters move.
 const tickEvery = 3 * time.Second
 
-// Run fills st with the demo host and moves its meters until ctx ends.
-func Run(ctx context.Context, st *store.Store, addr string) {
+// Host is the demo host. It serves the fixtures, moves the meters, and
+// plays out the commands of dialogs instead of running them.
+type Host struct {
+	st *store.Store
+
+	mu    sync.Mutex
+	state store.VMState
+	// runs are the demo's activity log, newest first.
+	runs []store.Run
+	// keyringLocked makes the first sync of review fail, as a locked
+	// keyring would, so that the demo shows a failed task.
+	keyringLocked bool
+
+	quit    chan struct{}
+	wg      sync.WaitGroup
+	running atomic.Int32
+}
+
+// New returns a demo host that writes to st.
+func New(st *store.Store) *Host {
+	return &Host{st: st, quit: make(chan struct{}), keyringLocked: true}
+}
+
+// Run fills the store with the demo host and moves its meters until ctx ends.
+func (h *Host) Run(ctx context.Context, addr string) {
 	now := time.Now()
-	st.SetHost(store.Host{Name: "zeta", BrigVersion: version.Version(), OpenShellCLI: "0.1.2", Addr: addr})
-	vms := VMs(now)
-	state := store.VMState{VMs: vms, Images: Images(now), Profiles: Profiles(), Config: Config()}
-	st.SetVMs(state)
-	st.SetActivity(Activity(now))
-	st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
+	h.st.SetHost(store.Host{Name: "zeta", BrigVersion: version.Version(), OpenShellCLI: "0.1.2", Addr: addr})
+	h.mu.Lock()
+	h.state = store.VMState{VMs: VMs(now), Images: Images(now), Profiles: Profiles(), Config: Config()}
+	h.runs = Activity(now)
+	h.publish()
+	h.mu.Unlock()
+	h.st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
 	tick := time.NewTicker(tickEvery)
 	defer tick.Stop()
 	for {
@@ -39,9 +65,17 @@ func Run(ctx context.Context, st *store.Store, addr string) {
 			return
 		case <-tick.C:
 		}
-		state.VMs = wiggle(state.VMs)
-		st.SetVMs(state)
+		h.mu.Lock()
+		h.state.VMs = wiggle(h.state.VMs)
+		h.publish()
+		h.mu.Unlock()
 	}
+}
+
+// publish writes the state and the runs to the store. h.mu is held.
+func (h *Host) publish() {
+	h.st.SetVMs(h.state)
+	h.st.SetActivity(h.runs)
 }
 
 // CheckHost pretends to run the host checks again.
