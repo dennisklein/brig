@@ -152,6 +152,9 @@ p.note { margin: 12px 0 0; }
 .tw { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; font: 600 11px var(--f-body); text-transform: uppercase; letter-spacing: .07em; color: var(--faint); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+tr.grouprow th { background: var(--panel-2); text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--muted); }
+h3.group { margin: 18px 0 8px; }
+h3.group:first-child { margin-top: 0; }
 td { padding: 9px 12px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 tr.click { cursor: pointer; }

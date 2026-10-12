@@ -97,7 +97,9 @@ type topology struct {
 // node.
 type topoDetail struct {
 	Kind, Name, VM string
-	Node           topoNode
+	// Workspace is that of a sandbox's or provider's node.
+	Workspace string
+	Node      topoNode
 	// Gateway and Sandbox are those of a gateway's or sandbox's node.
 	Gateway store.Gateway
 	Sandbox store.Sandbox
@@ -186,11 +188,15 @@ func topologyOf(v *view, vm, sel string) topology {
 		add(1, topoNode{ID: gwID, Label: g.Name(), Sub: sub, Off: g.State != store.GatewayReady})
 		edge("host", gwID, "")
 		for _, s := range g.Sandboxes {
-			sbID := "sb:" + g.VM + "/" + s.Name
-			add(2, topoNode{ID: sbID, Label: s.Name, Sub: s.Phase + " · " + g.VM, Off: !s.Ready()})
+			sbID := "sb:" + g.VM + "/" + s.Workspace + "/" + s.Name
+			sub := s.Phase + " · " + g.VM
+			if g.MultiWorkspace() {
+				sub += " · " + s.Workspace
+			}
+			add(2, topoNode{ID: sbID, Label: s.Name, Sub: sub, Off: !s.Ready()})
 			edge(gwID, sbID, "")
 			for _, p := range s.Providers {
-				prID := "pr:" + g.VM + "/" + p
+				prID := "pr:" + g.VM + "/" + s.Workspace + "/" + p
 				class := ""
 				if s.Ready() {
 					class = "hot"
@@ -199,11 +205,15 @@ func topologyOf(v *view, vm, sel string) topology {
 			}
 		}
 		for _, p := range g.Providers {
-			prID := "pr:" + g.VM + "/" + p.Name
+			prID := "pr:" + g.VM + "/" + p.Workspace + "/" + p.Name
 			if !slices.ContainsFunc(edges, func(e topoEdge) bool { return e.To == prID }) {
 				continue
 			}
-			add(3, topoNode{ID: prID, Label: p.Name, Sub: strings.Join(p.Credentials, ", ")})
+			sub := strings.Join(p.Credentials, ", ")
+			if g.MultiWorkspace() {
+				sub = cmp.Or(sub, "no credentials") + " · " + p.Workspace
+			}
+			add(3, topoNode{ID: prID, Label: p.Name, Sub: sub})
 			if prof, ok := g.Profile(p.Workspace, p.Type); ok {
 				for _, ep := range prof.Endpoints {
 					addEndpoint(ep)
@@ -217,7 +227,7 @@ func topologyOf(v *view, vm, sel string) topology {
 			}
 			ep := r.Endpoint()
 			e := addEndpoint(ep)
-			sbID := "sb:" + g.VM + "/" + r.Sandbox
+			sbID := "sb:" + g.VM + "/" + r.Workspace + "/" + r.Sandbox
 			if r.Denied() {
 				e.denied = true
 				edge(sbID, "ep:"+ep, "deny")
@@ -327,14 +337,15 @@ func topoDetailOf(v *view, n topoNode, edges []topoEdge) *topoDetail {
 		d.VM = rest
 		d.Gateway, _ = sn.Gateway(rest)
 	case "sb", "pr":
-		d.VM, d.Name, _ = strings.Cut(rest, "/")
+		d.VM, rest, _ = strings.Cut(rest, "/")
+		d.Workspace, d.Name, _ = strings.Cut(rest, "/")
 		d.Gateway, _ = sn.Gateway(d.VM)
 		if kind == "sb" {
-			d.Sandbox, _ = d.Gateway.Sandbox(store.DefaultWorkspace, d.Name)
+			d.Sandbox, _ = d.Gateway.Sandbox(d.Workspace, d.Name)
 			break
 		}
-		d.Provider, _ = d.Gateway.Provider(store.DefaultWorkspace, d.Name)
-		if p, ok := d.Gateway.Profile(d.Provider.Workspace, d.Provider.Type); ok {
+		d.Provider, _ = d.Gateway.Provider(d.Workspace, d.Name)
+		if p, ok := d.Gateway.Profile(d.Workspace, d.Provider.Type); ok {
 			d.Profile = &p
 		}
 	case "ep":
@@ -358,6 +369,7 @@ func topoDetailOf(v *view, n topoNode, edges []topoEdge) *topoDetail {
 		for _, e := range edges {
 			if e.To == n.ID && strings.HasPrefix(e.From, "pr:") {
 				_, p, _ := strings.Cut(e.From, "/")
+				_, p, _ = strings.Cut(p, "/")
 				d.Providers = append(d.Providers, p)
 			}
 		}

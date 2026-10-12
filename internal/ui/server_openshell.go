@@ -8,24 +8,28 @@ import (
 	"net/url"
 
 	"github.com/dennisklein/brig/internal/ui/action"
-	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
-// sandboxes lists the sandboxes of every VM, or of the VM in the query.
+// sandboxes lists the sandboxes of every VM, or of the VM and the workspace
+// in the query.
 func (s *Server) sandboxes(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "sandboxes", "Sandboxes")
-	if f := r.URL.Query().Get("vm"); f != "" && vm.ValidateName(f) == nil {
+	q := r.URL.Query()
+	if f := q.Get("vm"); f != "" && vm.ValidateName(f) == nil {
 		v.Filter = f
 	}
-	v.Events = eventsURL([]string{"rail", "sandbox-table"}, url.Values{"filter": {v.Filter}})
+	if f := q.Get("workspace"); action.ValidWorkspaceName(f) {
+		v.WSFilter = f
+	}
+	v.Events = eventsURL([]string{"rail", "sandbox-table"}, sandboxFilterQuery(v.Filter, v.WSFilter))
 	s.render(w, http.StatusOK, "sandboxes", v)
 }
 
-// sandbox shows a sandbox of a VM's gateway.
+// sandbox shows a sandbox of a workspace of a VM's gateway.
 func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
-	vmName, name := r.PathValue("vm"), r.PathValue("name")
-	if vm.ValidateName(vmName) != nil || !action.ValidSandboxName(name) {
+	vmName, ws, name := r.PathValue("vm"), r.PathValue("workspace"), r.PathValue("name")
+	if vm.ValidateName(vmName) != nil || !action.ValidWorkspaceName(ws) || !action.ValidSandboxName(name) {
 		s.notFound(w, r)
 		return
 	}
@@ -35,7 +39,7 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	if v.Sandbox, ok = v.Gateway.Sandbox(store.DefaultWorkspace, name); !ok {
+	if v.Sandbox, ok = v.Gateway.Sandbox(ws, name); !ok {
 		s.notFound(w, r)
 		return
 	}
@@ -45,7 +49,7 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 	if v.Tab == "traffic" {
 		names = append(names, "sandbox-traffic")
 	}
-	v.Events = eventsURL(names, url.Values{"gw": {vmName}, "sb": {name}, "tab": {v.Tab}, "path": {v.Path}})
+	v.Events = eventsURL(names, url.Values{"gw": {vmName}, "ws": {ws}, "sb": {name}, "tab": {v.Tab}, "path": {v.Path}})
 	s.render(w, http.StatusOK, "sandbox", v)
 }
 
@@ -81,11 +85,13 @@ func (s *Server) gateway(w http.ResponseWriter, r *http.Request) {
 }
 
 // liveOpenShell sets what the OpenShell fragments of a live update need,
-// from its query: the gateway (gw), its sandbox (sb), their tab (tab), the
-// VM filter (filter), the selected node of the topology (sel) and the
-// Traffic page's filters, checked by checkOpenShellQuery.
+// from its query: the gateway (gw), its sandbox (sb) in the workspace (ws),
+// their tab (tab), the Sandboxes page's VM and workspace filters (filter,
+// wsfilter), the selected node of the topology (sel) and the Traffic page's
+// filters, checked by checkOpenShellQuery.
 func liveOpenShell(v *view, q url.Values) {
 	v.Filter = q.Get("filter")
+	v.WSFilter = q.Get("wsfilter")
 	v.Sel = q.Get("sel")
 	v.TrafficQ = trafficQueryOf(q)
 	gw := q.Get("gw")
@@ -95,7 +101,7 @@ func liveOpenShell(v *view, q url.Values) {
 	v.Gateway, _ = v.Snap.Gateway(gw)
 	v.VM, _ = v.Snap.VM(gw)
 	if sb := q.Get("sb"); sb != "" {
-		v.Sandbox, _ = v.Gateway.Sandbox(store.DefaultWorkspace, sb)
+		v.Sandbox, _ = v.Gateway.Sandbox(q.Get("ws"), sb)
 		v.Tab = pickTab(sandboxTabs, q.Get("tab"))
 		v.Path = filesPath(q.Get("path"))
 		return
@@ -119,6 +125,9 @@ func checkOpenShellQuery(q url.Values) bool {
 	if sel := q.Get("sel"); sel != "" && !topoIDRE.MatchString(sel) {
 		return false
 	}
+	if ws := q.Get("wsfilter"); ws != "" && !action.ValidWorkspaceName(ws) {
+		return false
+	}
 	sb := q.Get("sb")
-	return sb == "" || (q.Get("gw") != "" && action.ValidSandboxName(sb))
+	return sb == "" || (q.Get("gw") != "" && action.ValidWorkspaceName(q.Get("ws")) && action.ValidSandboxName(sb))
 }

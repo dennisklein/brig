@@ -159,9 +159,14 @@ func (h *Host) setRun(r store.Run) {
 // title names a run as brig does: the command and its first argument.
 func title(argv []string) string {
 	if argv[0] == "openshell" {
-		// The gateway option is no part of the command's name.
+		// The gateway and workspace options are no part of the command's
+		// name.
 		words := []string{"openshell"}
-		for _, a := range argv[3:] {
+		rest := argv[3:]
+		if len(rest) >= 2 && rest[0] == "--workspace" {
+			rest = rest[2:]
+		}
+		for _, a := range rest {
 			if strings.HasPrefix(a, "-") || len(words) > 5 {
 				break
 			}
@@ -195,7 +200,7 @@ func parseFlags(argv []string) flags {
 	valued := map[string]bool{
 		"--cpus": true, "--memory": true, "--root-disk": true, "--data-disk": true, "--profile": true, "--add-mount": true,
 		"--remove-mount": true, "--add-openshell-config": true, "--remove-openshell-config": true, "--fedora": true, "--openshell": true,
-		"--rule-name": true, "--binary": true, "--add-endpoint": true, "--chunk-id": true, "--rule": true, "--to": true,
+		"--rule-name": true, "--binary": true, "--add-endpoint": true, "--chunk-id": true, "--rule": true, "--to": true, "--workspace": true,
 	}
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]

@@ -41,11 +41,14 @@ func ValidSandboxName(name string) bool {
 // maxMounts is the most host directories a dialog offers to one sandbox.
 const maxMounts = 8
 
+// ValidWorkspaceName reports whether name can name an OpenShell workspace.
+func ValidWorkspaceName(name string) bool { return ValidSandboxName(name) }
+
 // openshellCommand makes the openshell command for the gateway of the VM
-// named vm. It always names the gateway: the user's shells may point at
-// another one.
-func openshellCommand(vm string, args ...string) Command {
-	return NewCommand(append([]string{"openshell", "-g", "brig-" + vm}, args...)...)
+// named vm, in the named workspace. It always names both: the user's shells
+// may point at another gateway or workspace.
+func openshellCommand(vm, workspace string, args ...string) Command {
+	return NewCommand(append([]string{"openshell", "-g", "brig-" + vm, "--workspace", workspace}, args...)...)
 }
 
 // findGateway returns the gateway of the VM that the form's field "vm"
@@ -69,7 +72,7 @@ func findGateway(f Form, c Context, what string) (store.Gateway, error) {
 }
 
 // findSandbox returns the gateway and the sandbox that the form's fields
-// "vm" and "sandbox" name.
+// "vm", "workspace" and "sandbox" name.
 func findSandbox(f Form, c Context, what string) (store.Gateway, store.Sandbox, error) {
 	g, err := findGateway(f, c, what)
 	if err != nil {
@@ -79,9 +82,13 @@ func findSandbox(f Form, c Context, what string) (store.Gateway, store.Sandbox, 
 	if !ValidSandboxName(name) {
 		return g, store.Sandbox{}, fmt.Errorf("%q is no sandbox name", name)
 	}
-	s, ok := g.Sandbox(store.DefaultWorkspace, name)
+	ws := f.Get("workspace")
+	if !ValidWorkspaceName(ws) {
+		return g, store.Sandbox{}, fmt.Errorf("%q is no workspace name", ws)
+	}
+	s, ok := g.Sandbox(ws, name)
 	if !ok {
-		return g, s, fmt.Errorf("%s has no sandbox %s", g.Name(), name)
+		return g, s, fmt.Errorf("%s has no sandbox %s in workspace %s", g.Name(), name, ws)
 	}
 	return g, s, nil
 }
@@ -98,14 +105,18 @@ func buildSandboxCreate(f Form, c Context) (Command, error) {
 	case !ValidSandboxName(name):
 		return Command{}, fmt.Errorf("name: letters, digits, dots, dashes and underscores, starting with a letter or digit, at most %d characters", maxSandboxName)
 	}
-	if _, ok := g.Sandbox(store.DefaultWorkspace, name); ok {
-		return Command{}, fmt.Errorf("%s has a sandbox %s already", g.Name(), name)
+	ws, err := createWorkspace(f, g)
+	if err != nil {
+		return Command{}, err
+	}
+	if _, ok := g.Sandbox(ws, name); ok {
+		return Command{}, fmt.Errorf("%s has a sandbox %s in workspace %s already", g.Name(), name, ws)
 	}
 	mounts, err := sandboxMounts(f, c)
 	if err != nil {
 		return Command{}, err
 	}
-	argv := []string{"brig", "sandbox", "create", g.VM}
+	argv := []string{"brig", "sandbox", "create", g.VM, "--workspace", ws}
 	for _, m := range mounts {
 		argv = append(argv, "--mount", m)
 	}
@@ -115,8 +126,8 @@ func buildSandboxCreate(f Form, c Context) (Command, error) {
 	case template != "" && image != "":
 		return Command{}, errors.New("a template brings its own image: pick one of them")
 	case template != "":
-		if !slices.ContainsFunc(g.Templates, func(t store.Template) bool { return t.Name == template }) {
-			return Command{}, fmt.Errorf("%s has no sandbox template %q", g.Name(), template)
+		if !slices.ContainsFunc(g.Templates, func(t store.Template) bool { return t.Workspace == ws && t.Name == template }) {
+			return Command{}, fmt.Errorf("%s has no sandbox template %q in workspace %s", g.Name(), template, ws)
 		}
 		argv = append(argv, "--template", template)
 	case image != "":
@@ -127,9 +138,9 @@ func buildSandboxCreate(f Form, c Context) (Command, error) {
 	}
 	var notes []string
 	for _, p := range f["provider"] {
-		prov, ok := g.Provider(store.DefaultWorkspace, p)
+		prov, ok := g.Provider(ws, p)
 		if !ok {
-			return Command{}, fmt.Errorf("%s has no provider %q", g.Name(), p)
+			return Command{}, fmt.Errorf("%s has no provider %q in workspace %s", g.Name(), p, ws)
 		}
 		if slices.Contains(providersOf(argv), p) {
 			continue
@@ -155,6 +166,24 @@ func buildSandboxCreate(f Form, c Context) (Command, error) {
 		cmd = cmd.Note("brig adds a read-only sandbox mount of each host directory to %s if it has none, and the VM keeps it for later sandboxes.", g.VM)
 	}
 	return cmd.Note("The sandbox starts without a terminal. Connect to it from your own terminal once it runs."), nil
+}
+
+// createWorkspace returns the workspace that a new sandbox goes to: the form's
+// field "workspace", which may be empty for a gateway with one workspace.
+func createWorkspace(f Form, g store.Gateway) (string, error) {
+	ws := f.Get("workspace")
+	if ws == "" {
+		switch len(g.Workspaces) {
+		case 0:
+			return store.DefaultWorkspace, nil
+		case 1:
+			return g.Workspaces[0], nil
+		}
+	}
+	if !slices.Contains(g.Workspaces, ws) && (len(g.Workspaces) > 0 || ws != store.DefaultWorkspace) {
+		return "", fmt.Errorf("workspace: %s has no workspace %q", g.Name(), ws)
+	}
+	return ws, nil
 }
 
 // providersOf returns the providers that argv attaches.
@@ -219,7 +248,7 @@ func buildSandboxStart(f Form, c Context) (Command, error) {
 	if s.Phase != "Stopped" && s.Phase != "Error" {
 		return Command{}, fmt.Errorf("%s is %s; only a stopped sandbox, or one in error, starts", s.Name, strings.ToLower(s.Phase))
 	}
-	return openshellCommand(g.VM, "sandbox", "start", s.Name).
+	return openshellCommand(g.VM, s.Workspace, "sandbox", "start", s.Name).
 		Note("The workspace /sandbox is as you left it. Programs that ran before are gone; start your agent again from a terminal."), nil
 }
 
@@ -231,7 +260,7 @@ func buildSandboxStop(f Form, c Context) (Command, error) {
 	if s.Phase == "Stopped" || s.Phase == "Stopping" || s.Phase == "Deleting" {
 		return Command{}, fmt.Errorf("%s is %s already", s.Name, strings.ToLower(s.Phase))
 	}
-	return openshellCommand(g.VM, "sandbox", "stop", s.Name).
+	return openshellCommand(g.VM, s.Workspace, "sandbox", "stop", s.Name).
 		Note("Ends every program in the sandbox, the agent included. The workspace /sandbox stays."), nil
 }
 
@@ -243,7 +272,7 @@ func buildSandboxDelete(f Form, c Context) (Command, error) {
 	if s.Phase == "Deleting" {
 		return Command{}, fmt.Errorf("%s is being deleted already", s.Name)
 	}
-	return openshellCommand(g.VM, "sandbox", "delete", s.Name), nil
+	return openshellCommand(g.VM, s.Workspace, "sandbox", "delete", s.Name), nil
 }
 
 func buildSandboxAttach(f Form, c Context) (Command, error) {
@@ -251,7 +280,7 @@ func buildSandboxAttach(f Form, c Context) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	p, ok := g.Provider(store.DefaultWorkspace, f.Get("provider"))
+	p, ok := g.Provider(s.Workspace, f.Get("provider"))
 	switch {
 	case !ok:
 		return Command{}, fmt.Errorf("%s has no provider %q", g.Name(), f.Get("provider"))
@@ -260,7 +289,7 @@ func buildSandboxAttach(f Form, c Context) (Command, error) {
 	case !s.Ready():
 		return Command{}, fmt.Errorf("%s is %s; start it before attaching a provider", s.Name, strings.ToLower(s.Phase))
 	}
-	return openshellCommand(g.VM, "sandbox", "provider", "attach", s.Name, p.Name, "--wait").
+	return openshellCommand(g.VM, s.Workspace, "sandbox", "provider", "attach", s.Name, p.Name, "--wait").
 		Note("%s", reach(g, p)).
 		Note("Only programs that the sandbox starts afterwards see the placeholders: open a new shell, or stop and start the sandbox."), nil
 }
@@ -277,6 +306,6 @@ func buildSandboxDetach(f Form, c Context) (Command, error) {
 	case !s.Ready():
 		return Command{}, fmt.Errorf("%s is %s; start it before detaching a provider", s.Name, strings.ToLower(s.Phase))
 	}
-	return openshellCommand(g.VM, "sandbox", "provider", "detach", s.Name, p, "--wait").
+	return openshellCommand(g.VM, s.Workspace, "sandbox", "provider", "detach", s.Name, p, "--wait").
 		Note("The rules that %s added to the sandbox's policy go with it. Programs that run already keep the placeholders until they restart.", p), nil
 }

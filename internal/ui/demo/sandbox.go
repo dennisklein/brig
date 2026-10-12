@@ -4,6 +4,7 @@
 package demo
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -17,22 +18,22 @@ import (
 const defaultSandboxImage = "ghcr.io/nvidia/openshell-community/sandboxes/base:latest"
 
 // openshellPlan makes the made-up openshell command for argv, which names
-// the gateway with -g first.
+// the gateway with -g and the workspace with --workspace first.
 func (h *Host) openshellPlan(argv []string) (plan, error) {
-	if len(argv) < 6 || argv[1] != "-g" || !strings.HasPrefix(argv[2], "brig-") {
+	if len(argv) < 8 || argv[1] != "-g" || !strings.HasPrefix(argv[2], "brig-") || argv[3] != "--workspace" {
 		return plan{}, fmt.Errorf("the demo cannot play %q", argv)
 	}
-	vm := strings.TrimPrefix(argv[2], "brig-")
-	if argv[3] == "policy" || argv[3] == "rule" {
-		return h.rulePlan(vm, argv[3:])
+	vm, ws := strings.TrimPrefix(argv[2], "brig-"), argv[4]
+	if argv[5] == "policy" || argv[5] == "rule" {
+		return h.rulePlan(vm, ws, argv[5:])
 	}
-	if argv[3] != "sandbox" {
+	if argv[5] != "sandbox" {
 		return plan{}, fmt.Errorf("the demo cannot play %q", argv)
 	}
-	rest := argv[4:]
+	rest := argv[6:]
 	switch {
 	case len(rest) == 2 && (rest[0] == "start" || rest[0] == "stop"):
-		return sandboxPhasePlan(vm, rest[0], rest[1]), nil
+		return sandboxPhasePlan(vm, ws, rest[0], rest[1]), nil
 	case len(rest) == 2 && rest[0] == "delete":
 		name := rest[1]
 		return plan{
@@ -40,24 +41,24 @@ func (h *Host) openshellPlan(argv []string) (plan, error) {
 			output: "Deleted sandbox " + name + "\n",
 			gwVM:   vm,
 			gw: func(g *store.Gateway) {
-				g.Sandboxes = slices.DeleteFunc(slices.Clone(g.Sandboxes), func(s store.Sandbox) bool { return s.Name == name })
+				g.Sandboxes = slices.DeleteFunc(slices.Clone(g.Sandboxes), func(s store.Sandbox) bool { return s.Workspace == ws && s.Name == name })
 			},
 		}, nil
 	case len(rest) >= 4 && rest[0] == "provider" && (rest[1] == "attach" || rest[1] == "detach"):
-		return providerPlan(vm, rest[1], rest[2], rest[3]), nil
+		return providerPlan(vm, ws, rest[1], rest[2], rest[3]), nil
 	}
 	return plan{}, fmt.Errorf("the demo cannot play %q", argv)
 }
 
-// setSandbox changes the named sandbox of g with fn.
-func setSandbox(g *store.Gateway, name string, fn func(*store.Sandbox)) {
+// setSandbox changes the named sandbox of the workspace ws of g with fn.
+func setSandbox(g *store.Gateway, ws, name string, fn func(*store.Sandbox)) {
 	g.Sandboxes = slices.Clone(g.Sandboxes)
-	if i := slices.IndexFunc(g.Sandboxes, func(s store.Sandbox) bool { return s.Name == name }); i >= 0 {
+	if i := slices.IndexFunc(g.Sandboxes, func(s store.Sandbox) bool { return s.Workspace == ws && s.Name == name }); i >= 0 {
 		fn(&g.Sandboxes[i])
 	}
 }
 
-func sandboxPhasePlan(vm, verb, name string) plan {
+func sandboxPhasePlan(vm, ws, verb, name string) plan {
 	phase, did := "Ready", "Started"
 	if verb == "stop" {
 		phase, did = "Stopped", "Stopped"
@@ -66,17 +67,19 @@ func sandboxPhasePlan(vm, verb, name string) plan {
 		steps:  []step{{name: strings.ToUpper(verb[:1]) + verb[1:] + " sandbox " + name}, {name: "Wait for the supervisor"}},
 		output: did + " sandbox " + name + "\n",
 		gwVM:   vm,
-		gw:     func(g *store.Gateway) { setSandbox(g, name, func(s *store.Sandbox) { s.Phase, s.Problem = phase, "" }) },
+		gw: func(g *store.Gateway) {
+			setSandbox(g, ws, name, func(s *store.Sandbox) { s.Phase, s.Problem = phase, "" })
+		},
 	}
 }
 
-func providerPlan(vm, verb, name, provider string) plan {
+func providerPlan(vm, ws, verb, name, provider string) plan {
 	return plan{
 		steps:  []step{{name: strings.ToUpper(verb[:1]) + verb[1:] + " provider " + provider}, {name: "Wait for the sandbox to apply it"}},
 		output: "Provider " + provider + " " + verb + "ed " + map[string]string{"attach": "to", "detach": "from"}[verb] + " " + name + "\n",
 		gwVM:   vm,
 		gw: func(g *store.Gateway) {
-			setSandbox(g, name, func(s *store.Sandbox) {
+			setSandbox(g, ws, name, func(s *store.Sandbox) {
 				providers := slices.DeleteFunc(slices.Clone(s.Providers), func(p string) bool { return p == provider })
 				if verb == "attach" {
 					providers = append(providers, provider)
@@ -95,15 +98,16 @@ func providerPlan(vm, verb, name, provider string) plan {
 }
 
 // sandboxCreatePlan makes the made-up brig sandbox create command. rest is
-// what follows "brig sandbox create": the VM, its --mount options, then --
-// and the options of openshell sandbox create.
+// what follows "brig sandbox create": the VM, its --workspace and --mount
+// options, then -- and the options of openshell sandbox create.
 func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 	if len(rest) == 0 {
 		return plan{}, fmt.Errorf("the demo cannot play brig sandbox create without a VM")
 	}
 	vm := rest[0]
 	var mounts, providers []string
-	var name, template, image, policyFile string
+	name, ws := "", store.DefaultWorkspace
+	var template, image, policyFile string
 	after := false
 	for i := 1; i < len(rest); i++ {
 		a := rest[i]
@@ -117,6 +121,8 @@ func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 		switch {
 		case a == "--":
 			after = true
+		case !after && a == "--workspace":
+			ws = next()
 		case !after && a == "--mount":
 			mounts = append(mounts, next())
 		case after && a == "--name":
@@ -142,7 +148,7 @@ func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 	p.steps = append(p.steps, step{name: "Create sandbox " + name}, step{name: "Wait for " + name + " to run"})
 	p.gw = func(g *store.Gateway) {
 		if template != "" {
-			if i := slices.IndexFunc(g.Templates, func(t store.Template) bool { return t.Name == template }); i >= 0 {
+			if i := slices.IndexFunc(g.Templates, func(t store.Template) bool { return t.Workspace == ws && t.Name == template }); i >= 0 {
 				image = g.Templates[i].Image
 			}
 		}
@@ -155,10 +161,12 @@ func (h *Host) sandboxCreatePlan(rest []string) (plan, error) {
 		}
 		slices.Sort(providers)
 		g.Sandboxes = append(slices.Clone(g.Sandboxes), store.Sandbox{
-			Workspace: store.DefaultWorkspace, Name: name, Phase: "Ready", Image: image, Template: template, Providers: providers,
+			Workspace: ws, Name: name, Phase: "Ready", Image: image, Template: template, Providers: providers,
 			Created: time.Now(), PolicyVersion: 1, Policy: policy(base, 1, providers),
 		})
-		slices.SortFunc(g.Sandboxes, func(a, b store.Sandbox) int { return strings.Compare(a.Name, b.Name) })
+		slices.SortFunc(g.Sandboxes, func(a, b store.Sandbox) int {
+			return cmp.Or(strings.Compare(a.Workspace, b.Workspace), strings.Compare(a.Name, b.Name))
+		})
 	}
 	return p, nil
 }

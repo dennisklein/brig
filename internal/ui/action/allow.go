@@ -67,7 +67,7 @@ func buildAllow(f Form, c Context) (Command, error) {
 		if !ok {
 			return Command{}, fmt.Errorf("OpenShell has no pending draft %q for %s; it may have been approved or rejected meanwhile", id, s.Name)
 		}
-		cmd := openshellCommand(g.VM, "rule", "approve", s.Name, "--chunk-id", d.ID).
+		cmd := openshellCommand(g.VM, s.Workspace, "rule", "approve", s.Name, "--chunk-id", d.ID).
 			Note("Approves the rule %s as OpenShell drafted it, shown above, into the policy of %s, which loads it at once. Other sandboxes do not get it.", d.Rule, s.Name)
 		if d.Security != "" {
 			cmd = cmd.Note("OpenShell's security notes: %s", d.Security)
@@ -75,7 +75,7 @@ func buildAllow(f Form, c Context) (Command, error) {
 		if d.Error != "" {
 			cmd = cmd.Note("The gateway could not apply this draft before: %s", d.Error)
 		}
-		cmd.NextForm = []string{"vm", g.VM, "sandbox", s.Name, "rule", d.Rule}
+		cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", d.Rule}
 		return cmd, nil
 	case AllowRule:
 	default:
@@ -118,7 +118,7 @@ func buildAllow(f Form, c Context) (Command, error) {
 	default:
 		return Command{}, fieldErr("Inspect", "choose HTTP requests or the whole connection")
 	}
-	cmd := openshellCommand(g.VM, "policy", "update", s.Name,
+	cmd := openshellCommand(g.VM, s.Workspace, "policy", "update", s.Name,
 		"--rule-name", rule, "--binary", binary, "--add-endpoint", spec, "--wait").
 		Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Other sandboxes do not get it.", spec, rule, s.Name)
 	if protocol == "" {
@@ -127,7 +127,7 @@ func buildAllow(f Form, c Context) (Command, error) {
 	if enforcement == "audit" {
 		cmd = cmd.Note("Audit logs the requests that the access level would deny, and lets them pass.")
 	}
-	cmd.NextForm = []string{"vm", g.VM, "sandbox", s.Name, "rule", rule}
+	cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", rule}
 	return cmd, nil
 }
 
@@ -166,8 +166,8 @@ func policySave(f Form, c Context, dryRun bool) (Command, error) {
 	if err != nil {
 		return Command{}, err
 	}
-	argv := []string{"brig", "policy", "save", g.VM, s.Name}
-	next := []string{"vm", g.VM, "sandbox", s.Name}
+	argv := []string{"brig", "policy", "save", g.VM, s.Name, "--workspace", s.Workspace}
+	next := []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name}
 	if rule := strings.TrimSpace(f.Get("rule")); rule != "" {
 		if !ruleKeyRE.MatchString(rule) {
 			return Command{}, fieldErr("Rule", "use letters, digits, _, . and - only")

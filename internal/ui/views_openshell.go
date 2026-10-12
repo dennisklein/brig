@@ -54,18 +54,31 @@ type sandboxRow struct {
 }
 
 // sandboxRows lists the sandboxes of every gateway, or of the VM named vm
-// only, by VM and then name.
-func sandboxRows(sn store.Snapshot, vm string) []sandboxRow {
+// and the workspace ws only, by VM, workspace and name.
+func sandboxRows(sn store.Snapshot, vm, ws string) []sandboxRow {
 	var out []sandboxRow
 	for _, g := range sn.Gateways {
 		if vm != "" && g.VM != vm {
 			continue
 		}
 		for _, s := range g.Sandboxes {
+			if ws != "" && s.Workspace != ws {
+				continue
+			}
 			out = append(out, sandboxRow{VM: g.VM, Gateway: g, Sandbox: s})
 		}
 	}
 	return out
+}
+
+// workspacesOf lists the workspaces whose objects a gateway's page groups:
+// the gateway's, else the default one, so that a gateway that never answered
+// still shows what its config directories define.
+func workspacesOf(g store.Gateway) []string {
+	if len(g.Workspaces) == 0 {
+		return []string{store.DefaultWorkspace}
+	}
+	return g.Workspaces
 }
 
 // providerRow is a row of a gateway's providers: one on the gateway, one
@@ -82,25 +95,39 @@ type providerRow struct {
 	Sandboxes []string
 }
 
-// providerRows lists the gateway's providers with the config directories'
-// providers that it lacks, by name.
-func providerRows(g store.Gateway) []providerRow {
-	var out []providerRow
-	for _, p := range g.Providers {
-		out = append(out, providerRow{Name: p.Name, Type: p.Type, Credentials: p.Credentials, Source: g.Config.Providers[p.Name]})
-	}
-	for name, path := range g.Config.Providers {
-		if _, ok := g.Provider(store.DefaultWorkspace, name); !ok {
-			out = append(out, providerRow{Name: name, Source: path, Missing: true})
+// providerGroups lists the gateway's providers by workspace, each with the
+// config directories' providers that it lacks, by name. brig sync applies
+// the config directories to the default workspace only.
+func providerGroups(g store.Gateway) []group[providerRow] {
+	var out []group[providerRow]
+	for _, ws := range workspacesOf(g) {
+		grp := group[providerRow]{Workspace: ws, Heading: g.MultiWorkspace()}
+		for _, p := range g.Providers {
+			if p.Workspace != ws {
+				continue
+			}
+			r := providerRow{Name: p.Name, Type: p.Type, Credentials: p.Credentials}
+			if ws == store.DefaultWorkspace {
+				r.Source = g.Config.Providers[p.Name]
+			}
+			grp.Rows = append(grp.Rows, r)
 		}
-	}
-	slices.SortFunc(out, func(a, b providerRow) int { return strings.Compare(a.Name, b.Name) })
-	for i := range out {
-		for _, s := range g.Sandboxes {
-			if slices.Contains(s.Providers, out[i].Name) {
-				out[i].Sandboxes = append(out[i].Sandboxes, s.Name)
+		if ws == store.DefaultWorkspace {
+			for name, path := range g.Config.Providers {
+				if _, ok := g.Provider(ws, name); !ok {
+					grp.Rows = append(grp.Rows, providerRow{Name: name, Source: path, Missing: true})
+				}
 			}
 		}
+		slices.SortFunc(grp.Rows, func(a, b providerRow) int { return strings.Compare(a.Name, b.Name) })
+		for i := range grp.Rows {
+			for _, s := range g.Sandboxes {
+				if s.Workspace == ws && slices.Contains(s.Providers, grp.Rows[i].Name) {
+					grp.Rows[i].Sandboxes = append(grp.Rows[i].Sandboxes, s.Name)
+				}
+			}
+		}
+		out = append(out, grp)
 	}
 	return out
 }
@@ -110,33 +137,100 @@ type profileRow struct {
 	store.Profile
 	// File is the file of the config directories that defines it, if any.
 	File string
-	// Providers are the gateway's providers of this type.
+	// Providers are the gateway's providers of this type, with their
+	// workspace if the gateway has several.
 	Providers []string
 }
 
-// profileRows lists the gateway's provider profiles, those its providers
-// use or its config directories define first.
-func profileRows(g store.Gateway) []profileRow {
-	out := make([]profileRow, 0, len(g.Profiles))
-	for _, p := range g.Profiles {
-		r := profileRow{Profile: p, File: g.Config.Profiles[p.ID]}
-		for _, prov := range g.Providers {
-			if prov.Type == p.ID {
-				r.Providers = append(r.Providers, prov.Name)
-			}
+// profileGroups lists the gateway's provider profiles by workspace, those
+// its providers use or its config directories define first. With several
+// workspaces the profiles of the platform, which every workspace sees, come
+// first as a group of their own; with one they join its group.
+func profileGroups(g store.Gateway) []group[profileRow] {
+	multi := g.MultiWorkspace()
+	row := func(p store.Profile) profileRow {
+		r := profileRow{Profile: p}
+		if p.Workspace == store.DefaultWorkspace {
+			r.File = g.Config.Profiles[p.ID]
 		}
-		out = append(out, r)
+		for _, prov := range g.Providers {
+			if prov.Type != p.ID || (p.Workspace != "" && prov.Workspace != p.Workspace) {
+				continue
+			}
+			name := prov.Name
+			if multi && p.Workspace == "" {
+				name += " (" + prov.Workspace + ")"
+			}
+			r.Providers = append(r.Providers, name)
+		}
+		return r
 	}
 	used := func(r profileRow) bool { return len(r.Providers) > 0 || r.File != "" }
-	slices.SortStableFunc(out, func(a, b profileRow) int {
-		switch {
-		case used(a) && !used(b):
-			return -1
-		case used(b) && !used(a):
-			return 1
+	sorted := func(rows []profileRow) []profileRow {
+		slices.SortStableFunc(rows, func(a, b profileRow) int {
+			switch {
+			case used(a) && !used(b):
+				return -1
+			case used(b) && !used(a):
+				return 1
+			}
+			return 0
+		})
+		return rows
+	}
+	if !multi {
+		grp := group[profileRow]{Workspace: workspacesOf(g)[0]}
+		for _, p := range g.Profiles {
+			grp.Rows = append(grp.Rows, row(p))
 		}
-		return 0
-	})
+		grp.Rows = sorted(grp.Rows)
+		if len(grp.Rows) == 0 {
+			return nil
+		}
+		return []group[profileRow]{grp}
+	}
+	var out []group[profileRow]
+	for _, ws := range append([]string{""}, g.Workspaces...) {
+		grp := group[profileRow]{Workspace: ws, Heading: true}
+		for _, p := range g.Profiles {
+			if p.Workspace == ws {
+				grp.Rows = append(grp.Rows, row(p))
+			}
+		}
+		if ws == "" && len(grp.Rows) == 0 {
+			continue
+		}
+		grp.Rows = sorted(grp.Rows)
+		out = append(out, grp)
+	}
+	return out
+}
+
+// templateRow is a sandbox template with the sandboxes made from it.
+type templateRow struct {
+	store.Template
+	Sandboxes []string
+}
+
+// templateGroups lists the gateway's sandbox templates by workspace.
+func templateGroups(g store.Gateway) []group[templateRow] {
+	var out []group[templateRow]
+	for _, ws := range workspacesOf(g) {
+		grp := group[templateRow]{Workspace: ws, Heading: g.MultiWorkspace()}
+		for _, t := range g.Templates {
+			if t.Workspace != ws {
+				continue
+			}
+			r := templateRow{Template: t}
+			for _, s := range g.Sandboxes {
+				if s.Workspace == ws && s.Template == t.Name {
+					r.Sandboxes = append(r.Sandboxes, s.Name)
+				}
+			}
+			grp.Rows = append(grp.Rows, r)
+		}
+		out = append(out, grp)
+	}
 	return out
 }
 
@@ -241,11 +335,11 @@ func otherMinor(g store.Gateway) bool {
 	return g.Version != "" && !openshell.CompatibleVersions(osclient.StubsVersion, g.Version)
 }
 
-// oscmd writes an openshell command for the gateway of the VM named vm, as
-// a user would type it: the gateway named, since the user's shells may
-// point at another one.
-func oscmd(vm string, args ...string) string {
-	return shellJoin(append([]string{"openshell", "-g", "brig-" + vm}, args...))
+// oscmd writes an openshell command for the gateway of the VM named vm and
+// its workspace ws, as a user would type it: both named, since the user's
+// shells may point at another gateway or workspace.
+func oscmd(vm, ws string, args ...string) string {
+	return shellJoin(append([]string{"openshell", "-g", "brig-" + vm, "--workspace", ws}, args...))
 }
 
 // shellJoin writes argv for a POSIX shell, quoting the words that need it.
@@ -301,8 +395,8 @@ func gatewayNeeds(sn store.Snapshot) []need {
 		for _, s := range g.Sandboxes {
 			if s.Phase == "Error" {
 				out = append(out, need{
-					Sev: "bad", Title: "Sandbox " + s.Name + " on " + g.VM + " failed", Detail: s.Problem,
-					Link: "/sandboxes/" + g.VM + "/" + s.Name, Action: "Open",
+					Sev: "bad", Title: "Sandbox " + sandboxLabel(sn, g.VM, s.Workspace, s.Name) + " on " + g.VM + " failed", Detail: s.Problem,
+					Link: sandboxURL(g.VM, s.Workspace, s.Name), Action: "Open",
 				})
 			}
 		}
@@ -313,46 +407,44 @@ func gatewayNeeds(sn store.Snapshot) []need {
 // openshellFuncs returns the template functions of the OpenShell pages.
 func openshellFuncs() template.FuncMap {
 	return template.FuncMap{
-		"sandboxRows":   sandboxRows,
-		"providerRows":  providerRows,
-		"profileRows":   profileRows,
-		"policyLines":   policyLines,
-		"phaseClass":    phaseClass,
-		"gatewayClass":  gatewayClass,
-		"otherMinor":    otherMinor,
-		"oscmd":         oscmd,
-		"stubsVersion":  func() string { return osclient.StubsVersion },
-		"lower":         strings.ToLower,
-		"fileSize":      fileSize,
-		"readyGateways": readyGateways,
-		"unattached":    unattached,
-		"formHas":       func(f url.Values, key, v string) bool { return slices.Contains(f[key], v) },
-		"sandboxTabs":   func() []tabDef { return sandboxTabs },
-		"gatewayTabs":   func() []tabDef { return gatewayTabs },
+		"sandboxRows":    sandboxRows,
+		"providerGroups": providerGroups,
+		"profileGroups":  profileGroups,
+		"templateGroups": templateGroups,
+		"policyLines":    policyLines,
+		"phaseClass":     phaseClass,
+		"gatewayClass":   gatewayClass,
+		"otherMinor":     otherMinor,
+		"oscmd":          oscmd,
+		"stubsVersion":   func() string { return osclient.StubsVersion },
+		"lower":          strings.ToLower,
+		"fileSize":       fileSize,
+		"readyGateways":  readyGateways,
+		"unattached":     unattached,
+		"formHas":        func(f url.Values, key, v string) bool { return slices.Contains(f[key], v) },
+		"sandboxTabs":    func() []tabDef { return sandboxTabs },
+		"gatewayTabs":    func() []tabDef { return gatewayTabs },
 		"gatewayOf": func(sn store.Snapshot, vm string) store.Gateway {
 			g, _ := sn.Gateway(vm)
 			return g
 		},
-		"providerOf": func(g store.Gateway, name string) *store.Provider {
-			if p, ok := g.Provider(store.DefaultWorkspace, name); ok {
+		"providerOf": func(g store.Gateway, ws, name string) *store.Provider {
+			if p, ok := g.Provider(ws, name); ok {
 				return &p
 			}
 			return nil
 		},
-		"profileOf": func(g store.Gateway, id string) *store.Profile {
-			if p, ok := g.Profile(store.DefaultWorkspace, id); ok {
+		"profileOf": func(g store.Gateway, ws, id string) *store.Profile {
+			if p, ok := g.Profile(ws, id); ok {
 				return &p
 			}
 			return nil
 		},
-		"templateSandboxes": func(g store.Gateway, name string) []string {
-			var out []string
-			for _, s := range g.Sandboxes {
-				if s.Template == name {
-					out = append(out, s.Name)
-				}
-			}
-			return out
+		"providersIn": func(g store.Gateway, ws string) []store.Provider {
+			return slices.DeleteFunc(slices.Clone(g.Providers), func(p store.Provider) bool { return p.Workspace != ws })
+		},
+		"templatesIn": func(g store.Gateway, ws string) []store.Template {
+			return slices.DeleteFunc(slices.Clone(g.Templates), func(t store.Template) bool { return t.Workspace != ws })
 		},
 		"sandboxCount": func(sn store.Snapshot) string {
 			ready, total := sn.SandboxCount()
@@ -370,7 +462,11 @@ func openshellPalette(sn store.Snapshot) []paletteItem {
 			items = append(items, paletteItem{g.Name() + " · " + t.Label, "gateway", "/gateways/" + g.VM + "?tab=" + t.Key})
 		}
 		for _, s := range g.Sandboxes {
-			items = append(items, paletteItem{"Sandbox " + s.Name, "on " + g.VM, "/sandboxes/" + g.VM + "/" + s.Name})
+			on := "on " + g.VM
+			if g.MultiWorkspace() {
+				on += " · " + s.Workspace
+			}
+			items = append(items, paletteItem{"Sandbox " + s.Name, on, sandboxURL(g.VM, s.Workspace, s.Name)})
 		}
 	}
 	return items

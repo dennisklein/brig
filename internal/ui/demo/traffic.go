@@ -84,7 +84,7 @@ func (p pattern) line(allowedBy string) string {
 
 // draftOf is the rule OpenShell drafts from a pattern's denials, if it
 // drafts one.
-func draftOf(sandbox string, p pattern) (store.Draft, bool) {
+func draftOf(ws, sandbox string, p pattern) (store.Draft, bool) {
 	if p.rule != "" || strings.HasPrefix(p.reason, "credential") || strings.HasPrefix(p.reason, "binary") {
 		return store.Draft{}, false
 	}
@@ -92,7 +92,7 @@ func draftOf(sandbox string, p pattern) (store.Draft, bool) {
 	portN, _ := strconv.Atoi(port)
 	name := "allow_" + strings.NewReplacer(".", "_", "-", "_").Replace(host) + "_" + port
 	return store.Draft{
-		Workspace: store.DefaultWorkspace, Sandbox: sandbox, ID: "chunk-" + strings.ReplaceAll(host, ".", "-"), Rule: name, Binary: p.program,
+		Workspace: ws, Sandbox: sandbox, ID: "chunk-" + strings.ReplaceAll(host, ".", "-"), Rule: name, Binary: p.program,
 		Endpoints: []store.DraftEndpoint{{Host: host, Port: portN}},
 		Binaries:  []string{p.program},
 		YAML: name + ":\n  name: " + name + "\n  endpoints:\n    - host: " + host + "\n      port: " + port +
@@ -107,10 +107,10 @@ func draftOf(sandbox string, p pattern) (store.Draft, bool) {
 type traffic struct {
 	st *store.Store
 	mu sync.Mutex
-	// allowed maps vm/sandbox/host:port to the rule that allows it now,
-	// with the program it allows.
+	// allowed maps vm/workspace/sandbox/host:port to the rule that allows
+	// it now, with the program it allows.
 	allowed map[string]allowedBy
-	// drafts are the pending drafts by vm/sandbox.
+	// drafts are the pending drafts by vm/workspace/sandbox.
 	drafts map[string][]store.Draft
 }
 
@@ -135,7 +135,7 @@ func (t *traffic) backfill(now time.Time, vms []store.VM) {
 
 // tick makes a request of a running sandbox at the time at.
 func (t *traffic) tick(at time.Time, vms []store.VM) {
-	type live struct{ vm, sandbox string }
+	type live struct{ vm, workspace, sandbox string }
 	var sandboxes []live
 	for _, v := range vms {
 		if !v.Running() {
@@ -144,7 +144,7 @@ func (t *traffic) tick(at time.Time, vms []store.VM) {
 		gw, _ := t.st.Snapshot().Gateway(v.Name)
 		for _, s := range gw.Sandboxes {
 			if s.Ready() && patterns[s.Name] != nil {
-				sandboxes = append(sandboxes, live{v.Name, s.Name})
+				sandboxes = append(sandboxes, live{v.Name, s.Workspace, s.Name})
 			}
 		}
 	}
@@ -155,7 +155,7 @@ func (t *traffic) tick(at time.Time, vms []store.VM) {
 	p := pick(patterns[sb.sandbox])
 	t.mu.Lock()
 	rule := p.rule
-	if a, ok := t.allowed[sb.vm+"/"+sb.sandbox+"/"+p.endpoint()]; rule == "" && ok && a.program == p.program {
+	if a, ok := t.allowed[sb.vm+"/"+sb.workspace+"/"+sb.sandbox+"/"+p.endpoint()]; rule == "" && ok && a.program == p.program {
 		rule = a.rule
 	}
 	t.mu.Unlock()
@@ -163,20 +163,20 @@ func (t *traffic) tick(at time.Time, vms []store.VM) {
 	if !ok {
 		return
 	}
-	r.Workspace, r.Sandbox, r.Time = store.DefaultWorkspace, sb.sandbox, at
+	r.Workspace, r.Sandbox, r.Time = sb.workspace, sb.sandbox, at
 	t.st.AddRequests(sb.vm, []store.Request{r})
 	if r.Denied() {
-		t.drafted(sb.vm, sb.sandbox, p, at)
+		t.drafted(sb.vm, sb.workspace, sb.sandbox, p, at)
 	}
 }
 
 // drafted counts a denial in the draft OpenShell made from it.
-func (t *traffic) drafted(vm, sandbox string, p pattern, at time.Time) {
-	d, ok := draftOf(sandbox, p)
+func (t *traffic) drafted(vm, ws, sandbox string, p pattern, at time.Time) {
+	d, ok := draftOf(ws, sandbox, p)
 	if !ok {
 		return
 	}
-	key := vm + "/" + sandbox
+	key := vm + "/" + ws + "/" + sandbox
 	t.mu.Lock()
 	drafts := slices.Clone(t.drafts[key])
 	i := slices.IndexFunc(drafts, func(x store.Draft) bool { return x.ID == d.ID })
@@ -188,13 +188,13 @@ func (t *traffic) drafted(vm, sandbox string, p pattern, at time.Time) {
 	drafts[i].LastSeen = at
 	t.drafts[key] = drafts
 	t.mu.Unlock()
-	t.st.SetDrafts(vm, store.DefaultWorkspace, sandbox, drafts)
+	t.st.SetDrafts(vm, ws, sandbox, drafts)
 }
 
 // allow lets the sandbox's program reach the endpoint from now on, by the
 // rule, and drops the drafts the rule covers.
-func (t *traffic) allow(vm, sandbox, endpoint, program, rule string) {
-	key := vm + "/" + sandbox
+func (t *traffic) allow(vm, ws, sandbox, endpoint, program, rule string) {
+	key := vm + "/" + ws + "/" + sandbox
 	t.mu.Lock()
 	t.allowed[key+"/"+endpoint] = allowedBy{rule: rule, program: program}
 	host, _, _ := strings.Cut(endpoint, ":")
@@ -203,18 +203,19 @@ func (t *traffic) allow(vm, sandbox, endpoint, program, rule string) {
 	})
 	t.drafts[key] = drafts
 	t.mu.Unlock()
-	t.st.SetDrafts(vm, store.DefaultWorkspace, sandbox, drafts)
+	t.st.SetDrafts(vm, ws, sandbox, drafts)
 }
 
 // draft returns the pending draft of the sandbox with the ID id.
-func (t *traffic) draft(vm, sandbox, id string) (store.Draft, bool) {
+func (t *traffic) draft(vm, ws, sandbox, id string) (store.Draft, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	i := slices.IndexFunc(t.drafts[vm+"/"+sandbox], func(d store.Draft) bool { return d.ID == id })
+	key := vm + "/" + ws + "/" + sandbox
+	i := slices.IndexFunc(t.drafts[key], func(d store.Draft) bool { return d.ID == id })
 	if i < 0 {
 		return store.Draft{}, false
 	}
-	return t.drafts[vm+"/"+sandbox][i], true
+	return t.drafts[key][i], true
 }
 
 func pick(ps []pattern) pattern {

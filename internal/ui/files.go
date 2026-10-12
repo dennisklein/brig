@@ -21,9 +21,9 @@ import (
 	"github.com/dennisklein/brig/internal/vm"
 )
 
-// workspace is the directory of a sandbox that the Files tab shows. Its
+// sandboxDir is the directory of a sandbox that the Files tab shows. Its
 // listings stay inside it.
-const workspace = "/sandbox"
+const sandboxDir = "/sandbox"
 
 // maxPath bounds the path of a listing.
 const maxPath = 1024
@@ -40,7 +40,7 @@ func workspacePath(p string) (string, bool) {
 		return "", false
 	}
 	p = path.Clean(p)
-	return p, p == workspace || strings.HasPrefix(p, workspace+"/")
+	return p, p == sandboxDir || strings.HasPrefix(p, sandboxDir+"/")
 }
 
 // filesPath returns the directory that a page's query names, else the
@@ -49,7 +49,7 @@ func filesPath(q string) string {
 	if p, ok := workspacePath(q); ok {
 		return p
 	}
-	return workspace
+	return sandboxDir
 }
 
 // fileSize writes a file's size for a table: bytes below a KiB, else one
@@ -98,31 +98,31 @@ type dirView struct {
 }
 
 // filesURL is the link to the Files tab of the sandbox, in the directory dir.
-func filesURL(vmName, sandbox, dir string) string {
-	return "/sandboxes/" + vmName + "/" + sandbox + "?" + url.Values{"tab": {"files"}, "path": {dir}}.Encode()
+func filesURL(vmName, ws, sandbox, dir string) string {
+	return sandboxURL(vmName, ws, sandbox) + "?" + url.Values{"tab": {"files"}, "path": {dir}}.Encode()
 }
 
 // crumbs lists the directories from the workspace down to dir.
-func crumbs(vmName, sandbox, dir string) []crumb {
-	out := []crumb{{Label: workspace, Href: filesURL(vmName, sandbox, workspace)}}
-	cur := workspace
-	for _, seg := range strings.Split(strings.TrimPrefix(dir, workspace), "/") {
+func crumbs(vmName, ws, sandbox, dir string) []crumb {
+	out := []crumb{{Label: sandboxDir, Href: filesURL(vmName, ws, sandbox, sandboxDir)}}
+	cur := sandboxDir
+	for _, seg := range strings.Split(strings.TrimPrefix(dir, sandboxDir), "/") {
 		if seg == "" {
 			continue
 		}
 		cur = path.Join(cur, seg)
-		out = append(out, crumb{Label: seg, Href: filesURL(vmName, sandbox, cur)})
+		out = append(out, crumb{Label: seg, Href: filesURL(vmName, ws, sandbox, cur)})
 	}
 	return out
 }
 
 // rows turns a listing into rows: directories first, then by name.
-func rows(vmName, sandbox, dir string, d store.Dir) []fileRow {
+func rows(vmName, ws, sandbox, dir string, d store.Dir) []fileRow {
 	out := make([]fileRow, 0, len(d.Files))
 	for _, f := range d.Files {
 		r := fileRow{Name: termtext.Escape(f.Name), Kind: f.Kind, Size: max(0, f.Size), Mod: f.Mod}
 		if f.Kind == "dir" && r.Name == f.Name && f.Name != "" {
-			r.Href = filesURL(vmName, sandbox, path.Join(dir, f.Name))
+			r.Href = filesURL(vmName, ws, sandbox, path.Join(dir, f.Name))
 		}
 		out = append(out, r)
 	}
@@ -142,23 +142,23 @@ func rows(vmName, sandbox, dir string, d store.Dir) []fileRow {
 // the Files tab loads. Listing runs a read-only command in the sandbox
 // through its gateway; a sandbox that does not run is not asked.
 func (s *Server) sandboxFiles(w http.ResponseWriter, r *http.Request) {
-	vmName, name := r.PathValue("vm"), r.PathValue("name")
+	vmName, ws, name := r.PathValue("vm"), r.PathValue("workspace"), r.PathValue("name")
 	dir, ok := workspacePath(r.URL.Query().Get("path"))
-	if vm.ValidateName(vmName) != nil || !action.ValidSandboxName(name) || !ok {
+	if vm.ValidateName(vmName) != nil || !action.ValidWorkspaceName(ws) || !action.ValidSandboxName(name) || !ok {
 		s.notFound(w, r)
 		return
 	}
 	v := s.newView(r, "", "")
 	var found bool
 	if v.Gateway, found = v.Snap.Gateway(vmName); found {
-		v.Sandbox, found = v.Gateway.Sandbox(store.DefaultWorkspace, name)
+		v.Sandbox, found = v.Gateway.Sandbox(ws, name)
 	}
 	if !found {
 		s.notFound(w, r)
 		return
 	}
-	d := &dirView{view: v, Dir: dir, Crumbs: crumbs(vmName, name, dir)}
-	d.Cmd = oscmd(vmName, append([]string{"sandbox", "exec", "-n", name, "--no-tty", "--"}, osclient.ListCommand(dir)...)...)
+	d := &dirView{view: v, Dir: dir, Crumbs: crumbs(vmName, ws, name, dir)}
+	d.Cmd = oscmd(vmName, ws, append([]string{"sandbox", "exec", "-n", name, "--no-tty", "--"}, osclient.ListCommand(dir)...)...)
 	switch {
 	case s.files == nil:
 		d.Err = "brig ui cannot list files here."
@@ -171,11 +171,11 @@ func (s *Server) sandboxFiles(w http.ResponseWriter, r *http.Request) {
 		listing, err := s.files.ListFiles(ctx, vmName, v.Sandbox.Workspace, name, dir)
 		cancel()
 		if err != nil {
-			s.log.Warn("listing files", "vm", vmName, "sandbox", name, "dir", dir, "err", err)
+			s.log.Warn("listing files", "vm", vmName, "workspace", ws, "sandbox", name, "dir", dir, "err", err)
 			d.Err = "The listing failed: " + termtext.EscapeLines(err.Error())
 			break
 		}
-		d.Rows, d.Truncated = rows(vmName, name, dir, listing), listing.Truncated
+		d.Rows, d.Truncated = rows(vmName, ws, name, dir, listing), listing.Truncated
 	}
 	s.fragmentResponse(w, http.StatusOK, "sandbox-dir", d)
 }

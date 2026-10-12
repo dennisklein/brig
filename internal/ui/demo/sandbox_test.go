@@ -41,9 +41,9 @@ func names(g store.Gateway) []string {
 }
 
 func TestPlaySandboxCreate(t *testing.T) {
-	g := devGateway(t, "brig", "sandbox", "create", "dev", "--mount", "/data/x:/mnt/x", "--", "--name", "aaa", "--template", "claude",
+	g := devGateway(t, "brig", "sandbox", "create", "dev", "--workspace", "default", "--mount", "/data/x:/mnt/x", "--", "--name", "aaa", "--template", "claude",
 		"--provider", "llm", "--provider", "github", "--policy", "/x/policies/tools.yaml", "--detach", "--no-auto-providers")
-	if want := []string{"aaa", "kit-dev", "tools", "webapp"}; !slices.Equal(names(g), want) {
+	if want := []string{"aaa", "kit-dev", "tools", "webapp", "webapp"}; !slices.Equal(names(g), want) {
 		t.Fatalf("sandboxes %v, want %v", names(g), want)
 	}
 	s, _ := g.Sandbox("default", "aaa")
@@ -56,23 +56,43 @@ func TestPlaySandboxCreate(t *testing.T) {
 }
 
 func TestPlaySandboxChanges(t *testing.T) {
-	g := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "delete", "webapp")
-	if want := []string{"kit-dev", "tools"}; !slices.Equal(names(g), want) {
+	g := devGateway(t, "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "delete", "webapp")
+	if want := []string{"kit-dev", "tools", "webapp"}; !slices.Equal(names(g), want) {
 		t.Errorf("after delete: %v, want %v", names(g), want)
 	}
-	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "start", "tools").Sandbox("default", "tools"); s.Phase != "Ready" {
+	if _, ok := g.Sandbox("team", "webapp"); !ok {
+		t.Error("deleting a sandbox deleted the one of the same name in another workspace")
+	}
+	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "start", "tools").Sandbox("default", "tools"); s.Phase != "Ready" {
 		t.Errorf("after start: %s", s.Phase)
 	}
-	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "stop", "webapp").Sandbox("default", "webapp"); s.Phase != "Stopped" {
+	if s, _ := devGateway(t, "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "stop", "webapp").Sandbox("default", "webapp"); s.Phase != "Stopped" {
 		t.Errorf("after stop: %s", s.Phase)
 	}
-	s, _ := devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "provider", "attach", "kit-dev", "github", "--wait").Sandbox("default", "kit-dev")
+	s, _ := devGateway(t, "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "provider", "attach", "kit-dev", "github", "--wait").Sandbox("default", "kit-dev")
 	if !slices.Equal(s.Providers, []string{"github", "llm"}) || s.PolicyVersion != 2 || len(s.Policy.ProviderRules) != 2 {
 		t.Errorf("after attach: %+v", s)
 	}
-	s, _ = devGateway(t, "openshell", "-g", "brig-dev", "sandbox", "provider", "detach", "webapp", "github", "--wait").Sandbox("default", "webapp")
+	s, _ = devGateway(t, "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "provider", "detach", "webapp", "github", "--wait").Sandbox("default", "webapp")
 	if !slices.Equal(s.Providers, []string{"llm"}) || len(s.Policy.ProviderRules) != 1 {
 		t.Errorf("after detach: %+v", s)
+	}
+}
+
+func TestPlayInTheOtherWorkspace(t *testing.T) {
+	g := devGateway(t, "openshell", "-g", "brig-dev", "--workspace", "team", "sandbox", "stop", "webapp")
+	if s, _ := g.Sandbox("team", "webapp"); s.Phase != "Stopped" {
+		t.Errorf("team's webapp after stop: %s", s.Phase)
+	}
+	if s, _ := g.Sandbox("default", "webapp"); s.Phase != "Ready" {
+		t.Errorf("default's webapp after team's stop: %s", s.Phase)
+	}
+	g = devGateway(t, "brig", "sandbox", "create", "dev", "--workspace", "team", "--", "--name", "kit-dev", "--template", "pi")
+	if s, ok := g.Sandbox("team", "kit-dev"); !ok || s.Image != "localhost/pi-agent:2026-10-08" {
+		t.Errorf("team's new sandbox: %+v, %v", s, ok)
+	}
+	if want := []string{"kit-dev", "tools", "webapp", "kit-dev", "webapp"}; !slices.Equal(names(g), want) {
+		t.Errorf("sandboxes %v, want %v", names(g), want)
 	}
 }
 
@@ -81,7 +101,8 @@ func TestPlayRefusesWhatItDoesNotKnow(t *testing.T) {
 	for _, argv := range [][]string{
 		{"openshell", "sandbox", "delete", "x"},
 		{"openshell", "-g", "other", "sandbox", "delete", "x"},
-		{"openshell", "-g", "brig-dev", "provider", "list"},
+		{"openshell", "-g", "brig-dev", "--workspace", "default", "provider", "list"},
+		{"openshell", "-g", "brig-dev", "sandbox", "delete", "x"},
 		{"brig", "sandbox", "create"},
 	} {
 		if _, err := h.plan(argv); err == nil {
@@ -92,8 +113,8 @@ func TestPlayRefusesWhatItDoesNotKnow(t *testing.T) {
 
 func TestTitle(t *testing.T) {
 	for argv, want := range map[string][]string{
-		"openshell sandbox delete webapp":                  {"openshell", "-g", "brig-dev", "sandbox", "delete", "webapp"},
-		"openshell sandbox provider attach kit-dev github": {"openshell", "-g", "brig-dev", "sandbox", "provider", "attach", "kit-dev", "github", "--wait"},
+		"openshell sandbox delete webapp":                  {"openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "delete", "webapp"},
+		"openshell sandbox provider attach kit-dev github": {"openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "provider", "attach", "kit-dev", "github", "--wait"},
 		"brig sandbox create":                              {"brig", "sandbox", "create", "dev", "--", "--name", "x"},
 	} {
 		if got := title(want); got != argv {

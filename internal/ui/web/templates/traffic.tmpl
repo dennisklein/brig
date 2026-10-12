@@ -2,10 +2,11 @@
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
 {{define "content"}}{{$q := .TrafficQ}}
-<div class="head"><div class="titles"><h1>Traffic{{with $q.Sandbox}} <span class="muted">· {{.}}</span>{{end}}</h1><div class="sub">Requests of sandboxes as OpenShell's proxy decided them (fence 1). Drops at fence 2, the VM's network profile, are not logged yet.</div></div>
+<div class="head"><div class="titles"><h1>Traffic{{with $q.Sandbox}} <span class="muted">· {{.}}{{with $q.Workspace}} ({{.}}){{end}}</span>{{else}}{{with $q.Workspace}} <span class="muted">· workspace {{.}}</span>{{end}}{{end}}</h1><div class="sub">Requests of sandboxes as OpenShell's proxy decided them (fence 1). Drops at fence 2, the VM's network profile, are not logged yet.</div></div>
   <div class="actions">
     <nav class="seg" aria-label="Verdict"><a class="{{if not $q.Denied}}on{{end}}" href="{{($q.With false).URL}}">All</a><a class="{{if $q.Denied}}on{{end}}" href="{{($q.With true).URL}}">Denied</a></nav>
     <nav class="seg" aria-label="Filter by VM"><a class="{{if not $q.VM}}on{{end}}" href="{{($q.OnVM "").URL}}">All VMs</a>{{range .Snap.VMs}}<a class="{{if and (eq .Name $q.VM) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnVM .Name).URL}}">{{.Name}}</a>{{end}}</nav>
+    {{with workspaceChoices .Snap $q.VM}}<nav class="seg" aria-label="Filter by workspace"><a class="{{if and (not $q.Workspace) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnWorkspace "").URL}}">All workspaces</a>{{range .}}<a class="{{if and (eq . $q.Workspace) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnWorkspace .).URL}}">{{.}}</a>{{end}}</nav>{{end}}
   </div>
 </div>
 <section class="panel tw" sse-swap="traffic-table">{{template "traffic-table" .}}</section>

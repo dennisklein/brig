@@ -12,7 +12,7 @@ import (
 
 // rulePlan plays an openshell command on the gateway of the VM named vm
 // that adds or approves a rule, as Allow… does. h.mu is held.
-func (h *Host) rulePlan(vm string, args []string) (plan, error) {
+func (h *Host) rulePlan(vm, ws string, args []string) (plan, error) {
 	if len(args) < 3 {
 		return plan{}, fmt.Errorf("the demo cannot play openshell %q", args)
 	}
@@ -37,13 +37,13 @@ func (h *Host) rulePlan(vm string, args []string) (plan, error) {
 			steps:  []step{{name: "Validate the rule"}, {name: "Merge it into the policy of " + sandbox}, {name: "Wait for " + sandbox + " to load it"}},
 			output: fmt.Sprintf("✓ Rule %s updated on sandbox %s\n✓ Policy loaded by the sandbox\n", rule, sandbox),
 			after: func() {
-				addRule(h.st, vm, sandbox, yaml)
-				h.traffic.allow(vm, sandbox, parts[0]+":"+parts[1], binary, rule)
+				addRule(h.st, vm, ws, sandbox, yaml)
+				h.traffic.allow(vm, ws, sandbox, parts[0]+":"+parts[1], binary, rule)
 			},
 		}, nil
 	case "rule approve":
 		id := first(f.values["--chunk-id"])
-		d, ok := h.traffic.draft(vm, sandbox, id)
+		d, ok := h.traffic.draft(vm, ws, sandbox, id)
 		if !ok {
 			return plan{steps: []step{{name: "Approve draft " + id}}, fail: "no pending draft " + id + " for sandbox " + sandbox}, nil
 		}
@@ -51,9 +51,9 @@ func (h *Host) rulePlan(vm string, args []string) (plan, error) {
 			steps:  []step{{name: "Approve draft " + id}, {name: "Merge it into the policy of " + sandbox}},
 			output: fmt.Sprintf("✓ Approved draft %s (%s) for sandbox %s\n", id, d.Rule, sandbox),
 			after: func() {
-				addRule(h.st, vm, sandbox, d.YAML)
+				addRule(h.st, vm, ws, sandbox, d.YAML)
 				for _, e := range d.Endpoints {
-					h.traffic.allow(vm, sandbox, fmt.Sprintf("%s:%d", e.Host, e.Port), d.Binary, d.Rule)
+					h.traffic.allow(vm, ws, sandbox, fmt.Sprintf("%s:%d", e.Host, e.Port), d.Binary, d.Rule)
 				}
 			},
 		}, nil
@@ -69,11 +69,11 @@ func first(xs []string) string {
 }
 
 // addRule adds a rule, policy-file YAML under its key, to the base policy
-// of the sandbox.
-func addRule(st *store.Store, vm, sandbox, yaml string) {
+// of the sandbox in the workspace ws.
+func addRule(st *store.Store, vm, ws, sandbox, yaml string) {
 	st.UpdateGateway(vm, func(gw *store.Gateway) bool {
 		for i, s := range gw.Sandboxes {
-			if s.Name != sandbox || s.Policy == nil {
+			if s.Workspace != ws || s.Name != sandbox || s.Policy == nil {
 				continue
 			}
 			base := s.Policy.Base

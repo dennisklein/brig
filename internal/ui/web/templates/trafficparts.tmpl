@@ -12,9 +12,9 @@
 
 {{define "traffic-rows"}}{{$v := .V}}{{$c := .Compact}}
 <table class="traffic"><thead><tr><th>Time</th><th>Verdict</th>{{if not $c}}<th>Sandbox</th>{{end}}<th>Program</th><th>Request</th><th>Rule or reason</th><th></th></tr></thead><tbody>
-{{range .Rows}}{{if .Gap}}<tr class="gaprow"><td class="mono small">{{clock .Time}}</td><td colspan="{{if $c}}5{{else}}6{{end}}"><span class="faint">Requests of {{.Sandbox}} may be missing here.</span> {{.Gap}}</td></tr>
-{{else if .Unparsed}}<tr><td class="mono small">{{clock .Time}}</td><td><span class="verdict" title="brig ui could not read this line; it is shown as it came">RAW</span></td>{{if not $c}}<td><a href="/sandboxes/{{.VM}}/{{.Sandbox}}?tab=traffic">{{.Sandbox}}</a> <span class="faint">{{.VM}}</span></td>{{end}}<td colspan="3" class="mono small raw">{{.Raw}}</td><td></td></tr>
-{{else}}<tr><td class="mono small">{{clock .Time}}</td><td>{{template "verdict" .Verdict}}</td>{{if not $c}}<td><a href="/sandboxes/{{.VM}}/{{.Sandbox}}?tab=traffic">{{.Sandbox}}</a> <span class="faint">{{.VM}}</span></td>{{end}}
+{{range .Rows}}{{if .Gap}}<tr class="gaprow"><td class="mono small">{{clock .Time}}</td><td colspan="{{if $c}}5{{else}}6{{end}}"><span class="faint">Requests of {{.Sandbox}}{{if multiWorkspace $v.Snap .VM}} ({{.Workspace}}){{end}} may be missing here.</span> {{.Gap}}</td></tr>
+{{else if .Unparsed}}<tr><td class="mono small">{{clock .Time}}</td><td><span class="verdict" title="brig ui could not read this line; it is shown as it came">RAW</span></td>{{if not $c}}<td><a href="{{sandboxTabURL .VM .Workspace .Sandbox "traffic"}}">{{.Sandbox}}</a>{{if multiWorkspace $v.Snap .VM}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{end}} <span class="faint">{{.VM}}</span></td>{{end}}<td colspan="3" class="mono small raw">{{.Raw}}</td><td></td></tr>
+{{else}}<tr><td class="mono small">{{clock .Time}}</td><td>{{template "verdict" .Verdict}}</td>{{if not $c}}<td><a href="{{sandboxTabURL .VM .Workspace .Sandbox "traffic"}}">{{.Sandbox}}</a>{{if multiWorkspace $v.Snap .VM}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{end}} <span class="faint">{{.VM}}</span></td>{{end}}
   <td class="mono small">{{with .Process}}{{.}}{{else}}<span class="faint">–</span>{{end}}</td>
   <td class="mono small req">{{.What}}</td>
   <td class="small">{{if .Denied}}{{with .Reason}}{{.}}{{else}}<span class="faint">no reason given</span>{{end}}{{else}}{{with .Policy}}<span class="mono">{{.}}</span>{{else}}<span class="faint">–</span>{{end}}{{with .Engine}} <span class="faint">{{.}}</span>{{end}}{{end}}</td>
@@ -39,8 +39,8 @@
 </tbody></table></div></section>{{end}}
 <section class="panel tw">{{template "traffic-rows" (trafficTable . (sandboxTraffic .) true)}}</section>
 <div class="stack gap-above">
-  <p class="note"><a href="{{trafficURL $g.VM $s.Name true}}">Denied requests only</a> · Drops at fence 2, the VM's network profile, are not logged yet.</p>
-  {{template "cmd" (cmd "The same log from your terminal" (oscmd $g.VM "logs" $s.Name "--tail" "--source" "sandbox"))}}
+  <p class="note"><a href="{{trafficURL $g.VM $s.Workspace $s.Name true}}">Denied requests only</a> · Drops at fence 2, the VM's network profile, are not logged yet.</p>
+  {{template "cmd" (cmd "The same log from your terminal" (oscmd $g.VM $s.Workspace "logs" $s.Name "--tail" "--source" "sandbox"))}}
 </div>
 {{end}}
 
@@ -68,9 +68,9 @@
 
 {{define "topo-detail"}}{{$v := .V}}{{$d := .D}}
 {{if eq $d.Kind "host"}}<b>{{$d.Node.Label}}</b> runs brig, brig ui and the openshell CLI, which reach each VM's gateway over mTLS on 127.0.0.1.
-{{else if eq $d.Kind "gw"}}<b>{{$d.Gateway.Name}}</b> is {{$d.Gateway.State}}{{with $d.Gateway.Version}}, OpenShell {{.}}{{end}}. <a href="/vms/{{$d.VM}}">Open the VM</a> · <a href="/gateways/{{$d.VM}}">Open the gateway</a> · <a href="{{trafficURL $d.VM "" false}}">See its traffic</a>
-{{else if eq $d.Kind "sb"}}<b>{{$d.Name}}</b> on {{$d.VM}} is {{$d.Sandbox.Phase}}. <a href="/sandboxes/{{$d.VM}}/{{$d.Name}}">Open the sandbox</a> · <a href="/sandboxes/{{$d.VM}}/{{$d.Name}}?tab=traffic">See its traffic</a>
-{{else if eq $d.Kind "pr"}}<b>Provider {{$d.Name}}</b>{{with $d.Profile}} sends {{range $i, $c := .Credentials}}{{if $i}}, {{end}}{{range $j, $e := $c.EnvVars}}{{if $j}}, {{end}}{{$e}}{{end}}{{end}} only to {{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e}}{{end}}{{with .Binaries}}, only from {{range $i, $b := .}}{{if $i}}, {{end}}{{$b}}{{end}}{{end}}.{{else}} has a profile that {{$d.Gateway.Name}} does not list.{{end}} <a href="/gateways/{{$d.VM}}">Open the gateway</a>
-{{else if eq $d.Kind "ep"}}{{with $d.Denial}}<b>{{$d.Name}}</b> was denied for <a href="/sandboxes/{{.VM}}/{{.Sandbox}}?tab=traffic">{{.Sandbox}}</a>{{with .Reason}}: {{.}}{{end}}. {{template "act" (allowAct $v .)}}{{else}}<b>{{$d.Name}}</b>{{if $d.Allowed}} was reached {{$d.Allowed}} time{{if ne $d.Allowed 1}}s{{end}} in the last hour{{else}} was not reached in the last hour{{end}}{{with $d.Providers}}; the credentials of {{range $i, $p := .}}{{if $i}}, {{end}}{{$p}}{{end}} go there{{end}}.{{end}}
+{{else if eq $d.Kind "gw"}}<b>{{$d.Gateway.Name}}</b> is {{$d.Gateway.State}}{{with $d.Gateway.Version}}, OpenShell {{.}}{{end}}. <a href="/vms/{{$d.VM}}">Open the VM</a> · <a href="/gateways/{{$d.VM}}">Open the gateway</a> · <a href="{{trafficURL $d.VM "" "" false}}">See its traffic</a>
+{{else if eq $d.Kind "sb"}}<b>{{$d.Name}}</b> on {{$d.VM}}{{if $d.Gateway.MultiWorkspace}}, workspace {{$d.Workspace}},{{end}} is {{$d.Sandbox.Phase}}. <a href="{{sandboxURL $d.VM $d.Workspace $d.Name}}">Open the sandbox</a> · <a href="{{sandboxTabURL $d.VM $d.Workspace $d.Name "traffic"}}">See its traffic</a>
+{{else if eq $d.Kind "pr"}}<b>Provider {{$d.Name}}</b>{{if $d.Gateway.MultiWorkspace}} <span class="faint">in {{$d.Workspace}}</span>{{end}}{{with $d.Profile}} sends {{range $i, $c := .Credentials}}{{if $i}}, {{end}}{{range $j, $e := $c.EnvVars}}{{if $j}}, {{end}}{{$e}}{{end}}{{end}} only to {{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e}}{{end}}{{with .Binaries}}, only from {{range $i, $b := .}}{{if $i}}, {{end}}{{$b}}{{end}}{{end}}.{{else}} has a profile that {{$d.Gateway.Name}} does not list.{{end}} <a href="/gateways/{{$d.VM}}">Open the gateway</a>
+{{else if eq $d.Kind "ep"}}{{with $d.Denial}}<b>{{$d.Name}}</b> was denied for <a href="{{sandboxTabURL .VM .Workspace .Sandbox "traffic"}}">{{.Sandbox}}</a>{{if multiWorkspace $v.Snap .VM}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{end}}{{with .Reason}}: {{.}}{{end}}. {{template "act" (allowAct $v .)}}{{else}}<b>{{$d.Name}}</b>{{if $d.Allowed}} was reached {{$d.Allowed}} time{{if ne $d.Allowed 1}}s{{end}} in the last hour{{else}} was not reached in the last hour{{end}}{{with $d.Providers}}; the credentials of {{range $i, $p := .}}{{if $i}}, {{end}}{{$p}}{{end}} go there{{end}}.{{end}}
 {{end}}
 {{end}}
