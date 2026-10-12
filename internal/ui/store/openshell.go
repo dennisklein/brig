@@ -4,6 +4,7 @@
 package store
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -225,10 +226,9 @@ type Template struct {
 // brig sync applies it.
 type GatewayConfig struct {
 	Dirs []string
-	// Providers maps provider names to the files that define them.
-	Providers map[string]string
-	// Profiles maps profile IDs to the files that define them.
-	Profiles map[string]string
+	// Workspaces holds, for each workspace that the directories define
+	// something for, the files that define it.
+	Workspaces map[string]WorkspaceConfig
 	// DefaultPolicy is the default sandbox policy's file, if any, and
 	// DefaultPolicyText its content.
 	DefaultPolicy     string
@@ -237,6 +237,24 @@ type GatewayConfig struct {
 	Policies []string
 	// Err says why the directories could not be read.
 	Err string
+}
+
+// WorkspaceConfig is what the config directories define for one workspace.
+type WorkspaceConfig struct {
+	// Providers maps provider names to the files that define them.
+	Providers map[string]string
+	// Profiles maps profile IDs to the files that define them.
+	Profiles map[string]string
+}
+
+// WorkspaceNames lists the workspaces that the config directories define
+// something for, the default workspace first.
+func (c GatewayConfig) WorkspaceNames() []string {
+	names := slices.Sorted(maps.Keys(c.Workspaces))
+	if i := slices.Index(names, DefaultWorkspace); i > 0 {
+		names = slices.Insert(slices.Delete(names, i, i+1), 0, DefaultWorkspace)
+	}
+	return names
 }
 
 // UpdateGateway changes the gateway of the VM named vm with fn, adding an

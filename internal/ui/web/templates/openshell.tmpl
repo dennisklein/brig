@@ -169,7 +169,7 @@
 {{with $v.LastSync}}{{if .Error}}<div class="callout bad gap-above"><b>The last sync, {{rel .Time}}, failed.</b><br>{{.Error}}</div>{{else}}<p class="note">Last sync of the config directories {{rel .Time}}.</p>{{end}}{{end}}
 <p class="note">brig ui never shows or takes secrets. brig sync sends them from your keyring to the gateway; to rotate one, store the new value with secret-tool and sync.</p>
 <div class="stack gap-above">
-{{if $g.Config.Dirs}}{{if $g.MultiWorkspace}}<p class="note">brig sync applies the config directories to the default workspace.</p>{{end}}{{template "cmd" (cmd "Preview what a sync would change" (print "brig sync " $g.VM " --dry-run"))}}{{end}}
+{{if $g.Config.Dirs}}{{template "cmd" (cmd "Preview what a sync would change" (print "brig sync " $g.VM " --dry-run"))}}{{end}}
 {{range providerGroups $g}}{{template "cmd" (cmd (print "The same list from your terminal" (inWorkspace $g .Workspace)) (oscmd $g.VM .Workspace "provider" "list"))}}{{end}}
 </div>
 {{end}}

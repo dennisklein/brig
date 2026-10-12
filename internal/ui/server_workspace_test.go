@@ -99,7 +99,7 @@ func TestWorkspaceGatewayPage(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
 	for target, want := range map[string][]string{
-		"/gateways/dev":                 {"workspaces default, team", `Workspace <span class="mono">team</span>`, `href="/sandboxes/dev/team/webapp"`, "--workspace team provider list", "applies the config directories to the default workspace"},
+		"/gateways/dev":                 {"workspaces default, team", `Workspace <span class="mono">team</span>`, `href="/sandboxes/dev/team/webapp"`, "--workspace team provider list"},
 		"/gateways/dev?tab=profiles":    {`Platform <span`, `Workspace <span class="mono">team</span>`, "--workspace team profile list"},
 		"/gateways/dev?tab=templates":   {`Workspace <span class="mono">team</span>`, "8Gi", "--workspace team sandbox template list"},
 		"/gateways/dev?tab=policies":    {`<span class="chip" title="Workspace">team</span>`, "/sandboxes/dev/team/webapp?tab=policy"},

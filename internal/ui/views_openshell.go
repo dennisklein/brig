@@ -96,8 +96,7 @@ type providerRow struct {
 }
 
 // providerGroups lists the gateway's providers by workspace, each with the
-// config directories' providers that it lacks, by name. brig sync applies
-// the config directories to the default workspace only.
+// config directories' providers that it lacks, by name.
 func providerGroups(g store.Gateway) []group[providerRow] {
 	var out []group[providerRow]
 	for _, ws := range workspacesOf(g) {
@@ -107,16 +106,12 @@ func providerGroups(g store.Gateway) []group[providerRow] {
 				continue
 			}
 			r := providerRow{Name: p.Name, Type: p.Type, Credentials: p.Credentials}
-			if ws == store.DefaultWorkspace {
-				r.Source = g.Config.Providers[p.Name]
-			}
+			r.Source = g.Config.Workspaces[ws].Providers[p.Name]
 			grp.Rows = append(grp.Rows, r)
 		}
-		if ws == store.DefaultWorkspace {
-			for name, path := range g.Config.Providers {
-				if _, ok := g.Provider(ws, name); !ok {
-					grp.Rows = append(grp.Rows, providerRow{Name: name, Source: path, Missing: true})
-				}
+		for name, path := range g.Config.Workspaces[ws].Providers {
+			if _, ok := g.Provider(ws, name); !ok {
+				grp.Rows = append(grp.Rows, providerRow{Name: name, Source: path, Missing: true})
 			}
 		}
 		slices.SortFunc(grp.Rows, func(a, b providerRow) int { return strings.Compare(a.Name, b.Name) })
@@ -150,9 +145,7 @@ func profileGroups(g store.Gateway) []group[profileRow] {
 	multi := g.MultiWorkspace()
 	row := func(p store.Profile) profileRow {
 		r := profileRow{Profile: p}
-		if p.Workspace == store.DefaultWorkspace {
-			r.File = g.Config.Profiles[p.ID]
-		}
+		r.File = g.Config.Workspaces[p.Workspace].Profiles[p.ID]
 		for _, prov := range g.Providers {
 			if prov.Type != p.ID || (p.Workspace != "" && prov.Workspace != p.Workspace) {
 				continue

@@ -193,17 +193,25 @@ func Gateways(now time.Time) []store.Gateway {
 	config := func(providers ...string) store.GatewayConfig {
 		c := store.GatewayConfig{
 			Dirs:              []string{configDir},
-			Providers:         map[string]string{},
-			Profiles:          map[string]string{},
+			Workspaces:        map[string]store.WorkspaceConfig{store.DefaultWorkspace: {Providers: map[string]string{}, Profiles: map[string]string{}}},
 			DefaultPolicy:     configDir + "/policies/default.yaml",
 			DefaultPolicyText: defaultPolicy,
 			Policies:          []string{configDir + "/policies/default.yaml", configDir + "/policies/tools.yaml"},
 		}
 		for _, p := range providers {
-			c.Providers[p] = configDir + "/providers/" + p + ".yaml"
+			c.Workspaces[store.DefaultWorkspace].Providers[p] = configDir + "/providers/" + p + ".yaml"
 		}
 		for _, id := range []string{"claude-code", "github", "gitlab-work"} {
-			c.Profiles[id] = configDir + "/profiles/" + id + ".yaml"
+			c.Workspaces[store.DefaultWorkspace].Profiles[id] = configDir + "/profiles/" + id + ".yaml"
+		}
+		return c
+	}
+	// withTeam adds the providers and profiles that the config directories
+	// define for the workspace team.
+	withTeam := func(c store.GatewayConfig) store.GatewayConfig {
+		c.Workspaces["team"] = store.WorkspaceConfig{
+			Providers: map[string]string{"github": configDir + "/workspaces/team/providers/github.yaml", "llm": configDir + "/workspaces/team/providers/llm.yaml"},
+			Profiles:  map[string]string{"github": configDir + "/workspaces/team/profiles/github.yaml"},
 		}
 		return c
 	}
@@ -237,7 +245,7 @@ func Gateways(now time.Time) []store.Gateway {
 				{Workspace: store.DefaultWorkspace, Name: "pi", Image: pi, CPU: "2", Memory: "4Gi"},
 				{Workspace: "team", Name: "pi", Image: pi, CPU: "4", Memory: "8Gi"},
 			},
-			Config: config("claude-code", "github", "gitlab-work", "llm"),
+			Config: withTeam(config("claude-code", "github", "gitlab-work", "llm")),
 		},
 		{
 			Workspaces: []string{store.DefaultWorkspace}, VM: "review", State: store.GatewayReady, Version: "0.1.2", Seen: now,
