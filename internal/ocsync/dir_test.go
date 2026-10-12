@@ -55,23 +55,23 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Profiles) != 2 || set.Profiles[0].ID != "corp" || set.Profiles[1].ID != "github" {
-		t.Fatalf("profiles: %+v", set.Profiles)
+	if len(set.Workspaces["default"].Profiles) != 2 || set.Workspaces["default"].Profiles[0].ID != "corp" || set.Workspaces["default"].Profiles[1].ID != "github" {
+		t.Fatalf("profiles: %+v", set.Workspaces["default"].Profiles)
 	}
-	if want := []openshell.Endpoint{{Host: "git.corp", Ports: []uint32{443, 8443}}}; !reflect.DeepEqual(set.Profiles[0].Endpoints, want) {
-		t.Errorf("corp endpoints = %+v", set.Profiles[0].Endpoints)
+	if want := []openshell.Endpoint{{Host: "git.corp", Ports: []uint32{443, 8443}}}; !reflect.DeepEqual(set.Workspaces["default"].Profiles[0].Endpoints, want) {
+		t.Errorf("corp endpoints = %+v", set.Workspaces["default"].Profiles[0].Endpoints)
 	}
 	want := Provider{
 		Name: "github", Type: "github", Path: filepath.Join(personal, "providers", "github.yaml"),
 		Credentials: map[string]Credential{"GH_TOKEN": {SecretTool: &SecretToolRef{Lookup: []string{"service", "github.com", "user", "alice"}}}},
 	}
-	if len(set.Providers) != 1 || !reflect.DeepEqual(set.Providers[0], want) {
-		t.Errorf("providers: %+v", set.Providers)
+	if len(set.Workspaces["default"].Providers) != 1 || !reflect.DeepEqual(set.Workspaces["default"].Providers[0], want) {
+		t.Errorf("providers: %+v", set.Workspaces["default"].Providers)
 	}
 	if set.DefaultPolicy != filepath.Join(team, "policies", "default.yaml") {
 		t.Errorf("default policy %q", set.DefaultPolicy)
 	}
-	if set, err := Load([]string{t.TempDir()}); err != nil || len(set.Profiles)+len(set.Providers) != 0 || set.DefaultPolicy != "" {
+	if set, err := Load([]string{t.TempDir()}); err != nil || len(set.Workspaces["default"].Profiles)+len(set.Workspaces["default"].Providers) != 0 || set.DefaultPolicy != "" {
 		t.Errorf("empty directory: %+v, %v", set, err)
 	}
 }
@@ -88,13 +88,13 @@ func TestLoadJSONEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []openshell.Endpoint{{Host: "api.example.com", Port: 443}}; !reflect.DeepEqual(set.Profiles[0].Endpoints, want) {
-		t.Errorf("endpoints = %+v", set.Profiles[0].Endpoints)
+	if want := []openshell.Endpoint{{Host: "api.example.com", Port: 443}}; !reflect.DeepEqual(set.Workspaces["default"].Profiles[0].Endpoints, want) {
+		t.Errorf("endpoints = %+v", set.Workspaces["default"].Profiles[0].Endpoints)
 	}
-	if got := set.Providers[0].Credentials["BOT_TOKEN"].SecretTool.Lookup; !reflect.DeepEqual(got, []string{"service", "api.example.com/x"}) {
+	if got := set.Workspaces["default"].Providers[0].Credentials["BOT_TOKEN"].SecretTool.Lookup; !reflect.DeepEqual(got, []string{"service", "api.example.com/x"}) {
 		t.Errorf("lookup = %q", got)
 	}
-	file, err := writeProfile(t.TempDir(), set.Profiles[0], 0)
+	file, err := writeProfile(t.TempDir(), set.Workspaces["default"].Profiles[0], 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,11 +228,11 @@ func TestLoadSkipsHiddenFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() with hidden files: %v", err)
 	}
-	if len(set.Profiles) != 1 || len(set.Providers) != 1 {
-		t.Errorf("profiles %d, providers %d; want 1 and 1", len(set.Profiles), len(set.Providers))
+	if len(set.Workspaces["default"].Profiles) != 1 || len(set.Workspaces["default"].Providers) != 1 {
+		t.Errorf("profiles %d, providers %d; want 1 and 1", len(set.Workspaces["default"].Profiles), len(set.Workspaces["default"].Providers))
 	}
-	if want := filepath.Join(dir, "providers", "github.yaml"); set.Providers[0].Path != want {
-		t.Errorf("provider path %q, want %q", set.Providers[0].Path, want)
+	if want := filepath.Join(dir, "providers", "github.yaml"); set.Workspaces["default"].Providers[0].Path != want {
+		t.Errorf("provider path %q, want %q", set.Workspaces["default"].Providers[0].Path, want)
 	}
 }
 

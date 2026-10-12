@@ -24,6 +24,8 @@ import (
 type Gateway interface {
 	// Name is the registered gateway's name, which the CLI takes as -g.
 	Name() string
+	// Workspace is the workspace the gateway works in.
+	Workspace() string
 	Profiles(ctx context.Context) ([]openshell.Profile, error)
 	LintProfile(ctx context.Context, file string) error
 	ImportProfile(ctx context.Context, file string) error
@@ -58,28 +60,154 @@ type Options struct {
 	HoldNewEndpoints bool
 	// Verbose also reports what is up to date.
 	Verbose bool
+	// Workspaces limits SyncAll to these workspaces; empty means all.
+	Workspaces []string
 	// Out receives one line per profile or provider.
 	Out io.Writer
 }
 
-// Sync makes the gateway's default workspace match set: it imports or
-// updates the set's profiles, creates or updates its providers with
-// credentials looked up through secrets, and with Prune deletes what brig
-// created earlier but the set no longer has. Profiles and providers that
-// brig did not create are only touched when the set defines them, and never
-// deleted. Sync records what it did in st and carries on after a failed
-// step; it returns the errors of all failed steps.
-func Sync(ctx context.Context, set *Set, gw Gateway, secrets Secrets, st *State, opts Options) error {
-	if st.Profiles == nil {
-		st.Profiles = map[string]ProfileState{}
+// Host is a gateway as a whole: what SyncAll needs to reach each of its
+// workspaces and to create missing ones. The CLI's workspace commands are
+// the only place that need assumptions about how workspaces are created.
+type Host interface {
+	// Workspaces lists the names of the gateway's workspaces.
+	Workspaces(ctx context.Context) ([]string, error)
+	// CreateWorkspace creates a workspace.
+	CreateWorkspace(ctx context.Context, name string) error
+	// In returns the gateway as seen from one workspace.
+	In(workspace string) (Gateway, error)
+}
+
+// SyncAll syncs every workspace of the set, the default workspace first,
+// then the others by name, and joins the errors. A workspace that the state
+// remembers but the set no longer defines is synced against an empty set, so
+// that Prune can remove what brig created in it; the workspace itself stays.
+// A workspace that the set defines and the gateway lacks is created and
+// recorded as created by brig; brig never deletes a workspace. With
+// opts.Workspaces only those workspaces are synced. When more than one
+// workspace is synced, each one's report comes under a "workspace NAME:"
+// heading, and its errors are prefixed likewise.
+func SyncAll(ctx context.Context, set *Set, host Host, secrets Secrets, st *State, opts Options) error {
+	if opts.Out == nil {
+		opts.Out = io.Discard
 	}
-	if st.Providers == nil {
-		st.Providers = map[string]ProviderState{}
+	known := slices.Collect(maps.Keys(set.Workspaces))
+	known = append(known, slices.Collect(maps.Keys(st.Workspaces))...)
+	names := orderedWorkspaces(known)
+	if len(opts.Workspaces) > 0 {
+		var errs []error
+		for _, name := range opts.Workspaces {
+			if !slices.Contains(names, name) {
+				errs = append(errs, fmt.Errorf("workspace %s is not defined by the config directories", name))
+			}
+		}
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+		names = slices.DeleteFunc(names, func(n string) bool { return !slices.Contains(opts.Workspaces, n) })
+	}
+	var (
+		errs      []error
+		onGateway []string
+		listed    bool
+		listErr   error
+	)
+	for _, name := range names {
+		wopts := opts
+		if len(names) > 1 {
+			wopts.Out = &headingWriter{w: opts.Out, heading: "workspace " + name + ":\n"}
+		}
+		wrap := func(err error) {
+			switch {
+			case err == nil:
+			case len(names) > 1:
+				errs = append(errs, fmt.Errorf("workspace %s: %w", name, err))
+			default:
+				errs = append(errs, err)
+			}
+		}
+		wst := st.Workspace(name)
+		if name != openshell.DefaultWorkspace {
+			if !listed {
+				onGateway, listErr = host.Workspaces(ctx)
+				listed = true
+			}
+			if listErr != nil {
+				wrap(listErr)
+				continue
+			}
+			if !slices.Contains(onGateway, name) {
+				if _, defined := set.Workspaces[name]; !defined {
+					// Deleted by hand: nothing left to prune.
+					if !opts.DryRun {
+						delete(st.Workspaces, name)
+					}
+					continue
+				}
+				if !opts.DryRun {
+					if err := host.CreateWorkspace(ctx, name); err != nil {
+						fmt.Fprintf(wopts.Out, "workspace %s: failed: %v\n", name, err)
+						wrap(fmt.Errorf("create workspace: %w", err))
+						continue
+					}
+					wst.Created = true
+				}
+				action := "created"
+				if opts.DryRun {
+					action = "would create"
+				}
+				fmt.Fprintf(wopts.Out, "workspace %s: %s\n", name, action)
+				if opts.DryRun {
+					continue
+				}
+			}
+		}
+		gw, err := host.In(name)
+		if err != nil {
+			wrap(err)
+			continue
+		}
+		wrap(Sync(ctx, set.Workspaces[name], gw, secrets, st, wst, wopts))
+	}
+	return errors.Join(errs...)
+}
+
+// headingWriter writes heading before its first write.
+type headingWriter struct {
+	w       io.Writer
+	heading string
+	done    bool
+}
+
+func (h *headingWriter) Write(p []byte) (int, error) {
+	if !h.done {
+		h.done = true
+		if _, err := io.WriteString(h.w, h.heading); err != nil {
+			return 0, err
+		}
+	}
+	return h.w.Write(p)
+}
+
+// Sync makes one workspace of the gateway gw, which works in that
+// workspace, match set: it imports or updates the set's profiles, creates or
+// updates its providers with credentials looked up through secrets, and with
+// Prune deletes what brig created earlier but the set no longer has.
+// Profiles and providers that brig did not create are only touched when the
+// set defines them, and never deleted. Sync records what it did in ws, the
+// workspace's part of st, and carries on after a failed step; it returns the
+// errors of all failed steps.
+func Sync(ctx context.Context, set WorkspaceSet, gw Gateway, secrets Secrets, st *State, ws *WorkspaceState, opts Options) error {
+	if ws.Profiles == nil {
+		ws.Profiles = map[string]ProfileState{}
+	}
+	if ws.Providers == nil {
+		ws.Providers = map[string]ProviderState{}
 	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
-	s := &syncer{set: set, gw: gw, secrets: secrets, st: st, opts: opts, unapplied: map[string]bool{}}
+	s := &syncer{set: set, gw: gw, secrets: secrets, st: st, ws: ws, opts: opts, unapplied: map[string]bool{}}
 	profiles, err := gw.Profiles(ctx)
 	if err != nil {
 		return err
@@ -97,10 +225,11 @@ func Sync(ctx context.Context, set *Set, gw Gateway, secrets Secrets, st *State,
 }
 
 type syncer struct {
-	set     *Set
+	set     WorkspaceSet
 	gw      Gateway
 	secrets Secrets
 	st      *State
+	ws      *WorkspaceState
 	opts    Options
 	errs    []error
 	// lookupErr stops further secret lookups after one timed out, e.g. at
@@ -142,7 +271,7 @@ func workspaceProfiles(profiles []openshell.Profile) map[string]openshell.Profil
 }
 
 // effectiveProfile returns the gateway's profile of the given ID that the
-// default workspace uses: its own, else the platform's.
+// workspace uses: its own, else the platform's.
 func effectiveProfile(profiles []openshell.Profile, id string) (openshell.Profile, bool) {
 	i := slices.IndexFunc(profiles, func(p openshell.Profile) bool { return p.ID == id && p.Scope == openshell.ScopeWorkspace })
 	if i < 0 {
@@ -185,7 +314,7 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 	defer func() { _ = os.RemoveAll(tmp) }()
 	for _, p := range s.set.Profiles {
 		cur, exists := ws[p.ID]
-		prev, managed := s.st.Profiles[p.ID]
+		prev, managed := s.ws.Profiles[p.ID]
 		if exists && managed && prev.SHA256 == p.SHA256() {
 			s.report("profile", p.ID, "up to date", false)
 			continue
@@ -225,7 +354,7 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 			if exists {
 				err = s.gw.UpdateProfile(ctx, p.ID, file)
 			} else if err = s.gw.ImportProfile(ctx, file); err != nil {
-				s.st.Profiles[p.ID] = ProfileState{Created: true}
+				s.ws.Profiles[p.ID] = ProfileState{Created: true}
 			}
 		}
 		if err != nil {
@@ -234,7 +363,7 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 			continue
 		}
 		if !s.opts.DryRun {
-			s.st.Profiles[p.ID] = ProfileState{SHA256: p.SHA256(), Created: !exists || (managed && prev.Created)}
+			s.ws.Profiles[p.ID] = ProfileState{SHA256: p.SHA256(), Created: !exists || (managed && prev.Created)}
 		}
 		msg := s.done(action) + " from " + p.Path
 		if len(added) > 0 {
@@ -288,7 +417,7 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 		cur, exists := byName[p.Name]
 		if exists && cur.Type != p.Type {
 			// Name the gateway: the CLI's active or exported gateway may be another VM's.
-			s.fail("provider", p.Name, fmt.Errorf("the gateway has a provider of this name with type %s, not %s; delete it first with `openshell -g %s provider delete %s`", cur.Type, p.Type, s.gw.Name(), p.Name))
+			s.fail("provider", p.Name, fmt.Errorf("the gateway has a provider of this name with type %s, not %s; delete it first with `openshell -g %s --workspace %s provider delete %s`", cur.Type, p.Type, s.gw.Name(), s.gw.Workspace(), p.Name))
 			continue
 		}
 		// The gateway binds credentials to the profile it holds, so new
@@ -307,7 +436,7 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 			s.fail("provider", p.Name, err)
 			continue
 		}
-		prev, managed := s.st.Providers[p.Name]
+		prev, managed := s.ws.Providers[p.Name]
 		var remove []string
 		if exists && managed {
 			for key := range prev.Credentials {
@@ -332,13 +461,13 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 			if exists {
 				err = s.gw.UpdateProvider(ctx, p.Name, secrets, remove)
 			} else if err = s.gw.CreateProvider(ctx, p.Name, p.Type, secrets); err != nil {
-				s.st.Providers[p.Name] = ProviderState{Type: p.Type, Created: true}
+				s.ws.Providers[p.Name] = ProviderState{Type: p.Type, Created: true}
 			}
 			if err != nil {
 				s.fail("provider", p.Name, err)
 				continue
 			}
-			s.st.Providers[p.Name] = ProviderState{Type: p.Type, Credentials: fingerprints, Created: !exists || (managed && prev.Created)}
+			s.ws.Providers[p.Name] = ProviderState{Type: p.Type, Credentials: fingerprints, Created: !exists || (managed && prev.Created)}
 		}
 		keys := slices.Sorted(maps.Keys(p.Credentials))
 		msg := fmt.Sprintf("%s (type %s); %s may be sent to %s", s.done(action), p.Type, strings.Join(keys, ", "), endpoints)
@@ -398,22 +527,22 @@ func (s *syncer) lookup(ctx context.Context, p Provider) (secrets, fingerprints 
 }
 
 func (s *syncer) pruneProviders(ctx context.Context, providers []openshell.Provider) {
-	for _, name := range slices.Sorted(maps.Keys(s.st.Providers)) {
+	for _, name := range slices.Sorted(maps.Keys(s.ws.Providers)) {
 		if slices.ContainsFunc(s.set.Providers, func(p Provider) bool { return p.Name == name }) {
 			continue
 		}
-		ps := s.st.Providers[name]
+		ps := s.ws.Providers[name]
 		i := slices.IndexFunc(providers, func(p openshell.Provider) bool { return p.Name == name })
 		switch {
 		case !ps.Created:
-			s.forget("provider", name, "no longer configured; left as it is, since brig did not create it", func() { delete(s.st.Providers, name) })
+			s.forget("provider", name, "no longer configured; left as it is, since brig did not create it", func() { delete(s.ws.Providers, name) })
 		// A record whose provider is gone or replaced is dropped on every sync,
 		// not only with --prune: a provider created by hand later under the
 		// same name must not count as brig's.
 		case i < 0:
-			s.forget("provider", name, "no longer configured and already gone", func() { delete(s.st.Providers, name) })
+			s.forget("provider", name, "no longer configured and already gone", func() { delete(s.ws.Providers, name) })
 		case providers[i].Type != ps.Type:
-			s.forget("provider", name, fmt.Sprintf("no longer configured; left as it is, since it has type %s now", providers[i].Type), func() { delete(s.st.Providers, name) })
+			s.forget("provider", name, fmt.Sprintf("no longer configured; left as it is, since it has type %s now", providers[i].Type), func() { delete(s.ws.Providers, name) })
 		case !s.opts.Prune:
 			s.report("provider", name, "no longer configured; kept (brig sync --prune deletes it)", true)
 		default:
@@ -422,7 +551,7 @@ func (s *syncer) pruneProviders(ctx context.Context, providers []openshell.Provi
 					s.fail("provider", name, err)
 					continue
 				}
-				delete(s.st.Providers, name)
+				delete(s.ws.Providers, name)
 			}
 			s.report("provider", name, s.done("delete"), true)
 		}
@@ -431,16 +560,16 @@ func (s *syncer) pruneProviders(ctx context.Context, providers []openshell.Provi
 
 func (s *syncer) pruneProfiles(ctx context.Context, profiles []openshell.Profile) {
 	ws := workspaceProfiles(profiles)
-	for _, id := range slices.Sorted(maps.Keys(s.st.Profiles)) {
+	for _, id := range slices.Sorted(maps.Keys(s.ws.Profiles)) {
 		if _, ok := s.set.Profile(id); ok {
 			continue
 		}
 		_, exists := ws[id]
 		switch {
-		case !s.st.Profiles[id].Created:
-			s.forget("profile", id, "no longer configured; left as it is, since brig did not create it", func() { delete(s.st.Profiles, id) })
+		case !s.ws.Profiles[id].Created:
+			s.forget("profile", id, "no longer configured; left as it is, since brig did not create it", func() { delete(s.ws.Profiles, id) })
 		case !exists:
-			s.forget("profile", id, "no longer configured and already gone", func() { delete(s.st.Profiles, id) })
+			s.forget("profile", id, "no longer configured and already gone", func() { delete(s.ws.Profiles, id) })
 		case !s.opts.Prune:
 			s.report("profile", id, "no longer configured; kept (brig sync --prune deletes it)", true)
 		default:
@@ -449,7 +578,7 @@ func (s *syncer) pruneProfiles(ctx context.Context, profiles []openshell.Profile
 					s.fail("profile", id, err)
 					continue
 				}
-				delete(s.st.Profiles, id)
+				delete(s.ws.Profiles, id)
 			}
 			s.report("profile", id, s.done("delete"), true)
 		}

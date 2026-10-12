@@ -194,8 +194,8 @@ func TestSyncPrunesAfterLastConfigRemoved(t *testing.T) {
 	a := testApp(t)
 	v := testVM(t, a, "dev")
 	st := &ocsync.State{
-		Providers: map[string]ocsync.ProviderState{"github": {Type: "github", Created: true}},
-		LastSync:  &ocsync.Record{Time: time.Now().UTC()},
+		Workspaces: map[string]*ocsync.WorkspaceState{"default": {Providers: map[string]ocsync.ProviderState{"github": {Type: "github", Created: true}}}},
+		LastSync:   &ocsync.Record{Time: time.Now().UTC()},
 	}
 	if err := st.Save(a.vmFile(v, ocsync.StateFile)); err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ esac
 		t.Errorf("openshell got the secret %q", seen)
 	}
 	st, err := ocsync.LoadState(a.vmFile(v, ocsync.StateFile))
-	if err != nil || st.LastSync == nil || st.LastSync.Error != "" || st.Providers["github"].Type != "github" {
+	if err != nil || st.LastSync == nil || st.LastSync.Error != "" || st.Workspaces["default"].Providers["github"].Type != "github" {
 		t.Errorf("state %+v, %v", st, err)
 	}
 	if out, _ := run(t, "show", "dev"); !strings.Contains(out, "Last sync:") || !strings.Contains(out, ", ok") {
