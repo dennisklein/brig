@@ -184,6 +184,36 @@ func (p policy) yaml() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return encode(n)
+}
+
+// ruleYAML writes a network rule as a policy file does, under its key.
+func ruleYAML(key string, r *sb.NetworkPolicyRule) (string, error) {
+	data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(r)
+	if err != nil {
+		return "", err
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var rule map[string]any
+	if err := dec.Decode(&rule); err != nil {
+		return "", err
+	}
+	eps, _ := rule["endpoints"].([]any)
+	for _, e := range eps {
+		if ep, ok := e.(map[string]any); ok {
+			endpoint(ep)
+		}
+	}
+	n, err := node(map[string]any{key: rule}, "rules")
+	if err != nil {
+		return "", err
+	}
+	return encode(n)
+}
+
+// encode writes n as YAML, two spaces per level.
+func encode(n *yaml.Node) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

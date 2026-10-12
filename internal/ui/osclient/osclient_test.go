@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,6 +40,9 @@ type gateway struct {
 	pb.UnimplementedOpenShellServer
 	// pageSize splits lists into pages of this many items.
 	pageSize int
+	mu       sync.Mutex
+	// watches are the watch requests it got.
+	watches []*pb.WatchSandboxRequest
 }
 
 func page[T any](items []T, token string, size int) ([]T, string) {
