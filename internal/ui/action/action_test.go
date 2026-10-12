@@ -1,0 +1,220 @@
+// SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+// SPDX-License-Identifier: Apache-2.0
+
+package action_test
+
+import (
+	"net/url"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/dennisklein/brig/internal/ui/action"
+	"github.com/dennisklein/brig/internal/ui/demo"
+	"github.com/dennisklein/brig/internal/ui/store"
+)
+
+// demoContext is the demo host: dev and review run, airgap is shut off and
+// on an older image.
+func demoContext() action.Context {
+	now := time.Now()
+	imgs := demo.Images(now)
+	return action.Context{Home: demo.Home, Snap: store.Snapshot{
+		VMs: demo.VMs(now), Images: imgs, NewestImage: &imgs[0],
+		Profiles: demo.Profiles(), Config: demo.Config(),
+	}}
+}
+
+func form(kv ...string) action.Form {
+	f := url.Values{}
+	for c := range slices.Chunk(kv, 2) {
+		f.Add(c[0], c[1])
+	}
+	return f
+}
+
+func TestBuild(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		id   string
+		f    action.Form
+		want string // the command, or "" if Build must refuse
+		err  string // part of the refusal
+	}{
+		{"start", "start", form("vm", "airgap"), "brig start airgap", ""},
+		{"start running", "start", form("vm", "dev"), "", "running already"},
+		{"start unknown", "start", form("vm", "nope"), "", "no VM nope"},
+		{"start bad name", "start", form("vm", "../x"), "", "invalid VM name"},
+		{"start flag as name", "start", form("vm", "--help"), "", "invalid VM name"},
+		{"stop", "stop", form("vm", "dev"), "brig stop dev", ""},
+		{"stop force", "stop", form("vm", "dev", "force", "on"), "brig stop dev --force", ""},
+		{"stop shut off", "stop", form("vm", "airgap"), "", "shut off already"},
+		{"delete running", "delete", form("vm", "dev"), "brig delete dev --force", ""},
+		{"delete shut off", "delete", form("vm", "airgap"), "brig delete airgap", ""},
+		{"upgrade", "upgrade", form("vm", "review"), "", "newest base image already"},
+		{"profile", "profile", form("vm", "dev", "profile", "isolated"), "brig update dev --profile isolated", ""},
+		{"profile same", "profile", form("vm", "dev", "profile", "ollama"), "", "nothing to change"},
+		{"profile unknown", "profile", form("vm", "dev", "profile", "-x"), "", "no network profile"},
+		{
+			"resources", "resources", form("vm", "dev", "cpus", "8", "memory", "16GiB", "data-disk", "80GiB"),
+			"brig update dev --cpus 8 --memory 16GiB --data-disk 80GiB", "",
+		},
+		{"resources unchanged", "resources", form("vm", "dev", "cpus", "4", "memory", "8GiB", "data-disk", "40GiB"), "", "nothing to change"},
+		{"resources shrink", "resources", form("vm", "dev", "data-disk", "10GiB"), "", "only grow"},
+		{"resources bad cpus", "resources", form("vm", "dev", "cpus", "many"), "", "CPUs"},
+		{"resources bad memory", "resources", form("vm", "dev", "memory", "lots"), "", "Memory"},
+		{
+			"mount", "mount-add", form("vm", "dev", "src", "~/src/notes"),
+			"brig update dev --add-mount /home/dklein/src/notes", "",
+		},
+		{
+			"mount rw target", "mount-add", form("vm", "dev", "src", "/data/x/", "target", "/work/x", "access", "rw"),
+			"brig update dev --add-mount /data/x:/work/x:rw", "",
+		},
+		{
+			"mount sandbox wins over rw", "mount-add", form("vm", "dev", "src", "/data/x", "access", "rw", "sandbox", "on"),
+			"brig update dev --add-mount /data/x::sandbox", "",
+		},
+		{
+			"mount spaces", "mount-add", form("vm", "dev", "src", "/data/my notes", "target", "/mnt/notes"),
+			"brig update dev --add-mount '/data/my notes:/mnt/notes'", "",
+		},
+		{"mount spaces in the default target", "mount-add", form("vm", "dev", "src", "/data/my notes"), "", "whitespace"},
+		{"mount relative", "mount-add", form("vm", "dev", "src", "notes"), "", "in full"},
+		{"mount colon", "mount-add", form("vm", "dev", "src", "/data/a:b"), "", "colon"},
+		{"mount bad target", "mount-add", form("vm", "dev", "src", "/data/x", "target", "work"), "", "absolute path"},
+		{"mount taken", "mount-add", form("vm", "dev", "src", "/data/x", "target", "/mnt/pi-kit"), "", "already shares"},
+		{"mount empty", "mount-add", form("vm", "dev"), "", "say which directory"},
+		{"unmount", "mount-rm", form("vm", "dev", "target", "/mnt/pi-kit"), "brig update dev --remove-mount /mnt/pi-kit", ""},
+		{"unmount unknown", "mount-rm", form("vm", "dev", "target", "/mnt/other"), "", "shares nothing"},
+		{
+			"config add", "config-add", form("vm", "dev", "dir", "~/src/work-openshell/"),
+			"brig update dev --add-openshell-config /home/dklein/src/work-openshell", "",
+		},
+		{"config add again", "config-add", form("vm", "dev", "dir", "~/src/agent-openshell"), "", "already"},
+		{
+			"config remove", "config-rm", form("vm", "dev", "dir", "/home/dklein/src/agent-openshell"),
+			"brig update dev --remove-openshell-config /home/dklein/src/agent-openshell", "",
+		},
+		{"config remove unknown", "config-rm", form("vm", "dev", "dir", "/elsewhere"), "", "does not apply"},
+		{
+			"create defaults", "create", form("name", "scratch", "profile", "default", "cpus", "4", "memory", "8GiB", "configs", "on", "start", "on"),
+			"brig create scratch", "",
+		},
+		{
+			"create changes", "create", form("name", "scratch", "profile", "isolated", "cpus", "2", "memory", "4GiB"),
+			"brig create scratch --cpus 2 --memory 4GiB --profile isolated --no-openshell-config --no-start", "",
+		},
+		{"create exists", "create", form("name", "dev"), "", "there is a VM dev"},
+		{"create bad name", "create", form("name", "Dev"), "", "invalid VM name"},
+		{"create bad profile", "create", form("name", "x", "profile", "nope"), "", "no network profile"},
+		{"sync preview", "sync-preview", form("vm", "dev"), "brig sync dev --dry-run", ""},
+		{"sync preview without dirs", "sync-preview", form("vm", "review", "vm", "review"), "brig sync review --dry-run", ""},
+		{"sync stopped", "sync", form("vm", "airgap"), "", "start it before syncing"},
+		{"sync", "sync", form("vm", "dev"), "brig sync dev", ""},
+		{"sync prune refresh", "sync", form("vm", "dev", "prune", "on", "refresh", "on"), "brig sync dev --prune --refresh-secrets", ""},
+		{"image build", "image-build", form(), "brig image build", ""},
+		{"image build options", "image-build", form("fedora", "43", "openshell", "0.1.1"), "brig image build --fedora 43 --openshell 0.1.1", ""},
+		{"image build default release", "image-build", form("fedora", "44"), "brig image build", ""},
+		{"image build bad openshell", "image-build", form("openshell", "--help"), "", "OpenShell"},
+		{"image build bad fedora", "image-build", form("fedora", "x"), "", "fedora"},
+		{"image prune", "image-prune", form(), "brig image prune", ""},
+		{"image push", "image-push", form("vm", "dev", "image", "localhost/pi-agent:latest"), "brig image push dev localhost/pi-agent:latest", ""},
+		{"image push option", "image-push", form("vm", "dev", "image", "--all"), "", "no image name"},
+		{"image push space", "image-push", form("vm", "dev", "image", "a b"), "", "no image name"},
+		{"image push stopped", "image-push", form("vm", "airgap", "image", "x"), "", "before pushing"},
+		{"image push empty", "image-push", form("vm", "dev"), "", "name an image"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, ok := action.Lookup(c.id)
+			if !ok {
+				t.Fatalf("no action %s", c.id)
+			}
+			cmd, err := a.Build(c.f, demoContext())
+			if c.want == "" {
+				if err == nil || !strings.Contains(err.Error(), c.err) {
+					t.Fatalf("got %q and error %v, want an error with %q", cmd.Display, err, c.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cmd.Display != c.want {
+				t.Errorf("display %q, want %q", cmd.Display, c.want)
+			}
+			if cmd.Argv[0] != "brig" {
+				t.Errorf("argv %q does not start with brig", cmd.Argv)
+			}
+		})
+	}
+}
+
+// What the dialog shows must be what runs: Display is Argv, quoted for a
+// shell, so that pasting it into one gives the same words.
+func TestDisplayQuotesArgv(t *testing.T) {
+	for argv, want := range map[string]string{
+		"brig start dev":                  "brig start dev",
+		"brig|update|dev|a b":             "brig update dev 'a b'",
+		"brig|x|it's":                     `brig x 'it'\''s'`,
+		"brig|x|$(rm -rf ~)":              "brig x '$(rm -rf ~)'",
+		"brig|x|;|&|a*b":                  "brig x ';' '&' 'a*b'",
+		"brig|x||é":                       "brig x '' 'é'",
+		"brig|--add-mount|/a/b:/c:rw,x=1": "brig --add-mount /a/b:/c:rw,x=1",
+	} {
+		sep := " "
+		if strings.Contains(argv, "|") {
+			sep = "|"
+		}
+		if got := action.Quote(strings.Split(argv, sep)); got != want {
+			t.Errorf("%q: %q, want %q", argv, got, want)
+		}
+	}
+}
+
+func TestUpgradeAcrossMinorVersions(t *testing.T) {
+	c := demoContext()
+	img := *c.Snap.NewestImage
+	img.OpenShell = "0.2.0"
+	c.Snap.NewestImage = &img
+	up, _ := action.Lookup("upgrade")
+	cmd, err := up.Build(form("vm", "airgap"), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Display != "brig upgrade airgap --force" || len(cmd.Notes) != 1 || !strings.Contains(cmd.Notes[0], "0.1.1 to 0.2.0") {
+		t.Errorf("%q, notes %q", cmd.Display, cmd.Notes)
+	}
+	// Within a minor version there is nothing to force.
+	if cmd, err := up.Build(form("vm", "airgap"), demoContext()); err != nil || cmd.Display != "brig upgrade airgap" {
+		t.Errorf("%q, %v", cmd.Display, err)
+	}
+}
+
+func TestRegistered(t *testing.T) {
+	// The list covers every registered action: a new one must get a
+	// case in TestBuild too.
+	want := []string{
+		"config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
+		"mount-rm", "profile", "resources", "start", "stop", "sync", "sync-preview", "upgrade",
+	}
+	got := action.IDs()
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("actions %v, want %v", got, want)
+	}
+}
+
+func TestTyped(t *testing.T) {
+	del, _ := action.Lookup("delete")
+	if del.Confirmed(form("vm", "dev")) || del.Confirmed(form("vm", "dev", "confirm", "dev2")) {
+		t.Error("delete runs without its VM's name typed")
+	}
+	if !del.Confirmed(form("vm", "dev", "confirm", " dev ")) {
+		t.Error("delete refuses the VM's name typed")
+	}
+	if start, _ := action.Lookup("start"); !start.Confirmed(form("vm", "dev")) {
+		t.Error("start wants a confirmation")
+	}
+}
