@@ -49,6 +49,9 @@
 <a class="nav{{if eq .Page "images"}} on{{end}}" href="/images"><span class="ico">◧</span>Images<span class="count">{{len .Snap.Images}}</span></a>
 <a class="nav{{if eq .Page "host"}} on{{end}}" href="/host"><span class="ico">✓</span>Host</a>
 <a class="nav{{if eq .Page "activity"}} on{{end}}" href="/activity"><span class="ico">≡</span>Activity</a>
+<h6>OpenShell</h6>
+<a class="nav{{if eq .Page "sandboxes"}} on{{end}}" href="/sandboxes"><span class="ico">▣</span>Sandboxes<span class="count">{{sandboxCount .Snap}}</span></a>
+<a class="nav{{if eq .Page "gateway"}} on{{end}}" href="/gateway"><span class="ico">⇄</span>Gateway</a>
 {{end}}
 
 {{/* Overview. */}}
@@ -78,6 +81,7 @@
     <dt>network</dt><dd>{{$v.NetworkProfile}}</dd>
     {{if and $v.Running (not $v.Up.IsZero)}}<dt>up</dt><dd>{{since $v.Up}}</dd>{{end}}
     <dt>mounts</dt><dd>{{with $v.Mounts}}{{range .}}<span class="chip">{{.Target}}</span>{{end}}{{else}}<span class="faint">none</span>{{end}}</dd>
+    <dt>sandboxes</dt><dd>{{with .Sandboxes}}{{range .}}<span class="chip">{{.Name}}{{if not .Ready}} <span class="faint">{{.Phase}}</span>{{end}}</span>{{end}}{{else}}<span class="faint">none</span>{{end}}</dd>
   </dl>
   {{if or .SyncErr .Older}}<div class="flags">
     {{if .SyncErr}}<span class="pill bad">sync error</span>{{end}}
@@ -131,9 +135,10 @@
     {{template "act" (act $ "delete" "" "danger" "vm" $v.Name)}}
   </div>
 </div>
-<div class="tabs">{{range vmTabs}}<a class="tab{{if eq .Key $.Tab}} on{{end}}" href="/vms/{{$v.Name}}?tab={{.Key}}">{{.Label}}{{if eq .Key "mounts"}}<span class="n">{{len $v.Mounts}}</span>{{end}}</a>{{end}}</div>
+<div class="tabs">{{range vmTabs}}<a class="tab{{if eq .Key $.Tab}} on{{end}}" href="/vms/{{$v.Name}}?tab={{.Key}}">{{.Label}}{{if eq .Key "mounts"}}<span class="n">{{len $v.Mounts}}</span>{{else if eq .Key "sandboxes"}}<span class="n">{{len (gatewayOf $.Snap $v.Name).Sandboxes}}</span>{{end}}</a>{{end}}</div>
 {{if eq .Tab "summary"}}{{template "vm-summary" .}}
 {{else if eq .Tab "mounts"}}{{template "vm-mounts" .}}
+{{else if eq .Tab "sandboxes"}}{{template "vm-sandboxes" .}}
 {{else if eq .Tab "openshell"}}{{template "vm-openshell" .}}
 {{else if eq .Tab "network"}}{{template "vm-network" .}}
 {{else if eq .Tab "shell"}}{{template "vm-shell" .}}{{end}}

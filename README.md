@@ -214,6 +214,10 @@ sequences.
 VMs with their state, CPU and memory use, mounts, network profile, OpenShell
 config directories and last sync; what needs your attention; the `brig
 doctor` checks; and what brig did, from the [activity log](#progress-output).
+From each running VM's OpenShell gateway, which it reads over gRPC with the
+client certificate `brig start` keeps, it shows the sandboxes with their
+providers and base and effective policies, and the gateway's providers,
+provider profiles, default policy and templates; credentials only by name.
 Pages update live.
 
 The UI also changes things: start, stop, create, delete and upgrade a VM,

@@ -27,7 +27,8 @@ const (
 // events streams a page's live updates as Server-Sent Events: each event
 // is named after a fragment and carries its HTML, which htmx's SSE
 // extension swaps into the element with that sse-swap name. The query
-// names the fragments (f) and what they need: the VM (vm) and its tab (tab).
+// names the fragments (f) and what they need: the VM (vm) and its tab (tab),
+// or what liveOpenShell reads.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	names := q["f"]
@@ -44,6 +45,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	vmName := q.Get("vm")
 	if vmName != "" && vm.ValidateName(vmName) != nil {
 		http.Error(w, "bad VM name", http.StatusBadRequest)
+		return
+	}
+	if !checkOpenShellQuery(q) {
+		http.Error(w, "bad gateway or sandbox name", http.StatusBadRequest)
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -92,6 +97,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		if vmName != "" {
 			v.VM, _ = v.Snap.VM(vmName)
 		}
+		liveOpenShell(v, q)
 		for _, n := range names {
 			if !slices.ContainsFunc(fragments[n], func(t store.Topic) bool { return pending[t] }) {
 				continue

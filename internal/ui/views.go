@@ -22,29 +22,33 @@ import (
 )
 
 // pageNames are the page templates, one file each in web/templates.
-var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound"}
+var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound", "sandboxes", "sandbox", "gateway"}
 
 // fragments are the parts of pages that live updates replace: each is a
 // template of the same name, rendered again when one of its topics changes,
 // and sent as the SSE event of that name.
 var fragments = map[string][]store.Topic{
 	"tasks":           {store.TopicTasks, store.TopicOutput, store.TopicActivity},
-	"rail":            {store.TopicVMs},
+	"rail":            {store.TopicVMs, store.TopicGateways},
 	"overview-sub":    {store.TopicVMs, store.TopicActivity},
-	"vm-cards":        {store.TopicVMs},
-	"needs":           {store.TopicVMs, store.TopicHost},
+	"vm-cards":        {store.TopicVMs, store.TopicGateways},
+	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways},
 	"recent-activity": {store.TopicActivity},
 	"vm-table":        {store.TopicVMs, store.TopicTasks, store.TopicActivity},
-	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity},
+	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity, store.TopicGateways},
 	"images":          {store.TopicVMs},
 	"host-checks":     {store.TopicHost},
 	"activity-list":   {store.TopicActivity},
+	"sandbox-table":   {store.TopicGateways},
+	"sandbox":         {store.TopicGateways},
+	"gateway":         {store.TopicVMs, store.TopicGateways},
 }
 
 // vmTabs are the tabs of a VM's page, in order.
 var vmTabs = []struct{ Key, Label string }{
 	{"summary", "Summary"},
 	{"mounts", "Mounts"},
+	{"sandboxes", "Sandboxes"},
 	{"openshell", "OpenShell config"},
 	{"network", "Network"},
 	{"shell", "Shell"},
@@ -62,7 +66,7 @@ type templates struct {
 
 func newTemplates(fsys fs.FS, funcs template.FuncMap, dev bool) (*templates, error) {
 	t := &templates{dev: dev, load: func() (*template.Template, map[string]*template.Template, error) {
-		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl")
+		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -130,6 +134,12 @@ type view struct {
 	// VM and Tab are set on a VM's page.
 	VM  store.VM
 	Tab string
+	// Gateway is set on the pages of a gateway and its sandboxes, and
+	// Sandbox on a sandbox's page.
+	Gateway store.Gateway
+	Sandbox store.Sandbox
+	// Filter names the VM whose sandboxes a list shows, empty for all.
+	Filter string
 	// Query is the jump box's query, for the palette.
 	Query string
 	// Asset returns the URL of a static file.
@@ -195,6 +205,7 @@ func needs(sn store.Snapshot) []need {
 			})
 		}
 	}
+	out = append(out, gatewayNeeds(sn)...)
 	order := map[string]int{"bad": 0, "warn": 1, "info": 2}
 	slices.SortStableFunc(out, func(a, b need) int { return order[a.Sev] - order[b.Sev] })
 	return out
@@ -213,7 +224,7 @@ func firstLine(s string) string {
 // funcs returns the template functions. home is the user's home directory,
 // shown as ~.
 func funcs(home string) template.FuncMap {
-	return template.FuncMap{
+	m := template.FuncMap{
 		"rel":   rel,
 		"since": since,
 		"clock": func(t time.Time) string { return t.Local().Format("15:04:05") },
@@ -248,7 +259,8 @@ func funcs(home string) template.FuncMap {
 		"stat":     stat,
 		"runClass": runClass,
 		"cardOf": func(v *view, vm store.VM) card {
-			return card{VM: vm, SyncErr: vm.LastSync != nil && vm.LastSync.Error != "", Older: olderImage(v.Snap, vm)}
+			g, _ := v.Snap.Gateway(vm.Name)
+			return card{VM: vm, SyncErr: vm.LastSync != nil && vm.LastSync.Error != "", Older: olderImage(v.Snap, vm), Sandboxes: g.Sandboxes}
 		},
 		"cmd": func(label, text string) command { return command{label, text} },
 		"netrow": func(on bool, label, detail string) netRow {
@@ -305,13 +317,18 @@ func funcs(home string) template.FuncMap {
 			return slices.DeleteFunc(slices.Clone(sn.VMs), func(v store.VM) bool { return !v.Running() })
 		},
 	}
+	for name, fn := range openshellFuncs() {
+		m[name] = fn
+	}
+	return m
 }
 
 // card is what a VM card shows.
 type card struct {
-	VM      store.VM
-	SyncErr bool
-	Older   bool
+	VM        store.VM
+	SyncErr   bool
+	Older     bool
+	Sandboxes []store.Sandbox
 }
 
 // command is a command block: a label, and the command to copy.
@@ -444,6 +461,7 @@ func palette(sn store.Snapshot, q string) []paletteItem {
 		{"Images", "page", "/images"},
 		{"Host checks", "page", "/host"},
 		{"Activity", "page", "/activity"},
+		{"Sandboxes", "page", "/sandboxes"},
 	}
 	for _, v := range sn.VMs {
 		items = append(items, paletteItem{"VM " + v.Name, v.State, "/vms/" + v.Name})
@@ -451,6 +469,7 @@ func palette(sn store.Snapshot, q string) []paletteItem {
 			items = append(items, paletteItem{v.Name + " · " + t.Label, "VM " + v.Name, "/vms/" + v.Name + "?tab=" + t.Key})
 		}
 	}
+	items = append(items, openshellPalette(sn)...)
 	q = strings.ToLower(strings.TrimSpace(q))
 	var out []paletteItem
 	for _, it := range items {

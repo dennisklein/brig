@@ -203,6 +203,20 @@ td.dotcell { width: 28px; }
 .callout.warn { background: var(--warn-soft); border-left-color: var(--warn); }
 .callout.bad { background: var(--bad-soft); border-left-color: var(--bad); }
 
+/* policies as YAML, the lines that providers add marked */
+pre.code { margin: 0; font: 12px/1.55 var(--f-mono); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r); padding: 12px; overflow-x: auto; }
+pre.code .add { color: var(--ok); background: var(--ok-soft); display: block; margin: 0 -12px; padding: 0 12px; }
+pre.code .k { color: var(--info); }
+pre.code .add .k { color: inherit; }
+pre.code .c { color: var(--faint); }
+
+/* a segmented choice of links, such as the VM filter */
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg a { background: var(--panel); padding: 4px 10px; color: var(--muted); font-size: 12.5px; text-decoration: none; }
+.seg a + a { border-left: 1px solid var(--line); }
+.seg a:hover { color: var(--fg); }
+.seg a.on { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+
 .tree { font: 12px/1.7 var(--f-mono); margin: 0; padding: 0; list-style: none; }
 .tree .tree { margin-left: 22px; }
 .tree li { color: var(--muted); }
