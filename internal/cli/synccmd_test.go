@@ -217,7 +217,7 @@ esac
 		t.Fatalf("sync --prune: %v\n%s", err, out)
 	}
 	argv, _ := os.ReadFile(log)
-	if !strings.Contains(string(argv), "-g brig-dev provider delete github\n") {
+	if !strings.Contains(string(argv), "-g brig-dev --workspace default provider delete github\n") {
 		t.Errorf("openshell calls:\n%s", argv)
 	}
 }
@@ -259,7 +259,7 @@ esac
 		t.Fatalf("sync: %v\n%s", err, out)
 	}
 	argv, _ := os.ReadFile(log)
-	if !strings.Contains(string(argv), "-g brig-dev provider create --name github --type github --credential GH_TOKEN\n") {
+	if !strings.Contains(string(argv), "-g brig-dev --workspace default provider create --name github --type github --credential GH_TOKEN\n") {
 		t.Errorf("openshell calls:\n%s", argv)
 	}
 	if strings.Contains(string(argv), "tok") {

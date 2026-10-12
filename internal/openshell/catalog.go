@@ -74,11 +74,11 @@ type Provider struct {
 	CredentialKeys []string `json:"credential_keys"`
 }
 
-// Gateway runs the CLI against one registered gateway, in its default
-// workspace.
+// Gateway runs the CLI against one registered gateway, in one workspace.
 type Gateway struct {
-	cli  *CLI
-	name string
+	cli       *CLI
+	name      string
+	workspace string
 }
 
 // Gateway returns a client for the registered gateway name.
@@ -86,17 +86,65 @@ func (c *CLI) Gateway(name string) (*Gateway, error) {
 	if _, err := gatewayDir(c.ConfigHome, name); err != nil {
 		return nil, err
 	}
-	return &Gateway{cli: c, name: name}, nil
+	return &Gateway{cli: c, name: name, workspace: DefaultWorkspace}, nil
 }
+
+// In returns a client for the same gateway that works in workspace.
+func (g *Gateway) In(workspace string) (*Gateway, error) {
+	if err := CheckWorkspace(workspace); err != nil {
+		return nil, err
+	}
+	in := *g
+	in.workspace = workspace
+	return &in, nil
+}
+
+// Workspace returns the workspace the client works in.
+func (g *Gateway) Workspace() string { return g.workspace }
 
 // Name returns the name of the registered gateway.
 func (g *Gateway) Name() string { return g.name }
 
+// run runs a command in the client's workspace. The CLI is assumed to take
+// --workspace as a global flag, right after -g and before the subcommand; if
+// it turns out to be per subcommand, this is the one place to change.
 func (g *Gateway) run(ctx context.Context, env []string, args ...string) ([]byte, error) {
-	return g.cli.runEnv(ctx, env, append([]string{"-g", g.name}, args...)...)
+	return g.cli.runEnv(ctx, env, append([]string{"-g", g.name, "--workspace", g.workspace}, args...)...)
 }
 
-// Profiles lists the provider profiles visible in the default workspace,
+// Workspaces lists the names of the gateway's workspaces, as
+// `openshell workspace list -o json` prints them: an object with a
+// "workspaces" list of objects with a name.
+func (g *Gateway) Workspaces(ctx context.Context) ([]string, error) {
+	out, err := g.cli.runEnv(ctx, nil, "-g", g.name, "workspace", "list", "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Workspaces []struct {
+			Name string `json:"name"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal(jsonValue(out), &list); err != nil {
+		return nil, fmt.Errorf("parse openshell workspace list: %w", err)
+	}
+	var names []string
+	for _, w := range list.Workspaces {
+		names = append(names, w.Name)
+	}
+	return names, nil
+}
+
+// CreateWorkspace creates the workspace name.
+func (g *Gateway) CreateWorkspace(ctx context.Context, name string) error {
+	if err := CheckWorkspace(name); err != nil {
+		return err
+	}
+	_, err := g.cli.runEnv(ctx, nil, "-g", g.name, "workspace", "create", "--name", name)
+	return err
+}
+
+// Profiles lists the provider profiles visible in the workspace,
 // platform profiles included.
 func (g *Gateway) Profiles(ctx context.Context) ([]Profile, error) {
 	out, err := g.run(ctx, nil, "profile", "list", "-o", "json")
@@ -116,7 +164,7 @@ func (g *Gateway) LintProfile(ctx context.Context, file string) error {
 	return err
 }
 
-// ImportProfile adds the profile in file to the default workspace. It fails
+// ImportProfile adds the profile in file to the workspace. It fails
 // if the workspace has a profile with its ID already.
 func (g *Gateway) ImportProfile(ctx context.Context, file string) error {
 	_, err := g.run(ctx, nil, "profile", "import", "-f", file)
@@ -136,7 +184,7 @@ func (g *Gateway) DeleteProfile(ctx context.Context, id string) error {
 	return err
 }
 
-// Providers lists the providers of the default workspace.
+// Providers lists the providers of the workspace.
 func (g *Gateway) Providers(ctx context.Context) ([]Provider, error) {
 	var all []Provider
 	token := ""
