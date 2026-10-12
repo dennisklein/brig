@@ -52,7 +52,7 @@ func policyFixture(t *testing.T, sandboxPolicy string) (choices, policies string
 	t.Setenv("OPENSHELL_GATEWAY", "")
 	fakeCommands(t, map[string]string{"openshell": `
 case "$*" in
-"-g brig-dev policy get "*" --base -o json") cat <<'JSON'
+"-g brig-dev --workspace default policy get "*" --base -o json"|"-g brig-dev --workspace team policy get "*" --base -o json") cat <<'JSON'
 {"version": 4, "policy": ` + sandboxPolicy + `}
 JSON
 ;;
@@ -166,7 +166,7 @@ func TestPolicyDiffSourceUnknownThenChosen(t *testing.T) {
 
 func TestPolicyDiffGivesUpAGoneRecordedFile(t *testing.T) {
 	choices, _ := policyFixture(t, sandboxBase)
-	writeTestFile(t, choices, `{"webapp": "/nonexistent/webapp.yaml"}`, 0o600)
+	writeTestFile(t, choices, `{"default/webapp": "/nonexistent/webapp.yaml"}`, 0o600)
 	out, stderr, _, err := runSplit(t, "policy", "diff", "dev", "webapp", "-o", "json")
 	if err != nil {
 		t.Fatalf("exit = %v\n%s", err, out)
@@ -176,6 +176,44 @@ func TestPolicyDiffGivesUpAGoneRecordedFile(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "is gone") {
 		t.Errorf("no warning:\n%s", stderr)
+	}
+}
+
+func TestPolicyDiffIgnoresRecordsFromBeforeWorkspaces(t *testing.T) {
+	choices, dir := policyFixture(t, sandboxBase)
+	writeTestFile(t, choices, `{"webapp": "`+filepath.Join(dir, "default.yaml")+`"}`, 0o600)
+	out, _, _, err := runSplit(t, "policy", "diff", "dev", "webapp", "-o", "json")
+	if err != nil {
+		t.Fatalf("exit = %v\n%s", err, out)
+	}
+	if rep := decodeReport(t, out); rep.Source == nil || rep.Source.How != "inferred" {
+		t.Errorf("an old record was used:\n%s", out)
+	}
+}
+
+func TestPolicyDiffKeysChoicesByWorkspace(t *testing.T) {
+	choices, dir := policyFixture(t, `{"filesystem_policy": {"read_only": ["/"]}, "network_policies": {}}`)
+	out, _, _, err := runSplit(t, "policy", "diff", "dev", "webapp", "--workspace", "team", "--source", "default", "--remember", "-o", "json")
+	if exitCode(err) != exitDrift {
+		t.Fatalf("exit = %v\n%s", err, out)
+	}
+	if rep := decodeReport(t, out); rep.Workspace != "team" || rep.Sandbox != "webapp" {
+		t.Errorf("report:\n%s", out)
+	}
+	if got := readPolicy(t, choices); !strings.Contains(got, `"team/webapp": "`+filepath.Join(dir, "default.yaml")+`"`) {
+		t.Errorf("record:\n%s", got)
+	}
+	// The same name in another workspace has no record.
+	out, _, _, _ = runSplit(t, "policy", "diff", "dev", "webapp", "-o", "json")
+	if rep := decodeReport(t, out); rep.Workspace != "default" || rep.Source != nil {
+		t.Errorf("the choice for team applies to default:\n%s", out)
+	}
+	out, _, _, _ = runSplit(t, "policy", "diff", "dev", "webapp", "--workspace", "team", "-o", "json")
+	if rep := decodeReport(t, out); rep.Source == nil || rep.Source.How != "recorded" {
+		t.Errorf("the choice for team is gone:\n%s", out)
+	}
+	if _, _, _, err := runSplit(t, "policy", "diff", "dev", "webapp", "--workspace", "--rule"); err == nil || !strings.Contains(err.Error(), "invalid workspace name") {
+		t.Errorf("workspace named like an option: %v", err)
 	}
 }
 

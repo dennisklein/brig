@@ -25,7 +25,8 @@ import (
 )
 
 // policySourcesFile holds the policy file the user chose for each sandbox of
-// a VM, as a JSON object from sandbox name to absolute path.
+// a VM, as a JSON object from "WORKSPACE/SANDBOX" to absolute path. Records
+// keyed by the sandbox name alone, from before workspaces, are ignored.
 const policySourcesFile = "policy-sources.json"
 
 // Exit codes of brig policy diff besides 0 for no difference and 1 for an error.
@@ -53,8 +54,9 @@ type policySource struct {
 
 // policyReport is the output of brig policy diff -o json.
 type policyReport struct {
-	VM      string `json:"vm"`
-	Sandbox string `json:"sandbox"`
+	VM        string `json:"vm"`
+	Workspace string `json:"workspace"`
+	Sandbox   string `json:"sandbox"`
 	// Source is nil when brig cannot tell which file the sandbox came from.
 	Source *policySource `json:"source"`
 	// Candidates are the policy files that fit equally well, or all that
@@ -70,12 +72,13 @@ type policyReport struct {
 
 func newPolicyDiffCmd() *cobra.Command {
 	var (
-		format   outputFormat
-		source   string
-		remember bool
+		format    outputFormat
+		source    string
+		remember  bool
+		workspace string
 	)
 	cmd := &cobra.Command{
-		Use:   "diff [VM] SANDBOX",
+		Use:   "diff [VM] SANDBOX [--workspace W]",
 		Short: "Show how a sandbox's network rules differ from its policy file",
 		Long: `Compare the base policy of SANDBOX (openshell policy get --base) with the
 policy file it came from, rule by rule. A rule is
@@ -118,7 +121,7 @@ brig cannot tell which file to compare with.`,
 			if remember && source == "" {
 				return errors.New("--remember needs --source")
 			}
-			rep, err := a.policyDiff(cmd.Context(), v, args[len(args)-1], source, remember, cmd.ErrOrStderr())
+			rep, err := a.policyDiff(cmd.Context(), v, workspace, args[len(args)-1], source, remember, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -137,6 +140,7 @@ brig cannot tell which file to compare with.`,
 	addOutputFlag(cmd, &format)
 	cmd.Flags().StringVar(&source, "source", "", "compare with this policy file, or the policy file of the config directories with this name")
 	cmd.Flags().BoolVar(&remember, "remember", false, "keep the --source for this sandbox")
+	addWorkspaceFlag(cmd, &workspace)
 	return cmd
 }
 
@@ -149,7 +153,7 @@ func (e exitError) Error() string { return fmt.Sprintf("exit status %d", e.code)
 // policyDiff compares the policy of the sandbox on v's gateway with its
 // source file. Files that cannot be read are noted on warn and not
 // considered.
-func (a *app) policyDiff(ctx context.Context, v *vm.VM, sandbox, source string, remember bool, warn io.Writer) (*policyReport, error) {
+func (a *app) policyDiff(ctx context.Context, v *vm.VM, workspace, sandbox, source string, remember bool, warn io.Writer) (*policyReport, error) {
 	var set *ocsync.Set
 	if len(v.OpenShellConfigs) > 0 {
 		var err error
@@ -161,15 +165,15 @@ func (a *app) policyDiff(ctx context.Context, v *vm.VM, sandbox, source string, 
 	if err != nil {
 		return nil, err
 	}
-	raw, err := cli.BasePolicy(ctx, v.GatewayName(), sandbox)
+	raw, err := cli.BasePolicy(ctx, v.GatewayName(), workspace, sandbox)
 	if err != nil {
-		return nil, fmt.Errorf("the base policy of sandbox %s of VM %s (is the VM running?): %w", sandbox, v.Name, err)
+		return nil, fmt.Errorf("the base policy of sandbox %s in workspace %s of VM %s (is the VM running?): %w", sandbox, workspace, v.Name, err)
 	}
 	have, err := policy.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox %s: %w", sandbox, err)
 	}
-	rep := &policyReport{VM: v.Name, Sandbox: sandbox, Result: policy.Result{Rules: []policy.RuleDiff{}, Fixed: []string{}}, base: raw}
+	rep := &policyReport{VM: v.Name, Workspace: workspace, Sandbox: sandbox, Result: policy.Result{Rules: []policy.RuleDiff{}, Fixed: []string{}}, base: raw}
 
 	choose := func(path, how string) (*policyReport, error) {
 		doc, err := readPolicyFile(path)
@@ -186,13 +190,13 @@ func (a *app) policyDiff(ctx context.Context, v *vm.VM, sandbox, source string, 
 			return nil, err
 		}
 		if remember {
-			if err := a.rememberPolicySource(v, sandbox, path); err != nil {
+			if err := a.rememberPolicySource(v, workspace, sandbox, path); err != nil {
 				return nil, err
 			}
 		}
 		return choose(path, "given")
 	}
-	if path, err := a.recordedPolicySource(v, sandbox); err != nil {
+	if path, err := a.recordedPolicySource(v, workspace, sandbox); err != nil {
 		fmt.Fprintf(warn, "Warning: %s\n", termtext.Escape(err.Error()))
 	} else if path != "" {
 		if rep, err := choose(path, "recorded"); err == nil {
@@ -273,7 +277,16 @@ func (e noPolicyFileError) Error() string {
 	return fmt.Sprintf("no policy file %q in the VM's OpenShell config directories; give its path", e.name)
 }
 
-func (a *app) recordedPolicySource(v *vm.VM, sandbox string) (string, error) {
+// policySourceKey is the key of a sandbox in policySourcesFile. Names have no
+// slash, so the key is unambiguous.
+func policySourceKey(workspace, sandbox string) string { return workspace + "/" + sandbox }
+
+// addWorkspaceFlag adds --workspace, for commands on one sandbox.
+func addWorkspaceFlag(cmd *cobra.Command, workspace *string) {
+	cmd.Flags().StringVar(workspace, "workspace", openshell.DefaultWorkspace, "the workspace of the sandbox")
+}
+
+func (a *app) recordedPolicySource(v *vm.VM, workspace, sandbox string) (string, error) {
 	data, err := os.ReadFile(a.vmFile(v, policySourcesFile))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
@@ -285,10 +298,10 @@ func (a *app) recordedPolicySource(v *vm.VM, sandbox string) (string, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return "", fmt.Errorf("%s: %w", policySourcesFile, err)
 	}
-	return m[sandbox], nil
+	return m[policySourceKey(workspace, sandbox)], nil
 }
 
-func (a *app) rememberPolicySource(v *vm.VM, sandbox, path string) error {
+func (a *app) rememberPolicySource(v *vm.VM, workspace, sandbox, path string) error {
 	unlock, err := a.lockVM(v.Name)
 	if err != nil {
 		return err
@@ -299,7 +312,7 @@ func (a *app) rememberPolicySource(v *vm.VM, sandbox, path string) error {
 		// An unreadable file is replaced: it holds nothing but a choice.
 		_ = json.Unmarshal(data, &m)
 	}
-	m[sandbox] = path
+	m[policySourceKey(workspace, sandbox)] = path
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

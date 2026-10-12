@@ -383,18 +383,29 @@ func majorMinor(version string) ([2]int, bool) {
 	return mm, true
 }
 
-// BasePolicy returns the base policy of the sandbox on gateway: the policy
+// WorkspaceArgs returns the leading arguments of every CLI command that
+// works in a workspace of gateway. Assumption, not checked against a
+// release: --workspace is a global flag that follows -g. Change it here if
+// the CLI wants it elsewhere.
+func WorkspaceArgs(gateway, workspace string) []string {
+	return []string{"-g", gateway, "--workspace", workspace}
+}
+
+// BasePolicy returns the base policy of the sandbox in workspace on gateway: the policy
 // it was created with plus later changes to its rules, without the rules
 // that attached providers contribute. It is YAML or JSON, whichever the CLI
 // printed.
-func (c *CLI) BasePolicy(ctx context.Context, gateway, sandbox string) ([]byte, error) {
+func (c *CLI) BasePolicy(ctx context.Context, gateway, workspace, sandbox string) ([]byte, error) {
+	if err := CheckWorkspace(workspace); err != nil {
+		return nil, err
+	}
 	if !nameRE.MatchString(sandbox) {
 		return nil, fmt.Errorf("invalid sandbox name %q", sandbox)
 	}
 	if _, err := gatewayDir(c.ConfigHome, gateway); err != nil {
 		return nil, err
 	}
-	out, err := c.run(ctx, "-g", gateway, "policy", "get", sandbox, "--base", "-o", "json")
+	out, err := c.run(ctx, append(WorkspaceArgs(gateway, workspace), "policy", "get", sandbox, "--base", "-o", "json")...)
 	if err != nil {
 		return nil, err
 	}
