@@ -13,17 +13,21 @@ import (
 )
 
 // topoIDRE matches the IDs of the topology's nodes.
-var topoIDRE = regexp.MustCompile(`^(host|gw:[a-z0-9-]+|(sb|pr):[a-z0-9-]+/[A-Za-z0-9._-]+|ep:[A-Za-z0-9*._-]+(:[0-9]+)?)$`)
+var topoIDRE = regexp.MustCompile(`^(host|gw:[a-z0-9-]+|(sb|pr):[a-z0-9-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+|ep:[A-Za-z0-9*._-]+(:[0-9]+)?)$`)
 
 // trafficQueryOf reads the Traffic page's filters from a query: verdict,
-// vm and sandbox. It drops those that are not valid.
+// vm, workspace and sandbox. It drops those that are not valid. A sandbox
+// needs its VM and workspace to be told from one of the same name.
 func trafficQueryOf(q url.Values) trafficQuery {
 	t := trafficQuery{Denied: q.Get("verdict") == "deny"}
 	if n := q.Get("vm"); n != "" && vm.ValidateName(n) == nil {
 		t.VM = n
-		if sb := q.Get("sandbox"); action.ValidSandboxName(sb) {
-			t.Sandbox = sb
-		}
+	}
+	if ws := q.Get("workspace"); action.ValidWorkspaceName(ws) {
+		t.Workspace = ws
+	}
+	if sb := q.Get("sandbox"); t.VM != "" && t.Workspace != "" && action.ValidSandboxName(sb) {
+		t.Sandbox = sb
 	}
 	return t
 }
@@ -32,7 +36,7 @@ func trafficQueryOf(q url.Values) trafficQuery {
 func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "traffic", "Traffic")
 	v.TrafficQ = trafficQueryOf(r.URL.Query())
-	params := url.Values{"vm": {v.TrafficQ.VM}, "sandbox": {v.TrafficQ.Sandbox}}
+	params := url.Values{"vm": {v.TrafficQ.VM}, "workspace": {v.TrafficQ.Workspace}, "sandbox": {v.TrafficQ.Sandbox}}
 	if v.TrafficQ.Denied {
 		params.Set("verdict", "deny")
 	}

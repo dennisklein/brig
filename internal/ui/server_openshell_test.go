@@ -21,21 +21,21 @@ func TestOpenShellPages(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
 	for target, want := range map[string][]string{
-		"/sandboxes":                                  {"corpus-scan", "pr-review", "3/5"},
+		"/sandboxes":                                  {"corpus-scan", "pr-review", "4/6"},
 		"/sandboxes?vm=review":                        {"pr-review"},
-		"/sandboxes/dev/webapp":                       {"OPENAI_API_KEY", "models.example.org:443", "openshell -g brig-dev sandbox connect webapp"},
-		"/sandboxes/dev/webapp?tab=policy":            {`<span class="add">`, "# from provider github", "policy get webapp --base", "brig policy diff dev webapp"},
-		"/sandboxes/dev/webapp?tab=files":             {"sandbox download webapp /sandbox/PATH ."},
-		"/sandboxes/dev/tools?tab=bogus":              {"Connect to the sandbox, once it runs"},
-		"/sandboxes/airgap/corpus-scan":               {"airgap is not running", "brig start airgap"},
-		"/gateways/review":                            {"not on the gateway", "brig sync review --dry-run", "openshell -g brig-review provider list"},
+		"/sandboxes/dev/default/webapp":               {"OPENAI_API_KEY", "models.example.org:443", "openshell -g brig-dev --workspace default sandbox connect webapp"},
+		"/sandboxes/dev/default/webapp?tab=policy":    {`<span class="add">`, "# from provider github", "policy get webapp --base", "brig policy diff dev webapp --workspace default"},
+		"/sandboxes/dev/default/webapp?tab=files":     {"sandbox download webapp /sandbox/PATH ."},
+		"/sandboxes/dev/default/tools?tab=bogus":      {"Connect to the sandbox, once it runs"},
+		"/sandboxes/airgap/default/corpus-scan":       {"airgap is not running", "brig start airgap"},
+		"/gateways/review":                            {"not on the gateway", "brig sync review --dry-run", "openshell -g brig-review --workspace default provider list"},
 		"/gateways/dev?tab=profiles":                  {"GITLAB_TOKEN", "as header PRIVATE-TOKEN", "~/src/agent-openshell/profiles/github.yaml"},
 		"/gateways/dev?tab=policies":                  {"OPENSHELL_SANDBOX_POLICY", "~/src/agent-openshell/policies/tools.yaml"},
 		"/gateways/dev?tab=templates":                 {"localhost/claude-agent:2026-10-01", "tools"},
 		"/gateways/airgap?tab=providers":              {"by hand"},
 		"/vms/dev?tab=sandboxes":                      {"kit-dev", "New sandbox…"},
 		"/":                                           {"sandboxes", "webapp"},
-		"/palette?q=webapp":                           {"/sandboxes/dev/webapp"},
+		"/palette?q=webapp":                           {"/sandboxes/dev/default/webapp"},
 		"/palette?q=brig-review%20%C2%B7%20templates": {"/gateways/review?tab=templates"},
 	} {
 		w := ts.get(target)
@@ -53,7 +53,7 @@ func TestOpenShellPages(t *testing.T) {
 		t.Errorf("/gateway: %d to %q", w.Code, w.Header().Get("Location"))
 	}
 	for _, target := range []string{
-		"/sandboxes/dev/nope", "/sandboxes/nope/webapp", "/sandboxes/dev/..webapp", "/gateways/nope", "/gateways/Bad..Name",
+		"/sandboxes/dev/default/nope", "/sandboxes/nope/default/webapp", "/sandboxes/dev/default/..webapp", "/gateways/nope", "/gateways/Bad..Name",
 	} {
 		if w := ts.get(target); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", target, w.Code)
@@ -84,7 +84,7 @@ func TestOpenShellEscapesUntrustedText(t *testing.T) {
 		gw.Sandboxes[2].Policy = &p
 		return true
 	})
-	for _, target := range []string{"/sandboxes/dev/webapp", "/sandboxes/dev/webapp?tab=policy"} {
+	for _, target := range []string{"/sandboxes/dev/default/webapp", "/sandboxes/dev/default/webapp?tab=policy"} {
 		body := ts.get(target).Body.String()
 		if strings.Contains(body, "<img src=x") || strings.Contains(body, "<script>alert") {
 			t.Errorf("%s: text from the gateway was not escaped", target)
@@ -96,7 +96,8 @@ func TestOpenShellEvents(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
 	for _, target := range []string{
-		"/events?f=sandbox&gw=Bad..Name", "/events?f=sandbox&gw=dev&sb=..x", "/events?f=sandbox&sb=webapp",
+		"/events?f=sandbox&gw=Bad..Name", "/events?f=sandbox&gw=dev&ws=default&sb=..x", "/events?f=sandbox&sb=webapp&ws=default",
+		"/events?f=sandbox&gw=dev&sb=webapp", "/events?f=sandbox&gw=dev&ws=..&sb=webapp", "/events?f=sandbox-table&wsfilter=..",
 		"/events?f=sandbox-table&filter=Bad..Name",
 	} {
 		if w := ts.get(target); w.Code != http.StatusBadRequest {
@@ -108,7 +109,7 @@ func TestOpenShellEvents(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=sandbox&f=vm-table&gw=dev&sb=webapp&tab=policy", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=sandbox&f=vm-table&gw=dev&ws=default&sb=webapp&tab=policy", nil)
 	req.Host = "127.0.0.1:7878"
 	req.AddCookie(ts.cookie)
 	resp, err := http.DefaultClient.Do(req)
@@ -165,7 +166,7 @@ func TestPolicyLines(t *testing.T) {
 	}
 }
 
-func TestProviderRows(t *testing.T) {
+func TestProviderGroups(t *testing.T) {
 	var review store.Gateway
 	for _, g := range demo.Gateways(time.Now()) {
 		if g.VM == "review" {
@@ -173,7 +174,11 @@ func TestProviderRows(t *testing.T) {
 		}
 	}
 	var got []string
-	for _, r := range providerRows(review) {
+	groups := providerGroups(review)
+	if len(groups) != 1 || groups[0].Workspace != "default" || groups[0].Heading {
+		t.Fatalf("a gateway with one workspace has one group without a heading: %+v", groups)
+	}
+	for _, r := range groups[0].Rows {
 		got = append(got, r.Name+" "+strings.Join(r.Sandboxes, ",")+" "+map[bool]string{true: "missing", false: "ok"}[r.Missing])
 	}
 	want := []string{"claude-code pr-review ok", "github pr-review ok", "gitlab-work  missing", "llm  ok"}

@@ -63,7 +63,9 @@ process:
   run_as_group: sandbox
 `
 
-// ProviderProfiles returns the demo's provider profiles, sorted by ID.
+// ProviderProfiles returns the demo's provider profiles, sorted by ID. The
+// profiles of the workspace scope have no workspace yet; profilesIn gives
+// them one.
 func ProviderProfiles() []store.Profile {
 	return []store.Profile{
 		{
@@ -91,6 +93,29 @@ func ProviderProfiles() []store.Profile {
 			Binaries:    []string{"/usr/bin/node"},
 		},
 	}
+}
+
+// profilesIn returns the demo's profiles as a gateway lists them for the
+// workspaces: the platform's once, and the profiles of the workspace scope
+// for each workspace, sorted by workspace and ID. The profiles of a workspace
+// that are not named in only are left out.
+func profilesIn(workspaces []string, only map[string][]string) []store.Profile {
+	var platform, own []store.Profile
+	for _, p := range ProviderProfiles() {
+		if p.Scope == "platform" {
+			platform = append(platform, p)
+		}
+	}
+	for _, ws := range workspaces {
+		for _, p := range ProviderProfiles() {
+			if p.Scope == "platform" || (only[ws] != nil && !slices.Contains(only[ws], p.ID)) {
+				continue
+			}
+			p.Workspace = ws
+			own = append(own, p)
+		}
+	}
+	return append(platform, own...)
 }
 
 // demoProviders are the demo's providers by name, with their types.
@@ -140,14 +165,17 @@ func policy(base string, version uint32, providers []string) *store.Policy {
 // Gateways returns the demo's gateways as of now.
 func Gateways(now time.Time) []store.Gateway {
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
-	sandbox := func(name, phase, image, template string, created time.Duration, base string, version uint32, providers ...string) store.Sandbox {
+	sandboxIn := func(ws, name, phase, image, template string, created time.Duration, base string, version uint32, providers ...string) store.Sandbox {
 		providers = slices.Sorted(slices.Values(providers))
 		return store.Sandbox{
-			Workspace: store.DefaultWorkspace, Name: name, Phase: phase, Image: image, Template: template, Providers: providers,
+			Workspace: ws, Name: name, Phase: phase, Image: image, Template: template, Providers: providers,
 			Created: ago(created), PolicyVersion: version, Policy: policy(base, version, providers),
 		}
 	}
-	providers := func(names ...string) []store.Provider {
+	sandbox := func(name, phase, image, template string, created time.Duration, base string, version uint32, providers ...string) store.Sandbox {
+		return sandboxIn(store.DefaultWorkspace, name, phase, image, template, created, base, version, providers...)
+	}
+	providersIn := func(ws string, names ...string) []store.Provider {
 		var out []store.Provider
 		for _, n := range slices.Sorted(slices.Values(names)) {
 			var creds []string
@@ -156,10 +184,12 @@ func Gateways(now time.Time) []store.Gateway {
 					creds = p.Credentials[0].EnvVars
 				}
 			}
-			out = append(out, store.Provider{Workspace: store.DefaultWorkspace, Name: n, Type: demoProviders[n], Credentials: creds})
+			out = append(out, store.Provider{Workspace: ws, Name: n, Type: demoProviders[n], Credentials: creds})
 		}
 		return out
 	}
+	providers := func(names ...string) []store.Provider { return providersIn(store.DefaultWorkspace, names...) }
+	def := []string{store.DefaultWorkspace}
 	config := func(providers ...string) store.GatewayConfig {
 		c := store.GatewayConfig{
 			Dirs:              []string{configDir},
@@ -188,21 +218,24 @@ func Gateways(now time.Time) []store.Gateway {
 				sandbox("corpus-scan", "Stopped", "localhost/pi-agent:2026-09-15", "pi", 30*24*time.Hour, defaultPolicy, 1, "llm"),
 			},
 			Providers: providers("llm"),
-			Profiles:  slices.DeleteFunc(ProviderProfiles(), func(p store.Profile) bool { return p.Source == "user" }),
-			Templates: []store.Template{{Name: "pi", Image: "localhost/pi-agent:2026-09-15", CPU: "2", Memory: "4Gi"}},
+			Profiles:  profilesIn(def, map[string][]string{store.DefaultWorkspace: {}}),
+			Templates: []store.Template{{Workspace: store.DefaultWorkspace, Name: "pi", Image: "localhost/pi-agent:2026-09-15", CPU: "2", Memory: "4Gi"}},
 		},
 		{
-			Workspaces: []string{store.DefaultWorkspace}, VM: "dev", State: store.GatewayReady, Version: "0.1.2", Seen: now,
+			Workspaces: []string{store.DefaultWorkspace, "team"}, VM: "dev", State: store.GatewayReady, Version: "0.1.2", Seen: now,
 			Sandboxes: []store.Sandbox{
 				sandbox("kit-dev", "Ready", pi, "pi", 26*time.Hour, defaultPolicy, 1, "llm"),
 				sandbox("tools", "Stopped", claude, "claude", 17*24*time.Hour, toolsPolicy, 2, "claude-code", "gitlab-work"),
 				sandbox("webapp", "Ready", pi, "pi", 9*24*time.Hour, defaultPolicy, 4, "llm", "github"),
+				// The same name as a sandbox of the default workspace.
+				sandboxIn("team", "webapp", "Ready", pi, "pi", 3*24*time.Hour, defaultPolicy, 2, "llm"),
 			},
-			Providers: providers("claude-code", "github", "gitlab-work", "llm"),
-			Profiles:  ProviderProfiles(),
+			Providers: append(providers("claude-code", "github", "gitlab-work", "llm"), providersIn("team", "github", "llm")...),
+			Profiles:  profilesIn([]string{store.DefaultWorkspace, "team"}, map[string][]string{"team": {"github"}}),
 			Templates: []store.Template{
-				{Name: "claude", Image: claude, CPU: "2", Memory: "4Gi"},
-				{Name: "pi", Image: pi, CPU: "2", Memory: "4Gi"},
+				{Workspace: store.DefaultWorkspace, Name: "claude", Image: claude, CPU: "2", Memory: "4Gi"},
+				{Workspace: store.DefaultWorkspace, Name: "pi", Image: pi, CPU: "2", Memory: "4Gi"},
+				{Workspace: "team", Name: "pi", Image: pi, CPU: "4", Memory: "8Gi"},
 			},
 			Config: config("claude-code", "github", "gitlab-work", "llm"),
 		},
@@ -212,8 +245,8 @@ func Gateways(now time.Time) []store.Gateway {
 				sandbox("pr-review", "Ready", claude, "claude", 4*24*time.Hour, defaultPolicy, 1, "claude-code", "github"),
 			},
 			Providers: providers("claude-code", "github", "llm"),
-			Profiles:  ProviderProfiles(),
-			Templates: []store.Template{{Name: "claude", Image: claude, CPU: "2", Memory: "4Gi"}},
+			Profiles:  profilesIn(def, nil),
+			Templates: []store.Template{{Workspace: store.DefaultWorkspace, Name: "claude", Image: claude, CPU: "2", Memory: "4Gi"}},
 			Config:    config("claude-code", "github", "gitlab-work", "llm"),
 		},
 	}

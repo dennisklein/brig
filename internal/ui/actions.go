@@ -117,9 +117,11 @@ var dialogSpecs = map[string]dialogSpec{
 	},
 }
 
-// sandboxTitle titles a dialog with a sandbox's name.
+// sandboxTitle titles a dialog with a sandbox's name and workspace.
 func sandboxTitle(format string) func(*dialog) string {
-	return func(d *dialog) string { return fmt.Sprintf(format, d.Form.Get("sandbox")) }
+	return func(d *dialog) string {
+		return fmt.Sprintf(format, d.Form.Get("sandbox")+" ("+d.Form.Get("workspace")+")")
+	}
 }
 
 func init() {
@@ -139,6 +141,7 @@ func init() {
 					}
 				}
 				d.Gateway, _ = d.Snap.Gateway(d.Form.Get("vm"))
+				d.def("workspace", createWorkspaceDefault(d.Gateway))
 			},
 		},
 		"sandbox-start":  {OK: "Start", Open: "Start", Title: sandboxTitle("Start %s")},
@@ -151,14 +154,26 @@ func init() {
 	}
 }
 
+// createWorkspaceDefault is the workspace that the New sandbox dialog offers
+// first: default if the gateway has it, else its first.
+func createWorkspaceDefault(g store.Gateway) string {
+	if len(g.Workspaces) == 0 || slices.Contains(g.Workspaces, store.DefaultWorkspace) {
+		return store.DefaultWorkspace
+	}
+	return g.Workspaces[0]
+}
+
 // readyGateways lists the gateways that answer, by VM name.
 func readyGateways(sn store.Snapshot) []store.Gateway {
 	return slices.DeleteFunc(slices.Clone(sn.Gateways), func(g store.Gateway) bool { return g.State != store.GatewayReady })
 }
 
-// unattached lists the gateway's providers that the sandbox lacks.
+// unattached lists the providers of the sandbox's workspace that the sandbox
+// lacks.
 func unattached(g store.Gateway, s store.Sandbox) []store.Provider {
-	return slices.DeleteFunc(slices.Clone(g.Providers), func(p store.Provider) bool { return slices.Contains(s.Providers, p.Name) })
+	return slices.DeleteFunc(slices.Clone(g.Providers), func(p store.Provider) bool {
+		return p.Workspace != s.Workspace || slices.Contains(s.Providers, p.Name)
+	})
 }
 
 func upgradeSub(d *dialog) string {
@@ -360,7 +375,7 @@ func (s *Server) dialog(w http.ResponseWriter, r *http.Request) {
 	d := &dialog{view: v, ID: a.ID, Form: maps(r.URL.Query()), Spec: dialogSpecs[a.ID]}
 	d.VM, _ = v.Snap.VM(d.Form.Get("vm"))
 	d.Gateway, _ = v.Snap.Gateway(d.Form.Get("vm"))
-	d.Sandbox, _ = d.Gateway.Sandbox(store.DefaultWorkspace, d.Form.Get("sandbox"))
+	d.Sandbox, _ = d.Gateway.Sandbox(d.Form.Get("workspace"), d.Form.Get("sandbox"))
 	if d.Spec.Defaults != nil {
 		d.Spec.Defaults(d)
 	}
@@ -500,11 +515,11 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	v := s.newView(r, "", "")
 	g, ok := v.Snap.Gateway(q.Get("vm"))
-	if !ok || !action.ValidSandboxName(q.Get("sandbox")) {
+	if !ok || !action.ValidWorkspaceName(q.Get("workspace")) || !action.ValidSandboxName(q.Get("sandbox")) {
 		s.notFound(w, r)
 		return
 	}
-	sb, ok := g.Sandbox(store.DefaultWorkspace, q.Get("sandbox"))
+	sb, ok := g.Sandbox(q.Get("workspace"), q.Get("sandbox"))
 	if !ok {
 		s.notFound(w, r)
 		return

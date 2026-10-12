@@ -53,7 +53,7 @@ func TestWorkspacePath(t *testing.T) {
 			t.Errorf("workspacePath(%q) = %q, want a refusal", in, got)
 		}
 	}
-	if filesPath("/etc") != workspace || filesPath("") != workspace || filesPath("/sandbox/x") != "/sandbox/x" {
+	if filesPath("/etc") != sandboxDir || filesPath("") != sandboxDir || filesPath("/sandbox/x") != "/sandbox/x" {
 		t.Error("filesPath does not fall back to the workspace")
 	}
 }
@@ -69,23 +69,23 @@ func TestSandboxFiles(t *testing.T) {
 		{Name: "<b>x</b>", Kind: "file", Size: 1},
 		{Name: "bad\nname", Kind: "dir", Size: 4096},
 	}}}
-	w := ts.get("/sandboxes/dev/webapp/files?path=/sandbox/src")
+	w := ts.get("/sandboxes/dev/default/webapp/files?path=/sandbox/src")
 	body := w.Body.String()
 	if w.Code != http.StatusOK {
 		t.Fatalf("%d\n%s", w.Code, body)
 	}
 	for _, want := range []string{
-		`<a href="/sandboxes/dev/webapp?path=%2Fsandbox&amp;tab=files">/sandbox</a>`,
-		`<a href="/sandboxes/dev/webapp?path=%2Fsandbox%2Fsrc&amp;tab=files">src</a>`,
-		`<a href="/sandboxes/dev/webapp?path=%2Fsandbox%2Fsrc%2Falpha&amp;tab=files">alpha/</a>`,
+		`<a href="/sandboxes/dev/default/webapp?path=%2Fsandbox&amp;tab=files">/sandbox</a>`,
+		`<a href="/sandboxes/dev/default/webapp?path=%2Fsandbox%2Fsrc&amp;tab=files">src</a>`,
+		`<a href="/sandboxes/dev/default/webapp?path=%2Fsandbox%2Fsrc%2Falpha&amp;tab=files">alpha/</a>`,
 		"2.0 KiB", "latest <span", "&lt;b&gt;x&lt;/b&gt;", `bad\nname/`,
-		"openshell -g brig-dev sandbox exec -n webapp --no-tty -- find /sandbox/src -mindepth 1 -maxdepth 1 -printf",
+		"openshell -g brig-dev --workspace default sandbox exec -n webapp --no-tty -- find /sandbox/src -mindepth 1 -maxdepth 1 -printf",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("listing lacks %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "<b>x</b>") || strings.Contains(body, `href="/sandboxes/dev/webapp?path=%2Fsandbox%2Fsrc%2Fbad`) {
+	if strings.Contains(body, "<b>x</b>") || strings.Contains(body, `href="/sandboxes/dev/default/webapp?path=%2Fsandbox%2Fsrc%2Fbad`) {
 		t.Errorf("a name was not escaped, or a name with a control character got a link:\n%s", body)
 	}
 	// Directories first, each group by name.
@@ -107,9 +107,9 @@ func TestSandboxFilesRefuses(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
 	for _, target := range []string{
-		"/sandboxes/dev/webapp/files", "/sandboxes/dev/webapp/files?path=/etc", "/sandboxes/dev/webapp/files?path=/sandbox/../etc",
-		"/sandboxes/dev/webapp/files?path=sandbox", "/sandboxes/dev/nope/files?path=/sandbox", "/sandboxes/nope/webapp/files?path=/sandbox",
-		"/sandboxes/dev/--x/files?path=/sandbox", "/sandboxes/dev/webapp/files?path=" + url.QueryEscape("/sandbox/a\nb"),
+		"/sandboxes/dev/default/webapp/files", "/sandboxes/dev/default/webapp/files?path=/etc", "/sandboxes/dev/default/webapp/files?path=/sandbox/../etc",
+		"/sandboxes/dev/default/webapp/files?path=sandbox", "/sandboxes/dev/default/nope/files?path=/sandbox", "/sandboxes/nope/default/webapp/files?path=/sandbox",
+		"/sandboxes/dev/default/--x/files?path=/sandbox", "/sandboxes/dev/default/webapp/files?path=" + url.QueryEscape("/sandbox/a\nb"),
 	} {
 		if w := ts.get(target); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", target, w.Code)
@@ -124,15 +124,15 @@ func TestSandboxFilesSaysWhyNot(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
 	for target, want := range map[string]string{
-		"/sandboxes/dev/tools/files?path=/sandbox":          "tools is stopped; its files can be listed once it runs",
-		"/sandboxes/airgap/corpus-scan/files?path=/sandbox": "brig-airgap is not reachable",
+		"/sandboxes/dev/default/tools/files?path=/sandbox":          "tools is stopped; its files can be listed once it runs",
+		"/sandboxes/airgap/default/corpus-scan/files?path=/sandbox": "brig-airgap is not reachable",
 	} {
 		if body := ts.get(target).Body.String(); !strings.Contains(body, want) {
 			t.Errorf("%s lacks %q:\n%s", target, want, body)
 		}
 	}
 	ts.files.err = errors.New("find: '/sandbox/x': No such file or directory\x1b[31m")
-	body := ts.get("/sandboxes/dev/webapp/files?path=/sandbox/x").Body.String()
+	body := ts.get("/sandboxes/dev/default/webapp/files?path=/sandbox/x").Body.String()
 	if !strings.Contains(body, "The listing failed: find: ") || !strings.Contains(body, "No such file or directory") || strings.ContainsRune(body, 0x1b) {
 		t.Errorf("a failed listing:\n%s", body)
 	}
@@ -140,7 +140,7 @@ func TestSandboxFilesSaysWhyNot(t *testing.T) {
 		t.Errorf("listed %d times, want only the sandbox that runs", n)
 	}
 	ts.srv.files = nil
-	if body := ts.get("/sandboxes/dev/webapp/files?path=/sandbox").Body.String(); !strings.Contains(body, "cannot list files") {
+	if body := ts.get("/sandboxes/dev/default/webapp/files?path=/sandbox").Body.String(); !strings.Contains(body, "cannot list files") {
 		t.Errorf("without a lister:\n%s", body)
 	}
 }
@@ -148,9 +148,9 @@ func TestSandboxFilesSaysWhyNot(t *testing.T) {
 func TestFilesTab(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
-	body := ts.get("/sandboxes/dev/webapp?tab=files&path=/sandbox/src").Body.String()
+	body := ts.get("/sandboxes/dev/default/webapp?tab=files&path=/sandbox/src").Body.String()
 	for _, want := range []string{
-		`hx-get="/sandboxes/dev/webapp/files?path=%2Fsandbox%2Fsrc"`, `hx-trigger="load"`, "sandbox download webapp /sandbox/PATH .",
+		`hx-get="/sandboxes/dev/default/webapp/files?path=%2Fsandbox%2Fsrc"`, `hx-trigger="load"`, "sandbox download webapp /sandbox/PATH .",
 		"path=%2Fsandbox%2Fsrc", // the live updates keep the directory
 	} {
 		if !strings.Contains(body, want) {
@@ -158,11 +158,11 @@ func TestFilesTab(t *testing.T) {
 		}
 	}
 	// A path outside the workspace falls back to it.
-	if body := ts.get("/sandboxes/dev/webapp?tab=files&path=/etc").Body.String(); !strings.Contains(body, `files?path=%2Fsandbox"`) {
+	if body := ts.get("/sandboxes/dev/default/webapp?tab=files&path=/etc").Body.String(); !strings.Contains(body, `files?path=%2Fsandbox"`) {
 		t.Errorf("Files tab with a path outside the workspace:\n%s", body)
 	}
 	// A sandbox that does not run lists nothing.
-	if body := ts.get("/sandboxes/dev/tools?tab=files").Body.String(); strings.Contains(body, "/files?path=") || !strings.Contains(body, "tools is stopped") {
+	if body := ts.get("/sandboxes/dev/default/tools?tab=files").Body.String(); strings.Contains(body, "/files?path=") || !strings.Contains(body, "tools is stopped") {
 		t.Errorf("Files tab of a stopped sandbox:\n%s", body)
 	}
 	if w := ts.get("/events?f=sandbox&gw=dev&sb=webapp&tab=files&path=/etc"); w.Code != http.StatusBadRequest {

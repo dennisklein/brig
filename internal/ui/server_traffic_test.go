@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -46,25 +47,25 @@ func TestTrafficPages(t *testing.T) {
 	addTraffic(ts)
 	for target, want := range map[string][]string{
 		"/traffic": {
-			"registry.npmjs.org:443", "DENY", "ALLOW", "RAW", "Requests of kit-dev may be missing here", "_provider_github",
-			`hx-get="/a/allow?req=4&amp;sandbox=webapp&amp;vm=dev"`, `title="OpenShell drafted the rule allow_registry_npmjs_org_443 for this"`,
+			"registry.npmjs.org:443", "DENY", "ALLOW", "RAW", "Requests of kit-dev (default) may be missing here", "_provider_github",
+			`hx-get="/a/allow?req=4&amp;sandbox=webapp&amp;vm=dev&amp;workspace=default"`, `title="OpenShell drafted the rule allow_registry_npmjs_org_443 for this"`,
 			"uploads.github.com", `<span class="count alert" title="Denied requests in the last hour">2</span>`,
 		},
-		"/traffic?vm=review":                          {"uploads.github.com", `class="on" href="/traffic?vm=review"`},
-		"/traffic?verdict=deny&vm=dev&sandbox=webapp": {"registry.npmjs.org:443", "Traffic <span class=\"muted\">· webapp</span>"},
-		"/sandboxes/dev/webapp?tab=traffic": {
+		"/traffic?vm=review": {"uploads.github.com", `class="on" href="/traffic?vm=review"`},
+		"/traffic?verdict=deny&vm=dev&workspace=default&sandbox=webapp": {"registry.npmjs.org:443", "Traffic <span class=\"muted\">· webapp (default)</span>"},
+		"/sandboxes/dev/default/webapp?tab=traffic": {
 			"Rules OpenShell drafted", "no new findings", "Approve…", `<span class="n alert"`,
-			"openshell -g brig-dev logs webapp --tail --source sandbox",
+			"openshell -g brig-dev --workspace default logs webapp --tail --source sandbox",
 		},
-		"/sandboxes/dev/webapp?tab=policy": {"Save to file…", `hx-get="/a/policy-save-preview?sandbox=webapp&amp;vm=dev"`},
-		"/":                                {"Recent denials", "1 denied request from webapp on dev in the last hour", "Allow…"},
+		"/sandboxes/dev/default/webapp?tab=policy": {"Save to file…", `hx-get="/a/policy-save-preview?sandbox=webapp&amp;vm=dev&amp;workspace=default"`},
+		"/": {"Recent denials", "1 denied request from webapp (default) on dev in the last hour", "Allow…"},
 		"/topology?vm=dev": {
 			"fence 1", "registry.npmjs.org", "denied in the last hour", "reached in the last hour", `class="e deny"`,
 			`href="/topology?sel=gw%3Adev&amp;vm=dev"`,
 		},
 		"/topology?vm=dev&sel=ep:registry.npmjs.org:443": {"was denied for", "Allow…", `class="n sel bad"`, "dim"},
-		"/topology?sel=pr:dev/github":                    {"sends GH_TOKEN only to api.github.com:443, github.com:443"},
-		"/topology?sel=sb:dev/webapp":                    {"See its traffic"},
+		"/topology?sel=pr:dev/default/github":            {"sends GH_TOKEN only to api.github.com:443, github.com:443"},
+		"/topology?sel=sb:dev/default/webapp":            {"See its traffic"},
 		"/palette?q=topo":                                {"/topology"},
 	} {
 		w := ts.get(target)
@@ -113,9 +114,9 @@ func TestAllowDialog(t *testing.T) {
 	ts.login()
 	addTraffic(ts)
 
-	body := ts.get("/a/allow?vm=dev&sandbox=webapp&req=4").Body.String()
+	body := ts.get("/a/allow?vm=dev&workspace=default&sandbox=webapp&req=4").Body.String()
 	for _, want := range []string{
-		"Allow a request for webapp", "registry.npmjs.org:443 by /usr/bin/node was denied: endpoint registry.npmjs.org:443 is not allowed by any policy.",
+		"Allow a request for webapp (default)", "registry.npmjs.org:443 by /usr/bin/node was denied: endpoint registry.npmjs.org:443 is not allowed by any policy.",
 		`name="mode" value="draft" checked`, `name="draft" value="ch-npm"`, "allow_registry_npmjs_org_443:\n  name:",
 		`name="host" value="registry.npmjs.org"`, `name="port" value="443"`, `name="binary" value="/usr/bin/node"`,
 	} {
@@ -125,20 +126,20 @@ func TestAllowDialog(t *testing.T) {
 	}
 
 	// Approving the draft runs openshell, and offers to save the rule.
-	form := values("vm", "dev", "sandbox", "webapp", "req", "4", "mode", "draft", "draft", "ch-npm")
+	form := values("vm", "dev", "workspace", "default", "sandbox", "webapp", "req", "4", "mode", "draft", "draft", "ch-npm")
 	form.Set("shown", ts.shownBy("allow", form))
 	if w := ts.post("/a/allow/run", form); w.Code != http.StatusOK {
 		t.Fatalf("run: %d\n%s", w.Code, w.Body)
 	}
 	s := ts.starts.started()[0]
-	if s.Command.Display != "openshell -g brig-dev rule approve webapp --chunk-id ch-npm" || s.VM != "" || s.Next != "policy-save-preview" ||
-		!slices.Equal(s.NextForm, []string{"vm", "dev", "sandbox", "webapp", "rule", "allow_registry_npmjs_org_443"}) {
+	if s.Command.Display != "openshell -g brig-dev --workspace default rule approve webapp --chunk-id ch-npm" || s.VM != "" || s.Next != "policy-save-preview" ||
+		!slices.Equal(s.NextForm, []string{"vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "allow_registry_npmjs_org_443"}) {
 		t.Errorf("spec: %+v", s)
 	}
 
 	// A program the log named only by its name is a guess, with the
 	// command that checks it; a credential's denial asks first.
-	body = ts.get("/a/allow?vm=review&sandbox=pr-review&req=5").Body.String()
+	body = ts.get("/a/allow?vm=review&workspace=default&sandbox=pr-review&req=5").Body.String()
 	for _, want := range []string{
 		`name="mode" value="rule"`, `name="binary" value="/usr/bin/gh"`, `name="access"`, `value="read-write" selected`,
 		"so this path is a guess", `readlink -f &#34;$(command -v gh)&#34;`, "Allow anyway",
@@ -147,7 +148,7 @@ func TestAllowDialog(t *testing.T) {
 			t.Errorf("credential dialog lacks %q", want)
 		}
 	}
-	w := ts.post("/a/allow/preview", values("vm", "review", "sandbox", "pr-review", "req", "5", "mode", "rule",
+	w := ts.post("/a/allow/preview", values("vm", "review", "workspace", "default", "sandbox", "pr-review", "req", "5", "mode", "rule",
 		"host", "uploads.github.com", "port", "443", "binary", "/usr/bin/gh", "protocol", "rest", "access", "read-write", "enforcement", "enforce"))
 	if !strings.Contains(w.Body.String(), "tick Allow anyway") || !strings.Contains(w.Body.String(), "disabled") {
 		t.Errorf("a credential's denial is allowed without asking:\n%s", w.Body)
@@ -159,15 +160,15 @@ func TestNextFormFillsTheNextDialog(t *testing.T) {
 	ts.login()
 	end := time.Now()
 	ts.st.AddTask(store.Task{
-		ID: "t", Display: "openshell -g brig-dev rule approve webapp --chunk-id ch-npm", Status: store.TaskOK, End: &end,
-		Next: "policy-save-preview", NextForm: []string{"vm", "dev", "sandbox", "webapp", "rule", "allow_x"},
+		ID: "t", Display: "openshell -g brig-dev --workspace default rule approve webapp --chunk-id ch-npm", Status: store.TaskOK, End: &end,
+		Next: "policy-save-preview", NextForm: []string{"vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "allow_x"},
 	})
 	body := ts.get("/").Body.String()
-	if !strings.Contains(body, `hx-get="/a/policy-save-preview?rule=allow_x&amp;sandbox=webapp&amp;vm=dev"`) || !strings.Contains(body, "Save to file…") {
+	if !strings.Contains(body, `hx-get="/a/policy-save-preview?rule=allow_x&amp;sandbox=webapp&amp;vm=dev&amp;workspace=default"`) || !strings.Contains(body, "Save to file…") {
 		t.Error("the task card does not offer to save the rule")
 	}
-	body = ts.get("/a/policy-save-preview?rule=allow_x&sandbox=webapp&vm=dev").Body.String()
-	if !strings.Contains(body, "Save the rules of webapp to its policy file") || !strings.Contains(body, `name="rule" value="allow_x"`) {
+	body = ts.get("/a/policy-save-preview?rule=allow_x&sandbox=webapp&vm=dev&workspace=default").Body.String()
+	if !strings.Contains(body, "Save the rules of webapp (default) to its policy file") || !strings.Contains(body, `name="rule" value="allow_x"`) {
 		t.Errorf("save dialog:\n%s", body)
 	}
 }
@@ -222,11 +223,12 @@ func TestTrafficRows(t *testing.T) {
 	now := time.Now()
 	sn := store.Snapshot{Traffic: []store.Traffic{
 		{VM: "dev", Requests: []store.Request{
-			{Seq: 1, VM: "dev", Sandbox: "webapp", Time: now.Add(-3 * time.Minute), Verdict: "deny", Host: "a.example", Port: 443},
-			{Seq: 3, VM: "dev", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "allow", Host: "b.example", Port: 443},
+			{Seq: 1, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-3 * time.Minute), Verdict: "deny", Host: "a.example", Port: 443},
+			{Seq: 3, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "allow", Host: "b.example", Port: 443},
+			{Seq: 4, VM: "dev", Workspace: "team", Sandbox: "webapp", Time: now.Add(-90 * time.Second), Verdict: "deny", Host: "d.example", Port: 443},
 		}},
 		{VM: "review", Requests: []store.Request{
-			{Seq: 2, VM: "review", Sandbox: "pr-review", Time: now.Add(-2 * time.Minute), Verdict: "deny", Host: "c.example", Port: 443},
+			{Seq: 2, VM: "review", Workspace: "default", Sandbox: "pr-review", Time: now.Add(-2 * time.Minute), Verdict: "deny", Host: "c.example", Port: 443},
 		}},
 	}}
 	seqs := func(rows []trafficRow) []uint64 {
@@ -241,19 +243,30 @@ func TestTrafficRows(t *testing.T) {
 		limit int
 		want  []uint64
 	}{
-		{trafficQuery{}, 10, []uint64{3, 2, 1}},
-		{trafficQuery{}, 2, []uint64{3, 2}},
-		{trafficQuery{Denied: true}, 10, []uint64{2, 1}},
-		{trafficQuery{VM: "dev", Sandbox: "webapp"}, 10, []uint64{3, 1}},
+		{trafficQuery{}, 10, []uint64{3, 4, 2, 1}},
+		{trafficQuery{}, 2, []uint64{3, 4}},
+		{trafficQuery{Denied: true}, 10, []uint64{4, 2, 1}},
+		// Two sandboxes of one name are told apart by their workspace.
+		{trafficQuery{VM: "dev", Workspace: "default", Sandbox: "webapp"}, 10, []uint64{3, 1}},
+		{trafficQuery{VM: "dev", Workspace: "team", Sandbox: "webapp"}, 10, []uint64{4}},
+		{trafficQuery{Workspace: "default"}, 10, []uint64{3, 2, 1}},
 	} {
 		if got := seqs(trafficRows(sn, c.q, c.limit)); !slices.Equal(got, c.want) {
 			t.Errorf("%+v, %d: %v, want %v", c.q, c.limit, got, c.want)
 		}
 	}
-	if n := denialCount(sn, "", "", now.Add(-150*time.Second)); n != 1 {
-		t.Errorf("%d recent denials, want 1", n)
+	if n := denialCount(sn, "", "", "", now.Add(-150*time.Second)); n != 2 {
+		t.Errorf("%d recent denials, want 2", n)
 	}
-	if q := (trafficQuery{VM: "dev", Sandbox: "webapp", Denied: true}); q.URL() != "/traffic?sandbox=webapp&verdict=deny&vm=dev" || q.OnVM("").URL() != "/traffic?verdict=deny" {
-		t.Errorf("URLs: %s, %s", q.URL(), q.OnVM("").URL())
+	if n := denialCount(sn, "dev", "team", "webapp", now.Add(-time.Hour)); n != 1 {
+		t.Errorf("%d denials of team's webapp, want 1", n)
+	}
+	q := trafficQuery{VM: "dev", Workspace: "team", Sandbox: "webapp", Denied: true}
+	if q.URL() != "/traffic?sandbox=webapp&verdict=deny&vm=dev&workspace=team" || q.OnVM("").URL() != "/traffic?verdict=deny&workspace=team" || q.OnWorkspace("").URL() != "/traffic?verdict=deny&vm=dev" {
+		t.Errorf("URLs: %s, %s, %s", q.URL(), q.OnVM("").URL(), q.OnWorkspace("").URL())
+	}
+	// A sandbox filter needs its VM and workspace.
+	if got := trafficQueryOf(url.Values{"sandbox": {"webapp"}, "vm": {"dev"}}); got.Sandbox != "" {
+		t.Errorf("a sandbox without a workspace filters: %+v", got)
 	}
 }

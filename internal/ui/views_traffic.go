@@ -27,8 +27,9 @@ const (
 
 // trafficQuery picks the requests that a traffic table shows.
 type trafficQuery struct {
-	// VM and Sandbox narrow it to a VM's gateway and one of its sandboxes.
-	VM, Sandbox string
+	// VM narrows it to a VM's gateway, Workspace to a workspace, and
+	// Sandbox to one sandbox of that workspace.
+	VM, Workspace, Sandbox string
 	// Denied shows denied requests only, and the rows brig ui could not
 	// read.
 	Denied bool
@@ -42,6 +43,9 @@ func (q trafficQuery) URL() string {
 	}
 	if q.VM != "" {
 		v.Set("vm", q.VM)
+	}
+	if q.Workspace != "" {
+		v.Set("workspace", q.Workspace)
 	}
 	if q.Sandbox != "" {
 		v.Set("sandbox", q.Sandbox)
@@ -61,6 +65,12 @@ func (q trafficQuery) With(denied bool) trafficQuery {
 // OnVM returns q for the VM named vm, any sandbox.
 func (q trafficQuery) OnVM(vm string) trafficQuery {
 	q.VM, q.Sandbox = vm, ""
+	return q
+}
+
+// OnWorkspace returns q for the workspace ws, any sandbox.
+func (q trafficQuery) OnWorkspace(ws string) trafficQuery {
+	q.Workspace, q.Sandbox = ws, ""
 	return q
 }
 
@@ -98,6 +108,8 @@ func (r trafficRow) Who() string {
 // matches reports whether the request belongs in q's table.
 func (q trafficQuery) matches(r store.Request) bool {
 	switch {
+	case q.Workspace != "" && r.Workspace != q.Workspace:
+		return false
 	case q.Sandbox != "" && r.Sandbox != q.Sandbox:
 		return false
 	case q.Denied:
@@ -138,15 +150,15 @@ func trafficRows(sn store.Snapshot, q trafficQuery, limit int) []trafficRow {
 }
 
 // denialCount counts the denials since the time since, of the VM named vm
-// and its sandbox, or of all when empty.
-func denialCount(sn store.Snapshot, vm, sandbox string, since time.Time) int {
+// and its sandbox in the workspace ws, or of all when empty.
+func denialCount(sn store.Snapshot, vm, ws, sandbox string, since time.Time) int {
 	n := 0
 	for _, t := range sn.Traffic {
 		if vm != "" && t.VM != vm {
 			continue
 		}
 		for i := len(t.Requests) - 1; i >= 0 && !t.Requests[i].Time.Before(since); i-- {
-			if r := t.Requests[i]; r.Denied() && (sandbox == "" || r.Sandbox == sandbox) {
+			if r := t.Requests[i]; r.Denied() && (sandbox == "" || (r.Workspace == ws && r.Sandbox == sandbox)) {
 				n++
 			}
 		}
@@ -170,13 +182,13 @@ func oldestShown(sn store.Snapshot, q trafficQuery) time.Time {
 
 // allowAct is the button that opens Allow… for a denied request.
 func allowAct(v *view, r trafficRow) actButton {
-	return act(v, "allow", "", "sm", "vm", r.VM, "sandbox", r.Sandbox, "req", strconv.FormatUint(r.Seq, 10))
+	return act(v, "allow", "", "sm", "vm", r.VM, "workspace", r.Workspace, "sandbox", r.Sandbox, "req", strconv.FormatUint(r.Seq, 10))
 }
 
 // trafficNeeds lists the sandboxes with denials in the last hour, the
 // latest denial first.
 func trafficNeeds(sn store.Snapshot) []need {
-	type key struct{ vm, sandbox string }
+	type key struct{ vm, workspace, sandbox string }
 	counts := map[key]int{}
 	latest := map[key]store.Request{}
 	since := time.Now().Add(-recentWindow)
@@ -186,7 +198,7 @@ func trafficNeeds(sn store.Snapshot) []need {
 			if !r.Denied() {
 				continue
 			}
-			k := key{t.VM, r.Sandbox}
+			k := key{t.VM, r.Workspace, r.Sandbox}
 			if counts[k] == 0 {
 				latest[k] = r
 			}
@@ -201,15 +213,15 @@ func trafficNeeds(sn store.Snapshot) []need {
 	var out []need
 	for _, k := range keys {
 		n, r := counts[k], trafficRow{Request: latest[k]}
-		title := fmt.Sprintf("%d denied request%s from %s on %s in the last hour", n, plural(n), k.sandbox, k.vm)
+		title := fmt.Sprintf("%d denied request%s from %s on %s in the last hour", n, plural(n), sandboxLabel(sn, k.vm, k.workspace, k.sandbox), k.vm)
 		detail := "Latest: " + r.What() + " by " + r.Who()
 		if r.Reason != "" {
 			detail += ": " + r.Reason
 		}
 		out = append(out, need{
 			Sev: "warn", Title: title, Detail: detail,
-			Link:   trafficQuery{VM: k.vm, Sandbox: k.sandbox, Denied: true}.URL(),
-			Dialog: dialogURL("allow", "vm", k.vm, "sandbox", k.sandbox, "req", strconv.FormatUint(r.Seq, 10)),
+			Link:   trafficQuery{VM: k.vm, Workspace: k.workspace, Sandbox: k.sandbox, Denied: true}.URL(),
+			Dialog: dialogURL("allow", "vm", k.vm, "workspace", k.workspace, "sandbox", k.sandbox, "req", strconv.FormatUint(r.Seq, 10)),
 			Action: "Allow…",
 		})
 	}
@@ -232,7 +244,7 @@ func (d *dialog) Request() *trafficRow {
 	}
 	t := d.Snap.TrafficOf(d.Form.Get("vm"))
 	r, ok := t.Request(seq)
-	if !ok || r.Sandbox != d.Form.Get("sandbox") {
+	if !ok || r.Workspace != d.Form.Get("workspace") || r.Sandbox != d.Form.Get("sandbox") {
 		return nil
 	}
 	row := trafficRow{Request: r}
@@ -249,13 +261,13 @@ func (d *dialog) PathCheck() string {
 	if r == nil || !r.NameOnly() {
 		return ""
 	}
-	return oscmd(d.Form.Get("vm"), "sandbox", "exec", "-n", r.Sandbox, "--no-tty", "--",
+	return oscmd(d.Form.Get("vm"), r.Workspace, "sandbox", "exec", "-n", r.Sandbox, "--no-tty", "--",
 		"sh", "-c", `readlink -f "$(command -v `+r.Process+`)"`)
 }
 
 // Draft returns the pending draft that the dialog's field "draft" names.
 func (d *dialog) Draft() *store.Draft {
-	dr, ok := d.Snap.TrafficOf(d.Form.Get("vm")).Draft(store.DefaultWorkspace, d.Form.Get("sandbox"), d.Form.Get("draft"))
+	dr, ok := d.Snap.TrafficOf(d.Form.Get("vm")).Draft(d.Form.Get("workspace"), d.Form.Get("sandbox"), d.Form.Get("draft"))
 	if !ok {
 		return nil
 	}
@@ -308,7 +320,7 @@ func allowDefaults(d *dialog) {
 func allowSub(d *dialog) string {
 	r := d.Request()
 	if r == nil {
-		return "Adds a network rule to " + d.Form.Get("sandbox") + "'s policy."
+		return "Adds a network rule to the policy of " + d.Form.Get("sandbox") + " in workspace " + d.Form.Get("workspace") + "."
 	}
 	s := r.What() + " by " + r.Who() + " was denied"
 	if r.Reason != "" {
@@ -323,31 +335,31 @@ func trafficFuncs() template.FuncMap {
 		"trafficShown": func() int { return trafficShown },
 		"trafficRows":  func(v *view) []trafficRow { return trafficRows(v.Snap, v.TrafficQ, trafficShown) },
 		"sandboxTraffic": func(v *view) []trafficRow {
-			return trafficRows(v.Snap, trafficQuery{VM: v.Gateway.VM, Sandbox: v.Sandbox.Name}, trafficShown)
+			return trafficRows(v.Snap, trafficQuery{VM: v.Gateway.VM, Workspace: v.Sandbox.Workspace, Sandbox: v.Sandbox.Name}, trafficShown)
 		},
 		"sandboxDrafts": func(v *view) []store.Draft {
 			var out []store.Draft
 			for _, d := range v.Snap.TrafficOf(v.Gateway.VM).Drafts {
-				if d.Sandbox == v.Sandbox.Name {
+				if d.Workspace == v.Sandbox.Workspace && d.Sandbox == v.Sandbox.Name {
 					out = append(out, d)
 				}
 			}
 			return out
 		},
-		"recentDenials": func(v *view) int { return denialCount(v.Snap, "", "", time.Now().Add(-recentWindow)) },
+		"recentDenials": func(v *view) int { return denialCount(v.Snap, "", "", "", time.Now().Add(-recentWindow)) },
 		"sandboxDenials": func(v *view) int {
-			return denialCount(v.Snap, v.Gateway.VM, v.Sandbox.Name, time.Now().Add(-recentWindow))
+			return denialCount(v.Snap, v.Gateway.VM, v.Sandbox.Workspace, v.Sandbox.Name, time.Now().Add(-recentWindow))
 		},
 		"oldestShown": oldestShown,
 		"allowAct":    allowAct,
 		"draftAct": func(v *view, d store.Draft) actButton {
-			return act(v, "allow", "Approve…", "sm", "vm", v.Gateway.VM, "sandbox", d.Sandbox, "draft", d.ID)
+			return act(v, "allow", "Approve…", "sm", "vm", v.Gateway.VM, "workspace", d.Workspace, "sandbox", d.Sandbox, "draft", d.ID)
 		},
 		"saveAct": func(v *view) actButton {
-			return act(v, "policy-save-preview", "", "sm", "vm", v.Gateway.VM, "sandbox", v.Sandbox.Name)
+			return act(v, "policy-save-preview", "", "sm", "vm", v.Gateway.VM, "workspace", v.Sandbox.Workspace, "sandbox", v.Sandbox.Name)
 		},
-		"trafficURL": func(vm, sandbox string, denied bool) string {
-			return trafficQuery{VM: vm, Sandbox: sandbox, Denied: denied}.URL()
+		"trafficURL": func(vm, ws, sandbox string, denied bool) string {
+			return trafficQuery{VM: vm, Workspace: ws, Sandbox: sandbox, Denied: denied}.URL()
 		},
 		"denialRows": func(v *view, limit int) []trafficRow {
 			rows := trafficRows(v.Snap, trafficQuery{Denied: true}, 4*limit)

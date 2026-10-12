@@ -145,8 +145,10 @@ type view struct {
 	// Path is the directory that a sandbox's Files tab shows.
 	Path string
 	// Filter names the VM whose sandboxes a list shows, or whose topology
-	// the Topology page draws, empty for all.
-	Filter string
+	// the Topology page draws, empty for all. WSFilter names the workspace
+	// whose sandboxes the list shows, empty for all.
+	Filter   string
+	WSFilter string
 	// TrafficQ picks the rows of the Traffic page.
 	TrafficQ trafficQuery
 	// Sel is the selected node of the topology.
@@ -333,6 +335,9 @@ func funcs(home string) template.FuncMap {
 		m[name] = fn
 	}
 	for name, fn := range trafficFuncs() {
+		m[name] = fn
+	}
+	for name, fn := range workspaceFuncs() {
 		m[name] = fn
 	}
 	return m
