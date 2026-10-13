@@ -1212,6 +1212,24 @@ and connects to it. Attach only the providers a project needs: a provider's secr
 only from sandboxes it is attached to. When a project is done, push, copy its
 sessions out, then `brig sandbox delete dev tools`.
 
+### One-shot runs
+
+A harness that wants a task run in a fresh sandbox, with files in and out,
+uses `brig sandbox run`. It creates the sandbox, uploads, runs the command,
+downloads and deletes the sandbox again, also on Ctrl-C:
+
+```sh
+brig sandbox run dev --template pi --provider llm --timeout 30m \
+  --upload ./task --download task/out --result run.json -- make -C task
+```
+
+The command's output and exit status are brig's, 124 after `--timeout`;
+brig's own failures exit with the statuses that `brig --help` lists.
+`run.json` records the sandbox, the exit status, the transfers and the
+requests that the policy denied, by host and binary. `--keep failed` keeps the
+sandbox of a failed run to look into. `--dry-run` prints the `openshell`
+commands that a run amounts to.
+
 ## Keeping images up to date
 
 The VM's base image and the sandbox image move independently:
@@ -1285,6 +1303,7 @@ Podman refuses to remove an image a container still uses.
 | List, start, stop, delete sandboxes | `brig sandbox list dev`, `brig sandbox start dev N`, `stop`, `delete` |
 | Reattach, detach | `brig sandbox connect dev N`; `Ctrl-P`, `Ctrl-Q` |
 | Second shell | `brig sandbox exec dev N --tty -- bash -l` |
+| Run one task in a fresh sandbox | `brig sandbox run dev --template pi --upload ./task -- make -C task` |
 | Attach a provider later | `brig sandbox attach dev N P`, then start the agent from a new `sandbox exec` shell |
 | See denials | `brig sandbox logs dev N --since 10m --source sandbox`, or `openshell term` |
 | Base vs effective policy | `openshell policy get N --base`, `--full` |
