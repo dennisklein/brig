@@ -62,6 +62,10 @@ type Options struct {
 	Verbose bool
 	// Workspaces limits SyncAll to these workspaces; empty means all.
 	Workspaces []string
+	// Providers limits a sync to the providers of these names and to the
+	// profiles they are instances of, so that changing one secret does not
+	// also apply an unrelated pending change. Nothing is pruned then.
+	Providers []string
 	// Out receives one line per profile or provider.
 	Out io.Writer
 	// Record, if set, also receives each line as a Change, up-to-date
@@ -232,6 +236,9 @@ func Sync(ctx context.Context, set WorkspaceSet, gw Gateway, secrets Secrets, st
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
+	if len(opts.Providers) > 0 {
+		set, opts.Prune = onlyProviders(set, opts.Providers), false
+	}
 	s := &syncer{set: set, gw: gw, secrets: secrets, st: st, ws: ws, opts: opts, unapplied: map[string]bool{}}
 	profiles, err := gw.Profiles(ctx)
 	if err != nil {
@@ -243,10 +250,31 @@ func Sync(ctx context.Context, set WorkspaceSet, gw Gateway, secrets Secrets, st
 	}
 	s.syncProfiles(ctx, profiles, providers)
 	s.syncProviders(ctx, profiles, providers)
-	// Providers first: a profile cannot go while a provider uses it.
-	s.pruneProviders(ctx, providers)
-	s.pruneProfiles(ctx, profiles)
+	if len(opts.Providers) == 0 {
+		// Providers first: a profile cannot go while a provider uses it.
+		s.pruneProviders(ctx, providers)
+		s.pruneProfiles(ctx, profiles)
+	}
 	return errors.Join(s.errs...)
+}
+
+// onlyProviders returns the part of set that Options.Providers names: those
+// providers and the profiles of their types.
+func onlyProviders(set WorkspaceSet, names []string) WorkspaceSet {
+	var out WorkspaceSet
+	types := map[string]bool{}
+	for _, p := range set.Providers {
+		if slices.Contains(names, p.Name) {
+			out.Providers = append(out.Providers, p)
+			types[p.Type] = true
+		}
+	}
+	for _, p := range set.Profiles {
+		if types[p.ID] {
+			out.Profiles = append(out.Profiles, p)
+		}
+	}
+	return out
 }
 
 type syncer struct {

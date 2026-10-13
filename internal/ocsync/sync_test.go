@@ -679,3 +679,43 @@ func TestSyncReadsAnEnvSecret(t *testing.T) {
 		t.Errorf("rotated: calls %q", calls)
 	}
 }
+
+func TestSyncProvidersFilter(t *testing.T) {
+	const gitlabProfile = "id: gitlab\nendpoints:\n  - host: gitlab.example.org\n    port: 443\n"
+	const gitlabProvider = "name: gitlab\ntype: gitlab\ncredentials:\n  GL_TOKEN:\n    secret_tool:\n      lookup: [service, gitlab]\n"
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	writeFile(t, filepath.Join(dir, "profiles", "gitlab.yaml"), gitlabProfile)
+	writeFile(t, filepath.Join(dir, "providers", "gitlab.yaml"), gitlabProvider)
+	gw, st := newFakeGateway(), &State{}
+	sec := fakeSecrets{"service github.com user alice": "tok1", "service gitlab": "gl1"}
+
+	// A first sync of one provider brings in its profile and nothing else.
+	_, calls, err := syncDir(t, dir, gw, sec, st, Options{Providers: []string{"github"}})
+	if want := []string{"lint github.yaml", "import github", "create github github map[GH_TOKEN:tok1]"}; err != nil || !slices.Equal(calls, want) {
+		t.Fatalf("first sync calls %q, %v, want %q", calls, err, want)
+	}
+	if _, calls, err = syncDir(t, dir, gw, sec, st, Options{}); err != nil || len(calls) != 3 {
+		t.Fatalf("full sync calls %q, %v", calls, err)
+	}
+
+	// Another provider's rotated secret and edited profile wait.
+	sec["service github.com user alice"], sec["service gitlab"] = "tok2", "gl2"
+	writeFile(t, filepath.Join(dir, "profiles", "gitlab.yaml"), gitlabProfile+"description: edited\n")
+	_, calls, err = syncDir(t, dir, gw, sec, st, Options{Providers: []string{"github"}})
+	if want := []string{"update github map[GH_TOKEN:tok2] remove []"}; err != nil || !slices.Equal(calls, want) {
+		t.Errorf("filtered sync calls %q, %v, want %q", calls, err, want)
+	}
+
+	// The filter never prunes, whatever the directory lacks.
+	if err := os.Remove(filepath.Join(dir, "providers", "gitlab.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, calls, err = syncDir(t, dir, gw, sec, st, Options{Providers: []string{"github"}, Prune: true}); err != nil || len(calls) != 0 {
+		t.Errorf("filtered prune calls %q, %v", calls, err)
+	}
+	if _, ok := gw.providers["gitlab"]; !ok || dflt(st).Providers["gitlab"].Type != "gitlab" {
+		t.Error("the filtered sync forgot or deleted the gitlab provider")
+	}
+}
