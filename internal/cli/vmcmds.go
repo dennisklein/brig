@@ -50,7 +50,9 @@ func newCreateCmd() *cobra.Command {
 		Use:   "create NAME",
 		Short: "Create and start a VM",
 		Long: `Create a VM from the newest base image (building one first if none exists)
-and start it. Settings not given as flags come from config.yaml.
+and start it. Settings not given as flags come from config.yaml. Before it
+does any work, it runs the checks of brig doctor that need no time and stops
+if one fails.
 
 Mounts share host directories with the VM via virtiofs:
   --mount SOURCE[:TARGET][:OPTIONS]
@@ -130,6 +132,10 @@ openshell.configs in config.yaml.`,
 			}
 			if v.RootDisk < config.MinRootDisk || v.DataDisk < config.MinDataDisk {
 				return fmt.Errorf("a VM needs a root disk of at least %s and a data disk of at least %s", config.MinRootDisk, config.MinDataDisk)
+			}
+			// Before an image is built, which takes long.
+			if err := checkHost(cmd.Context(), cmd.ErrOrStderr()); err != nil {
+				return err
 			}
 			return a.create(cmd.Context(), cmd, v, !noStart)
 		},

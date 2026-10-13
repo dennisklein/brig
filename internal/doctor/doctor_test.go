@@ -110,7 +110,7 @@ func TestProblems(t *testing.T) {
 				}
 				return look(f)
 			}
-		}, "openshell", Warn},
+		}, "openshell", Fail},
 		"no podman": {func(h *Host) {
 			look := h.LookPath
 			h.LookPath = func(f string) (string, error) {
@@ -364,5 +364,26 @@ func TestHintsStartWithAction(t *testing.T) {
 		if r.Status != OK && r.Hint != "" && (r.Hint[0] == '\n' || r.Hint[0] == ' ') {
 			t.Errorf("%s: hint %q does not start with the action", r.Name, r.Hint)
 		}
+	}
+}
+
+func TestPreflightReturnsOnlyFailures(t *testing.T) {
+	if got := Preflight(context.Background(), healthy()); len(got) != 0 {
+		t.Errorf("healthy host: %+v", got)
+	}
+	h := healthy()
+	look := h.LookPath
+	h.LookPath = func(f string) (string, error) {
+		switch f {
+		case "mkosi", "podman":
+			return "", errors.New("missing")
+		}
+		return look(f)
+	}
+	// podman only warns, and the network is not probed.
+	h.ProbeNetwork = func(context.Context) error { t.Error("the network was probed"); return nil }
+	got := Preflight(context.Background(), h)
+	if len(got) != 1 || got[0].Name != "mkosi" || got[0].Status != Fail || got[0].Hint == "" {
+		t.Errorf("Preflight = %+v, want only the missing mkosi", got)
 	}
 }

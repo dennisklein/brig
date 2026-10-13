@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
+	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/ports"
 	"github.com/dennisklein/brig/internal/vm"
@@ -532,5 +534,38 @@ func TestUIHelpShowsNoEmptyDefault(t *testing.T) {
 	out, err := run(t, "ui", "--help")
 	if err != nil || strings.Contains(out, "(default )") || !strings.Contains(out, "(default: a free one)") {
 		t.Errorf("brig ui --help: %v\n%s", err, out)
+	}
+}
+
+func TestCreateChecksTheHostBeforeBuildingAnImage(t *testing.T) {
+	testApp(t)
+	orig := hostPreflight
+	t.Cleanup(func() { hostPreflight = orig })
+	hostPreflight = func(context.Context) []doctor.Result {
+		return []doctor.Result{
+			{Name: "mkosi", Status: doctor.Fail, Detail: "not found (builds VM images)", Hint: "sudo dnf install mkosi"},
+			{Name: "openshell", Status: doctor.Fail, Detail: "not found", Hint: "sudo dnf install openshell"},
+		}
+	}
+	out, err := run(t, "create", "dev")
+	if err == nil {
+		t.Fatal("create on a host that fails its checks succeeded")
+	}
+	if !strings.Contains(err.Error(), "not ready") {
+		t.Errorf("error: %v", err)
+	}
+	for _, want := range []string{"mkosi: not found", "openshell: not found", "To fix mkosi: sudo dnf install mkosi", "To fix openshell: sudo dnf install openshell"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "building") {
+		t.Errorf("create started to build an image:\n%s", out)
+	}
+	// A host without failures goes on to the next step, here the missing
+	// libvirt, which is no concern of the checks.
+	hostPreflight = func(context.Context) []doctor.Result { return nil }
+	if _, err := run(t, "create", "dev"); err != nil && strings.Contains(err.Error(), "not ready") {
+		t.Errorf("create on a ready host: %v", err)
 	}
 }
