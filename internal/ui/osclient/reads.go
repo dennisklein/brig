@@ -81,6 +81,7 @@ func sandbox(s *pb.Sandbox) store.Sandbox {
 		Image:         s.GetSpec().GetTemplate().GetImage(),
 		Template:      s.GetCreatedFromWorkloadTemplate().GetName(),
 		Providers:     slices.Clone(s.GetSpec().GetProviders()),
+		Labels:        maps.Clone(s.GetMetadata().GetLabels()),
 		PolicyVersion: s.GetStatus().GetCurrentPolicyVersion(),
 	}
 	if t := s.GetMetadata().GetCreatedTime(); t != nil {

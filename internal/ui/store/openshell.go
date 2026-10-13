@@ -123,7 +123,10 @@ type Sandbox struct {
 	Template string
 	// Providers are the names of the attached providers.
 	Providers []string
-	Created   time.Time
+	// Labels are the sandbox's labels, such as those that brig sandbox run
+	// sets.
+	Labels  map[string]string
+	Created time.Time
 	// Problem is the message of a condition that is not met, if any.
 	Problem string
 	// PolicyVersion is the version of the policy the sandbox loaded.
