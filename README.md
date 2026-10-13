@@ -125,8 +125,9 @@ it prints, as `eval "$(brig env NAME)"` would; `brig use --unset` points the
 CLI at no VM. Every other command runs brig as before.
 
 A gateway has workspaces, and `-w WORKSPACE` picks one on every command that
-works in one: `sync` (repeatable, default every workspace), `sandbox create`,
-`policy diff` and `policy save` (default `default`). `brig use dev -w team`
+works in one: `sync` (repeatable, default every workspace), `sandbox list`
+(default every workspace), the other `sandbox` commands, `policy diff` and
+`policy save` (default `default`). `brig use dev -w team`
 also exports `BRIG_WORKSPACE=team`, which is the default of `-w` in that
 shell, and `OPENSHELL_WORKSPACE=team`, which makes plain `openshell` commands
 work in the same workspace; `brig use dev` clears it, and `brig use -w team` changes the workspace
@@ -189,6 +190,9 @@ starts with `brig-`.
 | `ssh [NAME]`, `console [NAME]` | shell (`--root` for root), serial console |
 | `use [NAME]` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)); without NAME, say which VM the shell points at; `-w WORKSPACE` also exports `BRIG_WORKSPACE` |
 | `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`), in the workspace of `-w` |
+| `sandbox list [NAME]` | list the sandboxes in every workspace of the VM's gateway, or of every running VM with `--all-vms` (`-o json`) |
+| `sandbox connect/exec/logs/start/stop/delete [NAME] SANDBOX` | run the `openshell` command on the VM's gateway, in the workspace of `-w`, once the sandbox is found; `delete` asks first on a terminal (`--yes` skips the question), `exec` exits with the command's status |
+| `sandbox attach/detach [NAME] SANDBOX PROVIDER` | attach or detach a provider and wait until the sandbox applies it |
 | `policy diff [NAME] SANDBOX` (`-w`) | compare a sandbox's network rules with the policy file it came from; exit status 1 if they differ (`-o json`) |
 | `policy allow [NAME] SANDBOX HOST[:PORT]` (`-w`) | add one rule that lets `--binary PATH` reach HOST, as `openshell policy update` does (`--access`, `--l4`, `--audit`); refuses `*`, `**` and `*.com`, and wants `--broad` for full access or `--l4`; `--draft ID` approves a draft; `--save` also writes the rule into the policy file |
 | `policy save [NAME] SANDBOX` (`-w`) | write the rules a sandbox has and its policy file lacks into that file, keeping its comments (`--rule KEY`, `--dry-run`); on a terminal it shows the change and the hosts it allows and asks first (`-y` skips); a sandbox from the default policy needs `--to FILE` |

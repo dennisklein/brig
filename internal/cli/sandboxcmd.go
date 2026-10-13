@@ -24,9 +24,10 @@ import (
 func newSandboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox",
-		Short: "Create OpenShell sandboxes that see host directories",
+		Short: "Create, list and work in OpenShell sandboxes",
 	}
-	cmd.AddCommand(newSandboxCreateCmd())
+	cmd.AddCommand(newSandboxCreateCmd(), newSandboxListCmd(), newSandboxConnectCmd(), newSandboxExecCmd(), newSandboxLogsCmd(),
+		newSandboxStartCmd(), newSandboxStopCmd(), newSandboxDeleteCmd(), newSandboxAttachCmd(), newSandboxDetachCmd())
 	return cmd
 }
 

@@ -445,8 +445,8 @@ Clone with the `.git` suffix: git uses the URL as given, and the push rules
 
 Without a trailing command, the sandbox's main process is a login shell and
 the sandbox stays after you leave. Press `Ctrl-P`, `Ctrl-Q` to detach with Pi
-still working; `openshell sandbox connect webapp` reattaches. For a second
-shell, run `openshell sandbox exec -n webapp --tty -- bash -l`. These
+still working; `brig sandbox connect dev webapp` reattaches. For a second
+shell, run `brig sandbox exec dev webapp --tty -- bash -l`. These
 commands run your host's `ssh`, which reads `~/.ssh/config`: make sure no
 `Host *` block there turns on `ForwardAgent` or other forwarding, since the
 other end is the VM.
@@ -634,7 +634,7 @@ token, and the proxy swaps in your token. Three things to know:
   token in `/sandbox/.claude`.
 - After a year, run `claude setup-token` again, store the new token under the
   same attributes and run `brig sync dev`. Then start Claude Code from a new
-  shell, `openshell sandbox exec -n webapp-claude --tty -- bash -l`, or stop
+  shell, `brig sandbox exec dev webapp-claude --tty -- bash -l`, or stop
   and start the sandbox: a Claude Code restarted in an old shell keeps sending
   the old token.
 
@@ -887,17 +887,17 @@ Keep one VM, and one long-lived sandbox per project.
 1. `brig start dev` boots the VM, re-registers the gateway and syncs your
    config directories; the keyring may ask to be unlocked.
 2. `brig use dev` in each terminal that runs `openshell`.
-3. `openshell sandbox list`; start any that are `Stopped` or `Completed` with
-   `openshell sandbox start webapp`.
-4. `openshell sandbox connect webapp`, then in the sandbox `cd webapp && git
+3. `brig sandbox list dev`; start any that are `Stopped` or `Completed` with
+   `brig sandbox start dev webapp`.
+4. `brig sandbox connect dev webapp`, then in the sandbox `cd webapp && git
    pull` and `pi-sandbox --continue` to resume the last conversation for that
    directory.
 
 ### During the day
 
-- Keep a second terminal on `openshell term`, or `openshell logs webapp
-  --tail`, to see what the agent tries and, for each denial, the method, path
-  and rule that refused it.
+- Keep a second terminal on `openshell term`, or `brig sandbox logs dev
+  webapp -f`, to see what the agent tries and, for each denial, the method,
+  path and rule that refused it.
 - Grant missing access for this sandbox only: `openshell policy update webapp
   ...` for a rule or two, `openshell policy set webapp --policy FILE --wait`
   for a reviewed file. If the grant should last, put it in the project's
@@ -913,13 +913,13 @@ Keep one VM, and one long-lived sandbox per project.
 - Rotated a token? `secret-tool store` it again under the same attributes and
   run `brig sync dev`; brig notices the change and updates the provider.
   Running agents keep the old token: start them again from a new shell,
-  `openshell sandbox exec -n webapp --tty -- bash -l`, or stop and start the
+  `brig sandbox exec dev webapp --tty -- bash -l`, or stop and start the
   sandbox.
 
 ### End of day
 
 1. Have the agent push its work branch.
-2. Leave everything running, or free memory with `openshell sandbox stop
+2. Leave everything running, or free memory with `brig sandbox stop dev
    webapp` and `brig stop dev`. Both keep `/sandbox`.
 
 ### New and finished projects
@@ -932,7 +932,7 @@ openshell sandbox create --name tools --template pi \
 
 Attach only the providers a project needs: a provider's secret is reachable
 only from sandboxes it is attached to. When a project is done, push, copy its
-sessions out, then `openshell sandbox delete tools`.
+sessions out, then `brig sandbox delete dev tools`.
 
 ## Keeping images up to date
 
@@ -1000,10 +1000,11 @@ Podman refuses to remove an image a container still uses.
 | Apply config directories | `brig sync dev --dry-run`, then `brig sync dev` |
 | List profiles, providers | `openshell profile list`, `openshell provider list` |
 | New sandbox | `openshell sandbox create --name N --template pi --provider P ...` |
-| Reattach, detach | `openshell sandbox connect N`; `Ctrl-P`, `Ctrl-Q` |
-| Second shell | `openshell sandbox exec -n N --tty -- bash -l` |
-| Attach a provider later | `openshell sandbox provider attach N P`, then start the agent from a new `sandbox exec` shell |
-| See denials | `openshell logs N --since 10m --source sandbox`, or `openshell term` |
+| List, start, stop, delete sandboxes | `brig sandbox list dev`, `brig sandbox start dev N`, `stop`, `delete` |
+| Reattach, detach | `brig sandbox connect dev N`; `Ctrl-P`, `Ctrl-Q` |
+| Second shell | `brig sandbox exec dev N --tty -- bash -l` |
+| Attach a provider later | `brig sandbox attach dev N P`, then start the agent from a new `sandbox exec` shell |
+| See denials | `brig sandbox logs dev N --since 10m --source sandbox`, or `openshell term` |
 | Base vs effective policy | `openshell policy get N --base`, `--full` |
 | Add one network rule | `openshell policy update N --rule-name R --binary PATH --add-endpoint HOST:443:read-only:rest:enforce --wait`, or `brig policy allow dev N HOST --binary PATH` |
 | Replace the policy | `openshell policy set N --policy FILE --wait` |
@@ -1019,10 +1020,10 @@ Podman refuses to remove an image a container still uses.
 | --- | --- | --- |
 | `create` cannot find the image | It is only in the host's Podman | `brig image push dev localhost/IMAGE:TAG`, and use the `localhost/` name |
 | Sandbox stays in `Provisioning` | Invalid policy or provider; condition `ConfigurationInvalid` | `openshell sandbox get N -o json`, fix, then wait; after 300 s it turns to `Error` and needs `sandbox start` |
-| Claude Code says it cannot connect to Anthropic services | `api.anthropic.com` is denied: the provider is not attached, or the profile's `binaries` lacks `/usr/local/bin/claude` | `openshell logs N --since 10m --source sandbox`, fix `profiles/claude-code.yaml`, `brig sync dev` |
+| Claude Code says it cannot connect to Anthropic services | `api.anthropic.com` is denied: the provider is not attached, or the profile's `binaries` lacks `/usr/local/bin/claude` | `brig sandbox logs dev N --since 10m --source sandbox`, fix `profiles/claude-code.yaml`, `brig sync dev` |
 | Claude Code asks you to log in, or bills an API key | The token expired, or an `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in the sandbox wins over it | Renew with `claude setup-token` and `brig sync dev`, then start Claude Code from a new `sandbox exec` shell; detach the provider that sets the key |
 | Pi gets `policy_denied` from its model endpoint | The profile's `binaries` lacks node's real path (`readlink -f /usr/bin/node` in the sandbox), or its `host` is not the host in `baseUrl` | Fix `profiles/llm.yaml`, `brig sync dev`, restart Pi |
-| Any tool denied although a rule exists | Binary path differs, for example `/usr/local/bin` vs `/usr/bin` | `openshell sandbox exec -n N -- sh -c 'readlink -f "$(command -v TOOL)"'` and list that path |
+| Any tool denied although a rule exists | Binary path differs, for example `/usr/local/bin` vs `/usr/bin` | `brig sandbox exec dev N -- sh -c 'readlink -f "$(command -v TOOL)"'` and list that path |
 | `git push` denied, clone works | Profiles allow fetch only | Add the project's push rule ([GitHub](#grant-push-and-pull-requests-for-one-repository), [GitLab](#grant-push-and-merge-requests-for-one-project)) |
 | Every `glab` project call denied | `%2F` in the API path | `allow_encoded_slash: true` on the GitLab endpoint |
 | Writes to `~` fail in the sandbox | Only the workspace and `/tmp` are writable | Point config at `/sandbox`: `PI_CODING_AGENT_DIR`, `GH_CONFIG_DIR`, `GIT_CONFIG_GLOBAL` |
