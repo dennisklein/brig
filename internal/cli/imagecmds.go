@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,8 +34,8 @@ func newImageCmd() *cobra.Command {
 }
 
 // buildImage builds an image with o, adding brig's package repository and
-// logging to cmd's standard error.
-func (a *app) buildImage(ctx context.Context, cmd *cobra.Command, o image.BuildOptions) (image.Image, error) {
+// logging to cmd's standard error, and says on result which image it is.
+func (a *app) buildImage(ctx context.Context, cmd *cobra.Command, o image.BuildOptions, result io.Writer) (image.Image, error) {
 	var err error
 	if o.RepoFile, o.RepoKey, err = packaging.Repo(); err != nil {
 		return image.Image{}, err
@@ -61,9 +62,9 @@ func (a *app) buildImage(ctx context.Context, cmd *cobra.Command, o image.BuildO
 	// With o.IfNone, Build may return an image that another build added
 	// while this one waited for the lock.
 	if built {
-		fmt.Fprintf(cmd.OutOrStdout(), "Built image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
+		fmt.Fprintf(result, "Built image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "Using existing image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
+		fmt.Fprintf(result, "Using existing image %s (Fedora %d, OpenShell %s).\n", img.ID, img.FedoraRelease, img.OpenShellVersion)
 	}
 	return img, nil
 }
@@ -87,7 +88,7 @@ package repository. Building needs no root privileges but takes a while.`,
 			if !cmd.Flags().Changed("fedora") {
 				fedora = a.cfg.Defaults.FedoraRelease
 			}
-			_, err = a.buildImage(cmd.Context(), cmd, image.BuildOptions{FedoraRelease: fedora, OpenShellVersion: openshell})
+			_, err = a.buildImage(cmd.Context(), cmd, image.BuildOptions{FedoraRelease: fedora, OpenShellVersion: openshell}, cmd.OutOrStdout())
 			return err
 		},
 	}

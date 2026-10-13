@@ -133,7 +133,4 @@ fi
 	if v.Image != "f44-openshell0.1.3-20261008T120000Z" || conn.state != wantState {
 		t.Errorf("image = %s, state = %s after the upgrade", v.Image, conn.state)
 	}
-	if !strings.HasSuffix(out.String(), "Upgraded dev to image f44-openshell0.1.3-20261008T120000Z.\n") {
-		t.Errorf("output = %q", &out)
-	}
 }

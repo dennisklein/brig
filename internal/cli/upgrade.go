@@ -42,9 +42,9 @@ func newUpgradeCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		w := cmd.OutOrStdout()
+		w := cmd.ErrOrStderr()
 		if target.ID == v.Image {
-			fmt.Fprintf(w, "VM %s already uses image %s.\n", v.Name, v.Image)
+			fmt.Fprintf(cmd.OutOrStdout(), "VM %s already uses image %s.\n", v.Name, v.Image)
 			return nil
 		}
 		if current, err := a.images.Get(v.Image); err == nil && !allowMinor &&
@@ -78,7 +78,11 @@ func newUpgradeCmd() *cobra.Command {
 				return err
 			}
 		}
-		return a.upgrade(ctx, conn, v, target.ID, wasRunning, w)
+		if err := a.upgrade(ctx, conn, v, target.ID, wasRunning, w); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Upgraded %s to image %s.\n", v.Name, target.ID)
+		return nil
 	})
 	cmd.Flags().StringVar(&imageID, "image", "", "base image ID (default: newest)")
 	cmd.Flags().BoolVar(&allowMinor, "allow-minor", false, "allow an OpenShell minor version change")
@@ -150,7 +154,6 @@ func (a *app) upgrade(ctx context.Context, conn domains, v *vm.VM, id string, ke
 			return fmt.Errorf("upgraded %s to image %s, but stopping it to delete the data disk snapshot %s failed: %w", v.Name, id, snapshot, err)
 		}
 	}
-	fmt.Fprintf(w, "Upgraded %s to image %s.\n", v.Name, id)
 	return nil
 }
 

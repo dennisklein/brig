@@ -166,13 +166,13 @@ config directories sync, as brig start --wait does.`,
 }
 
 func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bool, ready readiness) (err error) {
-	w := cmd.OutOrStdout()
+	w := cmd.ErrOrStderr()
 	if v.Image == "" {
 		img, err := a.images.Newest()
 		if errors.Is(err, image.ErrNotFound) {
 			fmt.Fprintln(w, "No base image yet; building one first (this takes a while).")
 			// Another build may add an image while this one waits for it.
-			img, err = a.buildImage(ctx, cmd, image.BuildOptions{FedoraRelease: a.cfg.Defaults.FedoraRelease, IfNone: true})
+			img, err = a.buildImage(ctx, cmd, image.BuildOptions{FedoraRelease: a.cfg.Defaults.FedoraRelease, IfNone: true}, w)
 		}
 		if err != nil {
 			return err
@@ -206,7 +206,7 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 	if err := a.provision(ctx, conn, v); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "Created VM %s from image %s.\n", v.Name, v.Image)
+	fmt.Fprintf(cmd.OutOrStdout(), "Created VM %s from image %s.\n", v.Name, v.Image)
 	if !start {
 		return nil
 	}
@@ -305,7 +305,7 @@ func vmCommand(use, short string, run func(ctx context.Context, cmd *cobra.Comma
 func newStartCmd() *cobra.Command {
 	var wait bool
 	cmd := vmCommand("start [NAME]", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		return a.lockAndStart(ctx, v, cmd.OutOrStdout(), waitReadiness(wait))
+		return a.lockAndStart(ctx, v, cmd.ErrOrStderr(), waitReadiness(wait))
 	})
 	cmd.Long = `Start a VM, or reconnect a running one: register its OpenShell gateway with
 the host's openshell CLI and apply its OpenShell config directories.
@@ -811,8 +811,8 @@ func newUpdateCmd() *cobra.Command {
 			_ = a.vms.Save(&old)
 			return err
 		}
-		w := cmd.OutOrStdout()
-		fmt.Fprintf(w, "Updated VM %s.\n", v.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Updated VM %s.\n", v.Name)
+		w := cmd.ErrOrStderr()
 		// These flags take effect at once on a running VM.
 		liveFlags := 0
 		for _, name := range []string{"add-openshell-config", "remove-openshell-config", "add-mount", "remove-mount"} {
