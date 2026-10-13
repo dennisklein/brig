@@ -46,7 +46,7 @@ func newSyncCmd() *cobra.Command {
 			return err
 		}
 		if _, err := cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
-			return fmt.Errorf("the gateway of VM %s does not answer; is the VM running (brig start %[1]s)? %w", v.Name, err)
+			return notReadyf("the gateway of VM %s does not answer; is the VM running (brig start %[1]s)? %w", v.Name, err)
 		}
 		if len(opts.Workspaces) == 0 {
 			ws, err := envWorkspace()
@@ -58,7 +58,7 @@ func newSyncCmd() *cobra.Command {
 			}
 		}
 		opts.Out, opts.Verbose = cmd.OutOrStdout(), true
-		return a.syncOpenShell(ctx, cli, v, opts, secretTool)
+		return syncFailed(a.syncOpenShell(ctx, cli, v, opts, secretTool))
 	})
 	cmd.Long = `Apply a VM's OpenShell config directories to its gateway. brig start does
 the same every time the VM starts.

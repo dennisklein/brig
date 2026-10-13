@@ -319,7 +319,7 @@ func (a *app) boot(ctx context.Context, v *vm.VM) error {
 			return a.sshTarget(v, false).WaitReady(ctx)
 		})
 		if err != nil {
-			return fmt.Errorf("%s is not reachable over SSH (boot log: %s): %w", v.Name, a.vmFile(v, consoleLogFile), err)
+			return notReadyf("%s is not reachable over SSH (boot log: %s): %w", v.Name, a.vmFile(v, consoleLogFile), err)
 		}
 		// SSH logs in as the data disk's owner, so the disk is mounted.
 		if !v.DataDiskReady {
@@ -396,9 +396,9 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 		return waitFor(ctx, gatewayReadyTimeout, sync)
 	}); err != nil {
 		if errors.Is(err, openshell.ErrNoBundle) {
-			return fmt.Errorf("the OpenShell gateway in %s did not create its certificates; check `brig ssh %s -- journalctl --user -u openshell-gateway`: %w", v.Name, v.Name, err)
+			return notReadyf("the OpenShell gateway in %s did not create its certificates; check `brig ssh %s -- journalctl --user -u openshell-gateway`: %w", v.Name, v.Name, err)
 		}
-		return fmt.Errorf("copying the gateway's client certificates: %w", err)
+		return notReadyf("copying the gateway's client certificates: %w", err)
 	}
 	cli, err := openshell.Find()
 	if errors.Is(err, openshell.ErrNotInstalled) {
@@ -409,7 +409,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 				return waitFor(ctx, gatewayReadyTimeout, func(ctx context.Context) error {
 					_, err := t.Output(ctx, "systemctl --user is-active --quiet openshell-gateway.service")
 					if err != nil {
-						return fmt.Errorf("the OpenShell gateway in %s is not running: %w", v.Name, err)
+						return notReadyf("the OpenShell gateway in %s is not running: %w", v.Name, err)
 					}
 					return nil
 				})
@@ -425,7 +425,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 	}
 	answers := a.checkVersions(ctx, cli, v, sync, w, check)
 	if check && !answers {
-		return fmt.Errorf("the OpenShell gateway in %s does not answer; check `brig ssh %s -- journalctl --user -u openshell-gateway`", v.Name, v.Name)
+		return notReadyf("the OpenShell gateway in %s does not answer; check `brig ssh %s -- journalctl --user -u openshell-gateway`", v.Name, v.Name)
 	}
 	fmt.Fprintf(w, "OpenShell gateway registered as %[1]s. Use it with `brig use %[2]s` (see brig shell-init --help) or `eval \"$(brig env %[2]s)\"`, which also set the default sandbox policy, or with `openshell -g %[1]s ...`.\n", v.GatewayName(), v.Name)
 	if len(v.OpenShellConfigs) > 0 {

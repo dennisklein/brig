@@ -80,7 +80,7 @@ openshell.configs in config.yaml.`,
 				return err
 			}
 			if a.vms.Exists(name) {
-				return fmt.Errorf("VM %s already exists", name)
+				return alreadyExists(fmt.Errorf("VM %s already exists", name))
 			}
 			d := a.cfg.Defaults
 			v := &vm.VM{
@@ -191,7 +191,7 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 	// Another brig create of the same name may have finished meanwhile, e.g.
 	// while this one waited for an image build.
 	if a.vms.Exists(v.Name) {
-		return fmt.Errorf("VM %s already exists", v.Name)
+		return alreadyExists(fmt.Errorf("VM %s already exists", v.Name))
 	}
 	conn, err := a.connect(ctx)
 	if err != nil {
