@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -28,6 +29,7 @@ func newPolicySaveCmd() *cobra.Command {
 		rules     []string
 		to        string
 		dryRun    bool
+		yes       bool
 		workspace string
 	)
 	cmd := &cobra.Command{
@@ -45,6 +47,10 @@ replaces the file's version: the file may be the newer one.
 brig edits the file's text: comments, blank lines and the other rules stay
 as they are. It neither applies the file to other sandboxes nor commits it.
 
+On a terminal, brig shows the change to the file and the hosts that the rules
+allow, and asks before it writes; -y/--yes skips the question. Without a
+terminal, such as in a script, it writes at once.
+
 A sandbox created from the default policy, policies/default.yaml, is not
 saved into it, since every new sandbox would get its rules: --to NAME
 creates policies/NAME.yaml in the same directory, a copy of the default with
@@ -53,7 +59,8 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 --remember does.`,
 		Example: `  brig policy save dev webapp
   brig policy save dev webapp --rule npm --dry-run
-  brig policy save webapp --to webapp`,
+  brig policy save webapp --to webapp
+  brig policy save dev webapp --yes`,
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: completeVMs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,22 +76,52 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 			if err != nil {
 				return err
 			}
-			return a.policySave(cmd.Context(), v, workspace, args[len(args)-1], rules, to, dryRun, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			req := saveRequest{
+				workspace: workspace, sandbox: args[len(args)-1], keys: rules, to: to, dryRun: dryRun,
+				confirm: confirmer(cmd.InOrStdin(), cmd.ErrOrStderr(), yes),
+			}
+			return a.policySave(cmd.Context(), v, req, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
 	cmd.Flags().StringArrayVar(&rules, "rule", nil, "save only this rule, by its key under network_policies (repeatable)")
 	cmd.Flags().StringVar(&to, "to", "", "save into this policy file, or create policies/NAME.yaml from the sandbox's policy file")
 	addWorkspaceFlag(cmd, &workspace)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the change to the file and write nothing")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "write without asking, also on a terminal")
 	return cmd
 }
 
-func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox string, keys []string, to string, dryRun bool, out, warn io.Writer) error {
+// saveRequest is what brig policy save is asked to do.
+type saveRequest struct {
+	workspace, sandbox string
+	// keys are the rules to save, or else every unsaved rule.
+	keys   []string
+	to     string
+	dryRun bool
+	// confirm, if set, is shown what saving writes and decides whether to
+	// write it.
+	confirm func(summary string) (bool, error)
+}
+
+// saveTarget is where brig policy save writes, with the comparison that
+// found it.
+type saveTarget struct {
+	rep *policyReport
+	// source is the sandbox's policy file.
+	source string
+	// path is the file to write, or to create when newName is set.
+	path    string
+	newName bool
+}
+
+// findSaveTarget finds the policy file that saving the rules of the sandbox
+// writes, and refuses a save that cannot be made, before anything is done.
+func (a *app) findSaveTarget(ctx context.Context, v *vm.VM, workspace, sandbox, to string, warn io.Writer) (*saveTarget, error) {
 	var set *ocsync.Set
 	if len(v.OpenShellConfigs) > 0 {
 		var err error
 		if set, err = ocsync.Load(v.OpenShellConfigs); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	// --to names an existing file to compare with and save into, or a new
@@ -101,15 +138,15 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox strin
 		case errors.As(err, &none):
 			newName = to
 		default:
-			return err
+			return nil, err
 		}
 	}
 	rep, err := a.policyDiff(ctx, v, workspace, sandbox, target, false, warn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if rep.Source == nil {
-		return fmt.Errorf("cannot tell which policy file sandbox %s came from (see brig policy diff); name the file with --to", sandbox)
+		return nil, fmt.Errorf("cannot tell which policy file sandbox %s came from (see brig policy diff); name the file with --to", sandbox)
 	}
 	source := rep.Source.Path
 	if target == "" {
@@ -124,14 +161,24 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox strin
 			target = filepath.Join(filepath.Dir(source), target)
 		}
 		if exists(target) {
-			return fmt.Errorf("%s exists; name it with its path to save into it", target)
+			return nil, fmt.Errorf("%s exists; name it with its path to save into it", target)
 		}
 	} else if to == "" && filepath.Base(target) == "default.yaml" {
-		return fmt.Errorf("sandbox %s came from the default policy %s, which every new sandbox gets; "+
+		return nil, fmt.Errorf("sandbox %s came from the default policy %s, which every new sandbox gets; "+
 			"save into a policy file of its own with --to %s, or into the default with --to %s", sandbox, target, sandbox, target)
 	}
+	return &saveTarget{rep: rep, source: source, path: target, newName: newName != ""}, nil
+}
 
-	pick, err := pickRules(rep, keys)
+func (a *app) policySave(ctx context.Context, v *vm.VM, req saveRequest, out, warn io.Writer) error {
+	workspace, sandbox, to, dryRun := req.workspace, req.sandbox, req.to, req.dryRun
+	t, err := a.findSaveTarget(ctx, v, workspace, sandbox, to, warn)
+	if err != nil {
+		return err
+	}
+	rep, source, target, newName := t.rep, t.source, t.path, t.newName
+
+	pick, err := pickRules(rep, req.keys)
 	if err != nil {
 		return err
 	}
@@ -159,13 +206,13 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox strin
 
 	// Write through a symbolic link, as an editor would.
 	from := source
-	if newName == "" {
+	if !newName {
 		from = target
 	}
 	if resolved, err := filepath.EvalSymlinks(from); err == nil {
 		from = resolved
 	}
-	if newName == "" {
+	if !newName {
 		target = from
 	}
 	old, err := os.ReadFile(from)
@@ -185,16 +232,44 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox strin
 		keyList[i] = r.Key
 	}
 
-	if dryRun {
-		if newName != "" {
+	// Show what is saved before it is written, also to those who are asked.
+	if dryRun || req.confirm != nil {
+		if newName {
 			fmt.Fprintf(out, "Would create %s as a copy of %s with rules %s:\n", termtext.Escape(target), termtext.Escape(source), termtext.Escape(strings.Join(keyList, ", ")))
 		} else {
 			fmt.Fprintf(out, "Would save rules %s to %s:\n", termtext.Escape(strings.Join(keyList, ", ")), termtext.Escape(target))
 		}
-		_, err := io.WriteString(out, termtext.EscapeLines(lineDiff(target, old, edited)))
-		return err
+		if _, err := io.WriteString(out, termtext.EscapeLines(lineDiff(target, old, edited))); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "Sandboxes created from the file would reach:")
+		for _, r := range named {
+			fmt.Fprintf(out, "  %s: %s\n", termtext.Escape(r.Key), termtext.Escape(strings.Join(policy.Endpoints(r.Rule), ", ")))
+		}
 	}
-	if newName != "" {
+	for _, r := range pick {
+		if r.Audit {
+			fmt.Fprintf(out, "Rule %s only logs (enforcement: audit); set enforcement: enforce in the file to make it block.\n", termtext.Escape(r.Key))
+		}
+	}
+	if dryRun {
+		return nil
+	}
+	if req.confirm != nil {
+		prompt := "Save these rules to " + termtext.Escape(target) + "? [y/N] "
+		if newName {
+			prompt = "Create " + termtext.Escape(target) + " with these rules? [y/N] "
+		}
+		ok, err := req.confirm(prompt)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(out, "Nothing saved.")
+			return nil
+		}
+	}
+	if newName {
 		if err := writeNewFile(target, edited, fi.Mode().Perm()); err != nil {
 			return err
 		}
@@ -217,13 +292,38 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, workspace, sandbox strin
 		}
 	}
 	fmt.Fprintf(out, "Saved rules %s to %s.\n", termtext.Escape(strings.Join(keyList, ", ")), termtext.Escape(target))
-	for _, r := range pick {
-		if r.Audit {
-			fmt.Fprintf(out, "Rule %s only logs (enforcement: audit); set enforcement: enforce in the file to make it block.\n", termtext.Escape(r.Key))
-		}
-	}
 	fmt.Fprintf(out, "Sandboxes created from the file get them; apply it to a running one with openshell policy set NAME --policy %s --wait.\n", termtext.Escape(target))
 	return nil
+}
+
+// isInteractive reports whether brig may ask questions: whether in and out
+// are terminals. Tests replace it.
+var isInteractive = func(in io.Reader, out io.Writer) bool {
+	i, ok := in.(*os.File)
+	o, ok2 := out.(*os.File)
+	return ok && ok2 && isTerminal(i) && isTerminal(o)
+}
+
+// confirmer returns the function that asks a yes or no question on w and
+// reads the answer from in, or nil where brig does not ask: with yes, and
+// where in or w is no terminal.
+func confirmer(in io.Reader, w io.Writer, yes bool) func(prompt string) (bool, error) {
+	if yes || !isInteractive(in, w) {
+		return nil
+	}
+	r := bufio.NewReader(in)
+	return func(prompt string) (bool, error) {
+		fmt.Fprint(w, prompt)
+		line, err := r.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return false, err
+		}
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "y", "yes":
+			return true, nil
+		}
+		return false, nil
+	}
 }
 
 // pickRules returns the rules to save: the named ones, or else every
