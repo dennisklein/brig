@@ -230,6 +230,7 @@ func newImagePruneCmd() *cobra.Command {
 }
 
 func newImagePushCmd() *cobra.Command {
+	var format outputFormat
 	cmd := vmCommand("push [NAME] IMAGE", "Copy a container image from the host's Podman into a VM", nil)
 	cmd.Args = cobra.RangeArgs(1, 2)
 	cmd.Long = `Copy a container image from the host's Podman storage into the VM's, where
@@ -247,8 +248,19 @@ NAME, the VM is the one that brig use selected.`
 		if err != nil {
 			return err
 		}
-		return a.pushImage(cmd.Context(), v, args[len(args)-1], cmd)
+		ref := args[len(args)-1]
+		if err := a.pushImage(cmd.Context(), v, ref, cmd, resultWriter(cmd, format)); err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(cmd.OutOrStdout(), struct {
+				VM    string `json:"vm"`
+				Image string `json:"image"`
+			}{v.Name, ref})
+		}
+		return nil
 	}
+	addOutputFlag(cmd, &format)
 	cmd.ValidArgsFunction = func(c *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 1 {
 			return completePodmanImages(c.Context())
@@ -279,18 +291,25 @@ func completePodmanImages(ctx context.Context) ([]string, cobra.ShellCompDirecti
 	return refs, cobra.ShellCompDirectiveNoFileComp
 }
 
-func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, cmd *cobra.Command) error {
+// pushImage copies the image ref into v; podman load says on result what
+// it loaded.
+func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, cmd *cobra.Command, result io.Writer) error {
 	// brig must not keep an end of the pipe open: podman save would block
 	// forever on a full pipe once ssh exits, e.g. because the VM is down.
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return err
 	}
+	// With -o json, podman load's result is a note on standard error too.
+	stderr := &lockedWriter{w: cmd.ErrOrStderr()}
+	if result == cmd.ErrOrStderr() {
+		result = stderr
+	}
 	save := exec.CommandContext(ctx, "podman", "save", ref)
-	save.Stdout, save.Stderr = pw, cmd.ErrOrStderr()
+	save.Stdout, save.Stderr = pw, stderr
 	load := a.sshTarget(v, false).Command(ctx, "podman", "load")
 	load.Stdin = pr
-	load.Stdout, load.Stderr = cmd.OutOrStdout(), cmd.ErrOrStderr()
+	load.Stdout, load.Stderr = result, stderr
 	if err = save.Start(); err != nil {
 		err = fmt.Errorf("podman save %s: %w (is podman installed?)", ref, err)
 	} else if err = load.Start(); err != nil {

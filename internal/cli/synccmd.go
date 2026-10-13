@@ -23,6 +23,7 @@ func newSyncCmd() *cobra.Command {
 	var (
 		opts       ocsync.Options
 		secretTool string
+		format     outputFormat
 	)
 	cmd := vmCommand("sync [NAME]", "Apply a VM's OpenShell config directories to its gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
@@ -56,6 +57,15 @@ func newSyncCmd() *cobra.Command {
 			if ws != "" {
 				opts.Workspaces = []string{ws}
 			}
+		}
+		if format == "json" {
+			rep := syncReport{VM: v.Name, DryRun: opts.DryRun, Changes: []ocsync.Change{}}
+			opts.Record = func(c ocsync.Change) { rep.Changes = append(rep.Changes, c) }
+			err := a.syncOpenShell(ctx, cli, v, opts, secretTool)
+			if err != nil {
+				rep.Error = err.Error()
+			}
+			return errors.Join(writeJSON(cmd.OutOrStdout(), rep), syncFailed(err))
 		}
 		opts.Out, opts.Verbose = cmd.OutOrStdout(), true
 		return syncFailed(a.syncOpenShell(ctx, cli, v, opts, secretTool))
@@ -112,7 +122,18 @@ so. Check shared profiles with --dry-run first.`
 	f.StringArrayVarP(&opts.Workspaces, "workspace", "w", nil, "sync only this workspace (repeatable; default: $"+workspaceEnv+", else every workspace the config directories define)")
 	_ = cmd.RegisterFlagCompletionFunc("workspace", completeWorkspaces)
 	f.StringVar(&secretTool, "secret-tool", "", "program to look secrets up with (default: openshell.secret_tool from config.yaml)")
+	addOutputFlag(cmd, &format)
 	return cmd
+}
+
+// syncReport is what brig sync -o json prints: each workspace, profile and
+// provider with what was done to it, or in a dry run would be, and the
+// error, if the sync failed.
+type syncReport struct {
+	VM      string          `json:"vm"`
+	DryRun  bool            `json:"dry_run"`
+	Changes []ocsync.Change `json:"changes"`
+	Error   string          `json:"error,omitempty"`
 }
 
 // syncOpenShell applies the VM's OpenShell config directories to its

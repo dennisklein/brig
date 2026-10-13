@@ -63,7 +63,7 @@ func TestPushImage(t *testing.T) {
 			cmd := newImagePushCmd()
 			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
-			err := a.pushImage(ctx, v, "localhost/agent:latest", cmd)
+			err := a.pushImage(ctx, v, "localhost/agent:latest", cmd, io.Discard)
 			if ctx.Err() != nil {
 				t.Fatalf("pushImage() hung: %v", err)
 			}

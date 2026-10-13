@@ -64,6 +64,29 @@ type Options struct {
 	Workspaces []string
 	// Out receives one line per profile or provider.
 	Out io.Writer
+	// Record, if set, also receives each line as a Change, up-to-date
+	// ones included.
+	Record func(Change)
+}
+
+// Change is one line of a sync's report: what happened, or in a dry run
+// would happen, to a workspace, profile or provider.
+type Change struct {
+	Workspace string `json:"workspace"`
+	// Kind is "workspace", "profile" or "provider".
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Result says what was done, such as "imported" or "up to date"; it is
+	// empty when Error says why it failed.
+	Result string `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// record passes c to o.Record, if set.
+func (o Options) record(c Change) {
+	if o.Record != nil {
+		o.Record(c)
+	}
 }
 
 // Host is a gateway as a whole: what SyncAll needs to reach each of its
@@ -147,6 +170,7 @@ func SyncAll(ctx context.Context, set *Set, host Host, secrets Secrets, st *Stat
 				if !opts.DryRun {
 					if err := host.CreateWorkspace(ctx, name); err != nil {
 						fmt.Fprintf(wopts.Out, "workspace %s: failed: %v\n", name, err)
+						opts.record(Change{Workspace: name, Kind: "workspace", Name: name, Error: err.Error()})
 						wrap(fmt.Errorf("create workspace: %w", err))
 						continue
 					}
@@ -157,6 +181,7 @@ func SyncAll(ctx context.Context, set *Set, host Host, secrets Secrets, st *Stat
 					action = "would create"
 				}
 				fmt.Fprintf(wopts.Out, "workspace %s: %s\n", name, action)
+				opts.record(Change{Workspace: name, Kind: "workspace", Name: name, Result: action})
 				if opts.DryRun {
 					continue
 				}
@@ -244,10 +269,12 @@ func (s *syncer) report(kind, name, msg string, changed bool) {
 	if changed || s.opts.Verbose {
 		fmt.Fprintf(s.opts.Out, "%s %s: %s\n", kind, name, msg)
 	}
+	s.opts.record(Change{Workspace: s.gw.Workspace(), Kind: kind, Name: name, Result: msg})
 }
 
 func (s *syncer) fail(kind, name string, err error) {
 	fmt.Fprintf(s.opts.Out, "%s %s: failed: %v\n", kind, name, err)
+	s.opts.record(Change{Workspace: s.gw.Workspace(), Kind: kind, Name: name, Error: err.Error()})
 	s.errs = append(s.errs, fmt.Errorf("%s %s: %w", kind, name, err))
 }
 

@@ -250,6 +250,13 @@ brig's exit status says why a command failed:
 Standard output carries only a command's result: a table, JSON, or one
 line such as `Created VM dev from image …`. Notes, hints and warnings go to
 standard error, as progress does.
+
+`-o json` works on the commands that read and on those that change a VM:
+`create`, `start`, `stop`, `update` and `upgrade` print the VM as `show -o
+json` does once they are done, `sync -o json` prints each workspace, profile
+and provider with what it did to it (or would, with `--dry-run`) and the
+error if the sync failed, and `image push -o json` prints the VM and the
+image.
 With `-o json`, a command that fails before it printed anything prints the
 error on standard output as well, as `{"error": "...", "reason": "not_ready",
 "exit_code": 5}`; the reasons are `failed`, `not_found`, `exists`,
