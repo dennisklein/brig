@@ -101,6 +101,10 @@ var dialogSpecs = map[string]dialogSpec{
 		OK: "Allow", Open: "Allow…", Title: sandboxTitle("Allow a request for %s"), Sub: allowSub,
 		Defaults: allowDefaults,
 	},
+	"reject": {
+		OK: "Reject", Open: "Reject…", Title: sandboxTitle("Reject the draft rule for %s"),
+		Sub: func(*dialog) string { return "Drops OpenShell's draft rule. The sandbox's policy stays as it is." },
+	},
 	"policy-save-preview": {
 		OK: "Run the preview", Open: "Save to file…", Title: sandboxTitle("Save the rules of %s to its policy file"),
 	},

@@ -148,3 +148,21 @@ func TestPlayPolicyAllow(t *testing.T) {
 		t.Errorf("steps %v lack the save", p.steps)
 	}
 }
+
+func TestPlayRuleReject(t *testing.T) {
+	h := New(store.New())
+	h.traffic.drafted("dev", "default", "webapp", patterns["webapp"][3], time.Now())
+	reject := []string{"openshell", "-g", "brig-dev", "--workspace", "default", "rule", "reject", "webapp", "--chunk-id", "chunk-registry-npmjs-org", "--reason", "not ours"}
+
+	p, err := h.plan(reject)
+	if err != nil || p.fail != "" || p.after == nil || !strings.Contains(p.output, "Rejected draft chunk-registry-npmjs-org") {
+		t.Fatalf("plan %+v, %v", p, err)
+	}
+	p.after()
+	if _, ok := h.traffic.draft("dev", "default", "webapp", "chunk-registry-npmjs-org"); ok {
+		t.Error("the draft is still pending")
+	}
+	if p, err = h.plan(reject); err != nil || !strings.Contains(p.fail, "no pending draft") {
+		t.Errorf("a second rejection: %+v, %v", p, err)
+	}
+}

@@ -33,9 +33,9 @@
 {{/* A sandbox's Traffic tab: its pending drafts, and its requests. */}}
 
 {{define "sandbox-traffic"}}{{$g := .Gateway}}{{$s := .Sandbox}}
-{{with sandboxDrafts .}}<section class="panel gap-below"><div class="ph"><h2>Rules OpenShell drafted</h2><span class="faint small">from the denied requests of {{$s.Name}}; approve one to add it to this sandbox</span></div>
+{{with sandboxDrafts .}}<section class="panel gap-below"><div class="ph"><h2>Rules OpenShell drafted</h2><span class="faint small">from the denied requests of {{$s.Name}}; approve one to add it to this sandbox, or reject it to drop it</span></div>
 <div class="tw"><table><thead><tr><th>Rule</th><th>Program</th><th>Endpoints</th><th class="num">Hits</th><th>Prover</th><th></th></tr></thead><tbody>
-{{range .}}<tr><td class="mono">{{.Rule}}</td><td class="mono small">{{.Binary}}</td><td class="mono small">{{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e.Host}}:{{$e.Port}}{{end}}</td><td class="num">{{.Hits}}</td><td class="small">{{with .Validation}}{{.}}{{else}}<span class="faint">–</span>{{end}}</td><td class="act">{{template "act" (draftAct $ .)}}</td></tr>{{end}}
+{{range .}}<tr><td class="mono">{{.Rule}}</td><td class="mono small">{{.Binary}}</td><td class="mono small">{{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e.Host}}:{{$e.Port}}{{end}}</td><td class="num">{{.Hits}}</td><td class="small">{{with .Validation}}{{.}}{{else}}<span class="faint">–</span>{{end}}</td><td class="act">{{template "act" (draftAct $ .)}} {{template "act" (rejectAct $ .)}}</td></tr>{{end}}
 </tbody></table></div></section>{{end}}
 <section class="panel tw">{{template "traffic-rows" (trafficTable . (sandboxTraffic .) true)}}</section>
 <div class="stack gap-above">

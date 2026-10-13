@@ -246,7 +246,19 @@
 <div class="checks"><label><input type="checkbox" name="anyway"{{if .Form.Get "anyway"}} checked{{end}}> Allow anyway <small>Without the credential.</small></label></div>{{end}}
 <div class="checks"><label><input type="checkbox" name="keep"{{if .Form.Get "keep"}} checked{{end}}> Keep for new sandboxes <small>Also writes the rule into the sandbox's policy file, so that sandboxes created from it get it.</small></label></div>
 <div class="field keep-only"><label for="a-to">File</label><input type="text" id="a-to" name="to" value="{{.Form.Get "to"}}" placeholder="the sandbox's policy file" autocapitalize="off" spellcheck="false"><span class="hint">A name such as {{.Form.Get "sandbox"}} creates policies/{{.Form.Get "sandbox"}}.yaml; or a path. Needed when the sandbox came from policies/default.yaml.</span></div>
-<p class="note">Applies to {{$sb}} in workspace {{.Form.Get "workspace"}} at once. Other sandboxes get the rule only if you keep it{{if not (.Form.Get "keep")}}; Save to file… keeps it later{{end}}.</p>
+<p class="note">Applies to {{$sb}} in workspace {{.Form.Get "workspace"}} at once. Other sandboxes get the rule only if you keep it.</p>
+{{end}}
+
+{{/* Reject…: drop the rule that OpenShell drafted. */}}
+
+{{define "dlg-reject"}}{{template "sbfields" .}}{{with .Draft}}<input type="hidden" name="draft" value="{{.ID}}">
+<pre class="code">{{.YAML}}</pre>
+<dl class="kv">
+  {{with .Rationale}}<dt>Why</dt><dd>{{.}}</dd>{{end}}
+  <dt>Seen</dt><dd>{{.Hits}} time{{if ne .Hits 1}}s{{end}}{{if not .LastSeen.IsZero}}, last {{rel .LastSeen}}{{end}}</dd>
+</dl>{{else}}<div class="callout warn">OpenShell has no such draft any more; it may have been approved or rejected meanwhile.</div>{{end}}
+<div class="field"><label for="r-reason">Reason</label><input type="text" id="r-reason" name="reason" value="{{.Form.Get "reason"}}" placeholder="optional" maxlength="200" autocomplete="off"><span class="hint">Kept with the rejected draft in OpenShell's records.</span></div>
+<p class="note">The sandbox's policy stays as it is, and its requests are denied as before. OpenShell may draft a rule again if the denials go on.</p>
 {{end}}
 
 {{/* Save to file…: brig policy save, previewed first. */}}

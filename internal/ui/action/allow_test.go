@@ -214,3 +214,46 @@ func TestBuildAllowNotes(t *testing.T) {
 		t.Errorf("save: %q %q, %v", cmd.Display, cmd.NextForm, err)
 	}
 }
+
+func TestBuildReject(t *testing.T) {
+	draft := func(kv ...string) action.Form {
+		f := form("vm", "dev", "workspace", "default", "sandbox", "webapp", "draft", "ch-1")
+		for i := 0; i+1 < len(kv); i += 2 {
+			f.Set(kv[i], kv[i+1])
+		}
+		return f
+	}
+	for _, c := range []struct {
+		name string
+		f    action.Form
+		want string // the command, or "" if Build must refuse
+		err  string // part of the refusal
+	}{
+		{"draft", draft(), "openshell -g brig-dev --workspace default rule reject webapp --chunk-id ch-1", ""},
+		{"with a reason", draft("reason", "  not our registry "), "openshell -g brig-dev --workspace default rule reject webapp --chunk-id ch-1 --reason 'not our registry'", ""},
+		{"long reason", draft("reason", strings.Repeat("x", 201)), "", "Reason"},
+		{"reason with a line break", draft("reason", "a\nb"), "", "Reason"},
+		{"draft of the other workspace", draft("draft", "ch-2"), "", "no pending draft"},
+		{"draft of the workspace", draft("workspace", "team", "draft", "ch-2"), "openshell -g brig-dev --workspace team rule reject webapp --chunk-id ch-2", ""},
+		{"no draft", draft("draft", ""), "", "no pending draft"},
+		{"stopped VM", form("vm", "airgap", "workspace", "default", "sandbox", "corpus-scan", "draft", "ch-1"), "", "start it before"},
+		{"option as draft", draft("draft", "--all"), "", "no pending draft"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, _ := action.Lookup("reject")
+			cmd, err := a.Build(c.f, trafficContext())
+			if c.want == "" {
+				if err == nil || !strings.Contains(err.Error(), c.err) {
+					t.Fatalf("got %q and error %v, want an error with %q", cmd.Display, err, c.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cmd.Display != c.want || a.VM(c.f) != "" || a.Next != "" {
+				t.Errorf("display %q (next %q),\n want %q", cmd.Display, a.Next, c.want)
+			}
+		})
+	}
+}

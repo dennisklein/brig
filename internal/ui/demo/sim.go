@@ -201,7 +201,7 @@ func parseFlags(argv []string) flags {
 		"--cpus": true, "--memory": true, "--root-disk": true, "--data-disk": true, "--profile": true, "--add-mount": true,
 		"--remove-mount": true, "--add-openshell-config": true, "--remove-openshell-config": true, "--fedora": true, "--openshell": true,
 		"--rule-name": true, "--binary": true, "--add-endpoint": true, "--chunk-id": true, "--rule": true, "--to": true, "--workspace": true,
-		"--draft": true, "--access": true,
+		"--draft": true, "--access": true, "--reason": true,
 	}
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]

@@ -18,6 +18,7 @@ import (
 func init() {
 	register(
 		Action{ID: "allow", Build: buildAllow, ShowOutput: true, Next: "policy-save-preview"},
+		Action{ID: "reject", Build: buildReject},
 		Action{ID: "policy-save-preview", Build: buildPolicySavePreview, ShowOutput: true, Next: "policy-save"},
 		Action{ID: "policy-save", Build: buildPolicySave},
 	)
@@ -196,6 +197,32 @@ func policyFileArg(f Form, c Context) (string, error) {
 	}
 	return to, nil
 }
+
+// buildReject makes the command that rejects the draft that the form's field
+// "draft" names, with the reason that the form gives, if it does.
+func buildReject(f Form, c Context) (Command, error) {
+	g, s, err := findSandbox(f, c, "rejecting a draft")
+	if err != nil {
+		return Command{}, err
+	}
+	id := f.Get("draft")
+	d, ok := c.Snap.TrafficOf(g.VM).Draft(s.Workspace, s.Name, id)
+	if !ok {
+		return Command{}, fmt.Errorf("OpenShell has no pending draft %q for %s; it may have been approved or rejected meanwhile", id, s.Name)
+	}
+	args := []string{"rule", "reject", s.Name, "--chunk-id", d.ID}
+	if reason := strings.TrimSpace(f.Get("reason")); reason != "" {
+		if len(reason) > maxReason || !plainText(reason) {
+			return Command{}, fieldErr("Reason", fmt.Sprintf("write one line of at most %d characters", maxReason))
+		}
+		args = append(args, "--reason", reason)
+	}
+	return openshellCommand(g.VM, s.Workspace, args...).
+		Note("Rejects the rule %s that OpenShell drafted for %s, so that it leaves the pending drafts. The sandbox's policy stays as it is, and its requests are denied as before; OpenShell may draft a rule again if the denials go on.", d.Rule, s.Name), nil
+}
+
+// maxReason is the longest reason for rejecting a draft, in bytes.
+const maxReason = 200
 
 // fieldErr says what is wrong with the dialog's field label.
 func fieldErr(label, msg string) error { return fmt.Errorf("%s: %s", label, msg) }
