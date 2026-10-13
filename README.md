@@ -220,10 +220,13 @@ starts with `brig-`.
 | `ui` | open the [web UI](#web-ui) in your browser |
 | `shell-init SHELL` | [shell integration](#shell-integration) for bash, zsh and fish |
 | `completion SHELL` | shell completion for bash, zsh, fish and PowerShell |
+| `help topics`, `help TOPIC` | list the concepts and how-tos brig explains, explain one, such as `brig help fence-2` or `brig help unblock` |
 
 Where a command takes `[NAME]`, leaving it out means the VM that `brig use`
 selected; the command says which on standard error. `brig COMMAND --help`
-lists each command's flags.
+lists each command's flags, and `brig help topics` the concepts, such as
+fences, gateways and providers, and the how-tos that `brig help TOPIC`
+explains.
 
 ## Progress output
 

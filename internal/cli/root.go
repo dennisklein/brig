@@ -97,7 +97,8 @@ to OpenShell's own sandboxing.
 Each VM's gateway is registered with the host's openshell CLI as brig-<name>.
 A command that takes a VM NAME works on the VM that brig use selected when you
 leave NAME out, and says so on standard error.
-Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.
+Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml. brig help topics
+lists the concepts and how-tos that brig help TOPIC explains.
 
 Exit status: 0 success, 3 not found, 4 exists already, 5 not ready (VM,
 gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
@@ -125,6 +126,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
 		cmd.AddCommand(c)
 	}
 	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
+	addHelpTopics(cmd)
 	// These own the terminal, or must keep standard output exactly as is;
 	// ui runs until stopped and is no work to show.
 	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"secret", "set"}, {"agent", "init"}, {"agent", "build"}, {"ui"}} {
