@@ -186,6 +186,8 @@ starts with `brig-`.
 | `start [NAME]`, `stop [NAME]` | boot and re-register the gateway, shut down; `start --wait` (also on `create`) fails unless the gateway answers and the config directories sync |
 | `update [NAME]` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
 | `sync [NAME]` (`-w`) | apply the VM's OpenShell config directories to its gateway |
+| `agent init claude\|pi\|opencode [NAME]` | write an image definition, provider profile, provider and default policy for a coding agent into config directories, never overwriting; with `--vm`, also attach them, store missing secrets, sync and build the image |
+| `agent build [NAME] AGENT` (`-w`) | build the agent's image with Podman, copy it into the VM and point the agent's gateway template at it |
 | `secret set [NAME] PROVIDER [CREDENTIAL]` (`-w`) | store a provider's secret in the keyring under the attributes its provider file gives (read without echo, or from standard input), then sync just that provider if the VM runs (`--no-sync`) |
 | `secret list [NAME]` (`-w`) | show whether each credential of the VM's providers is stored or missing, never the value (`-o json`) |
 | `upgrade [NAME]` | move onto the newest base image, keeping the data disk and rolling back on failure |
