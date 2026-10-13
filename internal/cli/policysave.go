@@ -98,6 +98,9 @@ type saveRequest struct {
 	keys   []string
 	to     string
 	dryRun bool
+	// show prints the change and the hosts that it allows before the write,
+	// as a dry run does.
+	show bool
 	// confirm, if set, is shown what saving writes and decides whether to
 	// write it.
 	confirm func(summary string) (bool, error)
@@ -233,16 +236,20 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, req saveRequest, out, wa
 	}
 
 	// Show what is saved before it is written, also to those who are asked.
-	if dryRun || req.confirm != nil {
+	if dryRun || req.show || req.confirm != nil {
+		verb, create := "Saving", "Creating"
+		if dryRun || req.confirm != nil {
+			verb, create = "Would save", "Would create"
+		}
 		if newName {
-			fmt.Fprintf(out, "Would create %s as a copy of %s with rules %s:\n", termtext.Escape(target), termtext.Escape(source), termtext.Escape(strings.Join(keyList, ", ")))
+			fmt.Fprintf(out, "%s %s as a copy of %s with rules %s:\n", create, termtext.Escape(target), termtext.Escape(source), termtext.Escape(strings.Join(keyList, ", ")))
 		} else {
-			fmt.Fprintf(out, "Would save rules %s to %s:\n", termtext.Escape(strings.Join(keyList, ", ")), termtext.Escape(target))
+			fmt.Fprintf(out, "%s rules %s to %s:\n", verb, termtext.Escape(strings.Join(keyList, ", ")), termtext.Escape(target))
 		}
 		if _, err := io.WriteString(out, termtext.EscapeLines(lineDiff(target, old, edited))); err != nil {
 			return err
 		}
-		fmt.Fprintln(out, "Sandboxes created from the file would reach:")
+		fmt.Fprintln(out, "Sandboxes created from the file can reach:")
 		for _, r := range named {
 			fmt.Fprintf(out, "  %s: %s\n", termtext.Escape(r.Key), termtext.Escape(strings.Join(policy.Endpoints(r.Rule), ", ")))
 		}
@@ -342,13 +349,21 @@ func pickRules(rep *policyReport, keys []string) ([]policy.RuleDiff, error) {
 		i := slices.IndexFunc(rep.Rules, func(r policy.RuleDiff) bool { return r.Key == k })
 		switch {
 		case i < 0:
-			return nil, fmt.Errorf("rule %s of sandbox %s does not differ from %s", k, rep.Sandbox, rep.Source.Path)
+			return nil, ruleUnchangedError{k, rep.Sandbox, rep.Source.Path}
 		case rep.Rules[i].State == policy.NotApplied:
 			return nil, fmt.Errorf("rule %s is in %s only; openshell policy set applies the file to the sandbox", k, rep.Source.Path)
 		}
 		pick = append(pick, rep.Rules[i])
 	}
 	return pick, nil
+}
+
+// ruleUnchangedError is the error of a rule to save that the file has as the
+// sandbox does.
+type ruleUnchangedError struct{ key, sandbox, file string }
+
+func (e ruleUnchangedError) Error() string {
+	return fmt.Sprintf("rule %s of sandbox %s does not differ from %s", e.key, e.sandbox, e.file)
 }
 
 func exists(path string) bool {

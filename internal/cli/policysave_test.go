@@ -219,7 +219,7 @@ func TestPolicySaveAsksOnATerminal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: exit = %v\n%s", in, err, out)
 		}
-		for _, want := range []string{"Would save rules pip to " + file, "+  pip:\n", "Sandboxes created from the file would reach:\n  pip: pypi.org:443 (audit)\n", "Rule pip only logs", "Nothing saved."} {
+		for _, want := range []string{"Would save rules pip to " + file, "+  pip:\n", "Sandboxes created from the file can reach:\n  pip: pypi.org:443 (audit)\n", "Rule pip only logs", "Nothing saved."} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%q: output lacks %q:\n%s", in, want, out)
 			}

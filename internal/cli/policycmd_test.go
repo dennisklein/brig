@@ -40,6 +40,13 @@ const sandboxBase = `{"filesystem_policy": {"include_workdir": true, "read_only"
 // the sandbox choices and the config directory's policies directory.
 func policyFixture(t *testing.T, sandboxPolicy string) (choices, policies string) {
 	t.Helper()
+	return policyFixtureWith(t, sandboxPolicy, "")
+}
+
+// policyFixtureWith is policyFixture with more cases for the fake openshell's
+// case statement, which has "$*" for the arguments.
+func policyFixtureWith(t *testing.T, sandboxPolicy, cases string) (choices, policies string) {
+	t.Helper()
 	a := testApp(t)
 	v := testVM(t, a, "dev")
 	dir := t.TempDir()
@@ -56,6 +63,7 @@ case "$*" in
 {"version": 4, "policy": ` + sandboxPolicy + `}
 JSON
 ;;
+` + cases + `
 *) echo "unexpected: $*" >&2; exit 3;;
 esac`})
 	return a.vmFile(v, policySourcesFile), filepath.Join(dir, "policies")
