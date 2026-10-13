@@ -251,7 +251,7 @@ func TestUpgradeAcrossMinorVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd.Display != "brig upgrade airgap --force" || len(cmd.Notes) != 1 || !strings.Contains(cmd.Notes[0], "0.1.1 to 0.2.0") {
+	if cmd.Display != "brig upgrade airgap --allow-minor" || len(cmd.Notes) != 1 || !strings.Contains(cmd.Notes[0], "0.1.1 to 0.2.0") {
 		t.Errorf("%q, notes %q", cmd.Display, cmd.Notes)
 	}
 	// Within a minor version there is nothing to force.

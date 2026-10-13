@@ -954,7 +954,7 @@ Upgrade in this order:
 2. `brig upgrade dev` moves the VM onto it and rolls back if its gateway does
    not answer, or on Ctrl-C. The data disk, and with it every provider, template, image and
    workspace, stays. If OpenShell's minor version changes, brig refuses
-   without `--force`: read the release notes first, since sandboxes may need
+   without `--allow-minor`: read the release notes first, since sandboxes may need
    to be recreated and the profile or policy schema may have changed.
 3. `sudo dnf upgrade openshell` on the host. `brig start` warns when the CLI's
    and the gateway's minor versions differ.
@@ -1030,7 +1030,7 @@ Podman refuses to remove an image a container still uses.
 | `brig start` says it held back a profile change | The change adds endpoints to a credential already in the gateway | Review with `brig sync dev --dry-run`, then `brig sync dev` |
 | Files in `~` are missing after a host crash or disk error | The VM's boot repaired its data disk and moved what it could not place | Look in `/home/agent/lost+found` (`brig ssh dev -- ls -la lost+found`) and in the boot log (`brig ssh dev --root -- journalctl -b -u 'systemd-fsck@*'`) |
 | `--driver-config-json` is rejected | The VM was last started by an older brig, so its gateway still has driver config off | `brig stop dev && brig start dev` |
-| Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --force` after reading the release notes, or `sudo dnf downgrade openshell` |
+| Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --allow-minor` after reading the release notes, or `sudo dnf downgrade openshell` |
 
 ## Sources
 

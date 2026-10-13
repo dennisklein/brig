@@ -76,8 +76,8 @@ func buildUpgrade(f Form, c Context) (Command, error) {
 	}
 	cmd := NewCommand("brig", "upgrade", v.Name)
 	if v.OpenShell != "" && !openshell.CompatibleVersions(v.OpenShell, newest.OpenShell) {
-		cmd = NewCommand("brig", "upgrade", v.Name, "--force").
-			Note("--force: OpenShell goes from %s to %s, a minor version change. Sandboxes may need to be recreated; read the release notes first.", v.OpenShell, newest.OpenShell)
+		cmd = NewCommand("brig", "upgrade", v.Name, "--allow-minor").
+			Note("--allow-minor: OpenShell goes from %s to %s, a minor version change. Sandboxes may need to be recreated; read the release notes first.", v.OpenShell, newest.OpenShell)
 	}
 	return cmd, nil
 }
