@@ -154,7 +154,13 @@ func addOutputFlag(cmd *cobra.Command, f *outputFormat) {
 // default comes from config.yaml or the VM.
 func hideDefaults(cmd *cobra.Command, names ...string) {
 	for _, name := range names {
-		cmd.Flags().Lookup(name).DefValue = ""
+		f := cmd.Flags().Lookup(name)
+		// pflag takes only "0" for the zero value of a number.
+		if f.Value.Type() == "int" {
+			f.DefValue = "0"
+		} else {
+			f.DefValue = ""
+		}
 	}
 }
 

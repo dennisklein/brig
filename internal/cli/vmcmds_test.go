@@ -518,3 +518,19 @@ func TestUpgradeAllowsAMinorChangeOnlyWithAllowMinor(t *testing.T) {
 		}
 	}
 }
+
+func TestShowSaysWhatTheProfileAllows(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	out, err := run(t, "show", "dev")
+	if err != nil || !strings.Contains(out, "Network profile:  default (allows internet)") {
+		t.Errorf("brig show:\n%s\n%v", out, err)
+	}
+}
+
+func TestUIHelpShowsNoEmptyDefault(t *testing.T) {
+	out, err := run(t, "ui", "--help")
+	if err != nil || strings.Contains(out, "(default )") || !strings.Contains(out, "(default: a free one)") {
+		t.Errorf("brig ui --help: %v\n%s", err, out)
+	}
+}
