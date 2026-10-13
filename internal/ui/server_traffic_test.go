@@ -137,6 +137,22 @@ func TestAllowDialog(t *testing.T) {
 		t.Errorf("spec: %+v", s)
 	}
 
+	// Kept, it saves the rule in the same step, and offers nothing after.
+	form = values("vm", "dev", "workspace", "default", "sandbox", "webapp", "req", "4", "mode", "draft", "draft", "ch-npm", "keep", "on", "to", "webapp")
+	form.Set("shown", ts.shownBy("allow", form))
+	if w := ts.post("/a/allow/run", form); w.Code != http.StatusOK {
+		t.Fatalf("run: %d\n%s", w.Code, w.Body)
+	}
+	s = ts.starts.started()[1]
+	if s.Command.Display != "brig policy allow dev webapp --workspace default --draft ch-npm --rule allow_registry_npmjs_org_443 --save --to webapp" || s.Next != "" || s.NextForm != nil || !s.ShowOutput {
+		t.Errorf("kept spec: %+v", s)
+	}
+	for _, want := range []string{`name="keep"`, `name="to"`, `name="broad"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("allow dialog lacks %q", want)
+		}
+	}
+
 	// A program the log named only by its name is a guess, with the
 	// command that checks it; a credential's denial asks first.
 	body = ts.get("/a/allow?vm=review&workspace=default&sandbox=pr-review&req=5").Body.String()

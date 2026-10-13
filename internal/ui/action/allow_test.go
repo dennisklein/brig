@@ -117,6 +117,37 @@ func TestBuildAllow(t *testing.T) {
 			"", "vm dev workspace default sandbox webapp rule allow_uploads_github_com_443",
 		},
 		{
+			"draft kept", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "draft", "draft", "ch-1", "keep", "on", "to", "webapp"),
+			"brig policy allow dev webapp --workspace default --draft ch-1 --rule allow_registry_npmjs_org_443 --save --to webapp", "", "",
+		},
+		{
+			"draft kept in the policy file of the sandbox", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "draft", "draft", "ch-1", "keep", "on"),
+			"brig policy allow dev webapp --workspace default --draft ch-1 --rule allow_registry_npmjs_org_443 --save", "", "",
+		},
+		{
+			"rule kept", rule("keep", "on", "to", "webapp"),
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --access read-only --save --to webapp",
+			"", "",
+		},
+		{
+			"audit rule kept in a file by path", rule("keep", "on", "rule", "npm", "enforcement", "audit", "access", "read-write", "to", "~/policies/webapp.yaml"),
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule npm --access read-write --audit --save --to /home/dklein/policies/webapp.yaml",
+			"", "",
+		},
+		{
+			"whole connection kept", rule("keep", "on", "protocol", "", "broad", "on"),
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --l4 --broad --save",
+			"", "",
+		},
+		{
+			"full access kept", rule("keep", "on", "access", "full", "broad", "on"),
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --access full --broad --save",
+			"", "",
+		},
+		{"broad rule kept unconfirmed", rule("keep", "on", "access", "full"), "", "Broad rule", ""},
+		{"kept in a bad file", rule("keep", "on", "to", "--force"), "", "File", ""},
+		{"keep not ticked, file given", rule("to", "--force"), "openshell -g brig-dev --workspace default policy update webapp --rule-name allow_registry_npmjs_org_443 --binary /usr/bin/node --add-endpoint registry.npmjs.org:443:read-only:rest:enforce --wait", "", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443"},
+		{
 			"save preview", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "npm"),
 			"brig policy save dev webapp --workspace default --rule npm --dry-run", "", "vm dev workspace default sandbox webapp rule npm",
 		},
@@ -172,6 +203,10 @@ func TestBuildAllowNotes(t *testing.T) {
 	}
 	if !slices.ContainsFunc(cmd.Notes, func(n string) bool { return strings.Contains(n, "security notes: new host") }) {
 		t.Errorf("notes: %q", cmd.Notes)
+	}
+	cmd, err = a.Build(form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "draft", "draft", "ch-1", "keep", "on"), trafficContext())
+	if err != nil || !cmd.Done || cmd.NextForm != nil {
+		t.Errorf("a kept rule offers a next step: %+v, %v", cmd, err)
 	}
 	save, _ := action.Lookup("policy-save")
 	cmd, err = save.Build(form("vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "npm"), trafficContext())

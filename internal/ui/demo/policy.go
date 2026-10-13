@@ -93,6 +93,49 @@ func addRule(st *store.Store, vm, ws, sandbox, yaml string) {
 	})
 }
 
+// policyAllowPlan plays brig policy allow, which argv holds after "policy
+// allow": VM, sandbox and host, or with --draft only the first two, then the
+// options. With --save it refuses as brig does before it changes the
+// sandbox. h.mu is held.
+func (h *Host) policyAllowPlan(argv []string) (plan, error) {
+	f := parseFlags(argv)
+	draft := first(f.values["--draft"])
+	if len(f.args) < 2 || (draft == "" && len(f.args) < 3) {
+		return plan{}, fmt.Errorf("the demo cannot play brig policy allow %q", argv)
+	}
+	vm, sandbox, ws := f.args[0], f.args[1], first(f.values["--workspace"])
+	rule := first(f.values["--rule"])
+	var args []string
+	if draft != "" {
+		args = []string{"rule", "approve", sandbox, "--chunk-id", draft}
+	} else {
+		spec := f.args[2]
+		if !f.set["--l4"] {
+			spec += ":" + first(f.values["--access"]) + ":rest:enforce"
+			if f.set["--audit"] {
+				spec = strings.TrimSuffix(spec, "enforce") + "audit"
+			}
+		}
+		args = []string{"policy", "update", sandbox, "--rule-name", rule, "--binary", first(f.values["--binary"]), "--add-endpoint", spec, "--wait"}
+	}
+	allow, err := h.rulePlan(vm, ws, args)
+	if err != nil {
+		return plan{}, err
+	}
+	if !f.set["--save"] {
+		allow.output += fmt.Sprintf("Only %s has the rule. brig policy save %s %s --rule %s keeps it for new sandboxes.\n", sandbox, vm, sandbox, rule)
+		return allow, nil
+	}
+	save := policySavePlan(vm, sandbox, []string{"--rule", rule, "--to", first(f.values["--to"])})
+	if save.fail != "" {
+		// Nothing changes: brig checks before it adds the rule.
+		return plan{steps: save.steps, fail: save.fail}, nil
+	}
+	allow.steps = append(allow.steps, save.steps...)
+	allow.output += save.output
+	return allow, nil
+}
+
 // policySavePlan plays brig policy save. The demo's sandboxes come from the
 // default policy, so that it refuses as brig does without --to.
 func policySavePlan(vm, sandbox string, args []string) plan {

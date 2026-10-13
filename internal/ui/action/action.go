@@ -39,6 +39,9 @@ type Command struct {
 	// NextForm fills the fields of the dialog of the action's Next, as key
 	// and value pairs.
 	NextForm []string
+	// Done says that the command finishes what its action began, so that the
+	// action's Next is not offered.
+	Done bool
 }
 
 // NewCommand returns the command with the arguments argv.

@@ -468,8 +468,12 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		s.rejected(w, p)
 		return
 	}
+	next := a.Next
+	if p.Cmd.Done {
+		next = ""
+	}
 	_, err := s.starter.Start(run.Spec{
-		Action: a.ID, Command: p.Cmd, VM: a.VM(f), ShowOutput: a.ShowOutput, Next: a.Next, NextForm: p.Cmd.NextForm,
+		Action: a.ID, Command: p.Cmd, VM: a.VM(f), ShowOutput: a.ShowOutput, Next: next, NextForm: p.Cmd.NextForm,
 	})
 	if err != nil {
 		s.log.Error("starting a task", "action", a.ID, "err", err)
