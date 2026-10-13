@@ -15,9 +15,10 @@ import (
 	"time"
 )
 
-// SecretTool looks secrets up with secret-tool from libsecret, or another
-// program that takes the same `lookup ATTRIBUTE VALUE...` arguments and
-// prints the secret.
+// SecretTool looks secrets up and stores them with secret-tool from
+// libsecret, or another program that takes the same arguments: `lookup
+// ATTRIBUTE VALUE...`, which prints the secret, and `store --label=LABEL
+// ATTRIBUTE VALUE...`, which reads it from standard input.
 type SecretTool struct {
 	// Path is the program: an absolute path, or a name to look up in PATH.
 	Path string
@@ -55,22 +56,11 @@ func LookupEnv(name string) (string, error) {
 // attribute/value pairs. A single trailing newline is removed. Neither the
 // secret nor secret-tool's standard output ever appears in errors.
 func (s SecretTool) Lookup(ctx context.Context, attrs []string) (string, error) {
-	path := s.Path
-	if path == "" {
-		path = "secret-tool"
+	path, err := s.program()
+	if err != nil {
+		return "", err
 	}
-	if !strings.Contains(path, "/") {
-		p, err := exec.LookPath(path)
-		if err != nil {
-			return "", fmt.Errorf("%s not found; install it (sudo dnf install $(brig print-fedora-deps --with secrets)) or set openshell.secret_tool in config.yaml", path)
-		}
-		path = p
-	}
-	timeout := s.Timeout
-	if timeout == 0 {
-		timeout = 2 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, append([]string{"lookup"}, attrs...)...)
 	var stdout, stderr limitedBuffer
@@ -79,7 +69,7 @@ func (s SecretTool) Lookup(ctx context.Context, attrs []string) (string, error) 
 	// A wrapper script's children may keep the output pipes open after the
 	// timeout killed the script itself.
 	cmd.WaitDelay = time.Second
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("%s lookup %s: %w", path, strings.Join(attrs, " "), ctx.Err())
 	}
@@ -103,17 +93,85 @@ func (s SecretTool) Lookup(ctx context.Context, attrs []string) (string, error) 
 	}
 }
 
+// program returns the path of the program to run.
+func (s SecretTool) program() (string, error) {
+	path := s.Path
+	if path == "" {
+		path = "secret-tool"
+	}
+	if !strings.Contains(path, "/") {
+		p, err := exec.LookPath(path)
+		if err != nil {
+			return "", fmt.Errorf("%s not found; install it (sudo dnf install $(brig print-fedora-deps --with secrets)) or set openshell.secret_tool in config.yaml", path)
+		}
+		path = p
+	}
+	return path, nil
+}
+
+// withTimeout bounds ctx by the timeout.
+func (s SecretTool) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := s.Timeout
+	if timeout == 0 {
+		timeout = 2 * time.Minute
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// Store saves secret under the attributes attrs, given as attribute/value
+// pairs, with the label label. The secret goes to the program on standard
+// input, never on its command line, and is exactly the bytes given, so the
+// caller removes a trailing newline. A program that cannot store, such as a
+// wrapper that only looks up, exits non-zero; the error then names the
+// attributes, so the secret can be stored by hand. Neither the secret nor
+// the program's standard output ever appears in errors.
+func (s SecretTool) Store(ctx context.Context, label string, attrs []string, secret string) error {
+	path, err := s.program()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, append([]string{"store", "--label=" + label}, attrs...)...)
+	var stderr limitedBuffer
+	stderr.max = 4096
+	cmd.Stdin = strings.NewReader(secret)
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second
+	err = cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s store %s: %w", path, strings.Join(attrs, " "), ctx.Err())
+	}
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(stderr.String())
+	if secret != "" {
+		msg = strings.ReplaceAll(msg, secret, "")
+	}
+	if msg != "" {
+		msg = ": " + msg
+	}
+	return fmt.Errorf("%s store %s: %w%s; if %s cannot store secrets, store it yourself under these attributes: %s",
+		path, strings.Join(attrs, " "), err, msg, filepath.Base(path), attributeWords(attrs))
+}
+
+// attributeWords formats attrs for pasting into a shell.
+func attributeWords(attrs []string) string {
+	words := make([]string, len(attrs))
+	for i, a := range attrs {
+		words[i] = shellWord(a)
+	}
+	return strings.Join(words, " ")
+}
+
 // storeHint says how to store a secret that lookup did not find. Only
 // secret-tool stores into libsecret, so another program gets no such hint.
 func storeHint(path string, attrs []string) string {
 	if filepath.Base(path) != "secret-tool" {
 		return "store it where " + path + " looks"
 	}
-	words := make([]string, len(attrs))
-	for i, a := range attrs {
-		words[i] = shellWord(a)
-	}
-	return "store it with: secret-tool store --label=LABEL " + strings.Join(words, " ")
+	return "store it with: secret-tool store --label=LABEL " + attributeWords(attrs)
 }
 
 // shellWord quotes s for a POSIX shell. Words of plain characters stay as
