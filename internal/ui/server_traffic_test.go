@@ -125,14 +125,15 @@ func TestAllowDialog(t *testing.T) {
 		}
 	}
 
-	// Approving the draft runs openshell, and offers to save the rule.
+	// Approving the draft runs brig policy allow, and offers to save the
+	// rule.
 	form := values("vm", "dev", "workspace", "default", "sandbox", "webapp", "req", "4", "mode", "draft", "draft", "ch-npm")
 	form.Set("shown", ts.shownBy("allow", form))
 	if w := ts.post("/a/allow/run", form); w.Code != http.StatusOK {
 		t.Fatalf("run: %d\n%s", w.Code, w.Body)
 	}
 	s := ts.starts.started()[0]
-	if s.Command.Display != "openshell -g brig-dev --workspace default rule approve webapp --chunk-id ch-npm" || s.VM != "" || s.Next != "policy-save-preview" ||
+	if s.Command.Display != "brig policy allow dev webapp --workspace default --draft ch-npm" || s.VM != "" || s.Next != "policy-save-preview" ||
 		!slices.Equal(s.NextForm, []string{"vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "allow_registry_npmjs_org_443"}) {
 		t.Errorf("spec: %+v", s)
 	}

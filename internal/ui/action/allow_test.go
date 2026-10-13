@@ -56,32 +56,32 @@ func TestBuildAllow(t *testing.T) {
 	}{
 		{
 			"draft", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "draft", "draft", "ch-1", "req", "1"),
-			"openshell -g brig-dev --workspace default rule approve webapp --chunk-id ch-1", "", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443",
+			"brig policy allow dev webapp --workspace default --draft ch-1", "", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443",
 		},
 		{"draft gone", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "draft", "draft", "ch-0"), "", "no pending draft", ""},
 		{
 			"rule", rule(),
-			"openshell -g brig-dev --workspace default policy update webapp --rule-name allow_registry_npmjs_org_443 --binary /usr/bin/node --add-endpoint registry.npmjs.org:443:read-only:rest:enforce --wait",
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --access read-only",
 			"", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443",
 		},
 		{
 			"rule named, audit", rule("rule", "npm", "enforcement", "audit", "access", "full", "broad", "on"),
-			"openshell -g brig-dev --workspace default policy update webapp --rule-name npm --binary /usr/bin/node --add-endpoint registry.npmjs.org:443:full:rest:audit --wait",
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule npm --access full --audit --broad",
 			"", "vm dev workspace default sandbox webapp rule npm",
 		},
 		{
 			"whole connection", rule("protocol", "", "broad", "on"),
-			"openshell -g brig-dev --workspace default policy update webapp --rule-name allow_registry_npmjs_org_443 --binary /usr/bin/node --add-endpoint registry.npmjs.org:443 --wait",
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --l4 --broad",
 			"", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443",
 		},
 		{
 			"draft of the other workspace", form("vm", "dev", "workspace", "team", "sandbox", "webapp", "mode", "draft", "draft", "ch-2", "req", "3"),
-			"openshell -g brig-dev --workspace team rule approve webapp --chunk-id ch-2", "", "vm dev workspace team sandbox webapp rule allow_registry_npmjs_org_443",
+			"brig policy allow dev webapp --workspace team --draft ch-2", "", "vm dev workspace team sandbox webapp rule allow_registry_npmjs_org_443",
 		},
 		{"draft of the other workspace, asked in this one", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "draft", "draft", "ch-2"), "", "no pending draft", ""},
 		{
 			"rule in the other workspace", rule("workspace", "team"),
-			"openshell -g brig-dev --workspace team policy update webapp --rule-name allow_registry_npmjs_org_443 --binary /usr/bin/node --add-endpoint registry.npmjs.org:443:read-only:rest:enforce --wait",
+			"brig policy allow dev webapp registry.npmjs.org:443 --workspace team --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --access read-only",
 			"", "vm dev workspace team sandbox webapp rule allow_registry_npmjs_org_443",
 		},
 		{"no workspace", form("vm", "dev", "sandbox", "webapp", "mode", "draft"), "", "no workspace name", ""},
@@ -95,7 +95,7 @@ func TestBuildAllow(t *testing.T) {
 		{"a whole top-level domain", rule("host", "*.com", "port", "1", "binary", "/bin/sh", "protocol", ""), "", "Host: a wildcard needs a domain", ""},
 		{
 			"a wildcard below a domain", rule("host", "*.npmjs.org"),
-			"openshell -g brig-dev --workspace default policy update webapp --rule-name allow_wildcard_npmjs_org_443 --binary /usr/bin/node --add-endpoint '*.npmjs.org:443:read-only:rest:enforce' --wait",
+			"brig policy allow dev webapp '*.npmjs.org:443' --workspace default --binary /usr/bin/node --rule allow_wildcard_npmjs_org_443 --access read-only",
 			"", "vm dev workspace default sandbox webapp rule allow_wildcard_npmjs_org_443",
 		},
 		{"host with a path", rule("host", "a.example/x"), "", "Host", ""},
@@ -113,7 +113,7 @@ func TestBuildAllow(t *testing.T) {
 		{"credential", rule("req", "2", "host", "uploads.github.com"), "", "Allow anyway", ""},
 		{
 			"credential anyway", rule("req", "2", "host", "uploads.github.com", "anyway", "on"),
-			"openshell -g brig-dev --workspace default policy update webapp --rule-name allow_uploads_github_com_443 --binary /usr/bin/node --add-endpoint uploads.github.com:443:read-only:rest:enforce --wait",
+			"brig policy allow dev webapp uploads.github.com:443 --workspace default --binary /usr/bin/node --rule allow_uploads_github_com_443 --access read-only",
 			"", "vm dev workspace default sandbox webapp rule allow_uploads_github_com_443",
 		},
 		{
@@ -146,7 +146,7 @@ func TestBuildAllow(t *testing.T) {
 		},
 		{"broad rule kept unconfirmed", rule("keep", "on", "access", "full"), "", "Broad rule", ""},
 		{"kept in a bad file", rule("keep", "on", "to", "--force"), "", "File", ""},
-		{"keep not ticked, file given", rule("to", "--force"), "openshell -g brig-dev --workspace default policy update webapp --rule-name allow_registry_npmjs_org_443 --binary /usr/bin/node --add-endpoint registry.npmjs.org:443:read-only:rest:enforce --wait", "", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443"},
+		{"keep not ticked, file given", rule("to", "--force"), "brig policy allow dev webapp registry.npmjs.org:443 --workspace default --binary /usr/bin/node --rule allow_registry_npmjs_org_443 --access read-only", "", "vm dev workspace default sandbox webapp rule allow_registry_npmjs_org_443"},
 		{
 			"save preview", form("vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "npm"),
 			"brig policy save dev webapp --workspace default --rule npm --dry-run", "", "vm dev workspace default sandbox webapp rule npm",

@@ -307,9 +307,10 @@ the running commands the way it does in a shell, so brig rolls back. The UI
 shows and takes no secrets.
 
 **Allow…** on a denied request offers the rule that OpenShell drafted from
-it, which names the program's full path (`openshell rule approve`), or a
-rule of your own with its access level and enforce or audit (`openshell
-policy update`). Either applies to that sandbox at once. Tick **Keep for
+it, which names the program's full path (`brig policy allow --draft`, which
+runs `openshell rule approve`), or a rule of your own with its access level
+and enforce or audit (`brig policy allow`, whose revision records that brig
+made it). Either applies to that sandbox at once. Tick **Keep for
 new sandboxes** to write the rule into the sandbox's policy file in the same
 step (`brig policy allow --save`); otherwise **Save to file…** previews and
 runs `brig policy save` next. Allow refuses `*`, `**` and wildcards such as

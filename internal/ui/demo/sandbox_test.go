@@ -141,7 +141,7 @@ func TestPlayPolicyAllow(t *testing.T) {
 	}
 
 	p, err = h.plan(append(slices.Clone(allow), "--save", "--to", "webapp"))
-	if err != nil || p.fail != "" || p.after == nil || !strings.Contains(p.output, "Rule npm updated on sandbox webapp") || !strings.Contains(p.output, "Created ") {
+	if err != nil || p.fail != "" || p.after == nil || !strings.Contains(p.output, "loaded policy version 4 with rule npm") || !strings.Contains(p.output, "Created ") {
 		t.Errorf("--save --to: %+v, %v", p, err)
 	}
 	if len(p.steps) < 4 {
