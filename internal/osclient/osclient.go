@@ -37,7 +37,7 @@ import (
 
 // StubsVersion is the OpenShell release whose generated stubs brig uses.
 // Bump it with the SDK's pin in go.mod.
-const StubsVersion = "0.1.3"
+const StubsVersion = "0.1.4"
 
 // callTimeout bounds each call to the gateway.
 const callTimeout = 10 * time.Second

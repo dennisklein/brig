@@ -15,7 +15,7 @@ import (
 // A sandbox's supervisor sends each OCSF event to the gateway as a line of
 // "shorthand", which OpenShell calls a display-only projection: no fields,
 // only text. ParseRequest reads the lines about network traffic, as
-// openshell-ocsf's format_shorthand writes them at OpenShell v0.1.3:
+// openshell-ocsf's format_shorthand writes them at OpenShell v0.1.4:
 //
 //	NET:OPEN [MED] DENIED /usr/bin/curl(4711) -> api.example.com:443 [reason:...]
 //	HTTP:GET [INFO] ALLOWED curl(88) -> GET https://api.example.com/v1/data [policy:p engine:mechanistic]

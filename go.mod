@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/GSI-HPC/go-clikit v0.3.0
-	github.com/NVIDIA/OpenShell/sdk/go v0.0.0-20261009050449-e1f3c82caa3e
+	github.com/NVIDIA/OpenShell/sdk/go v0.0.0-20261013191600-5a7728c304b5
 	github.com/digitalocean/go-libvirt v0.0.0-20260814190004-1a83157e1858
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.5
