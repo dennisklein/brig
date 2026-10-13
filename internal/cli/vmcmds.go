@@ -23,6 +23,7 @@ import (
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
+	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/image"
@@ -476,6 +477,13 @@ func (a *app) remove(ctx context.Context, conn domains, v *vm.VM, force bool, as
 		return err
 	}
 	fmt.Fprintf(stdout, "Deleted VM %s.\n", v.Name)
+	st := audit.NewStore(a.dirs)
+	switch kept, err := st.MarkDeleted(v.Name, time.Now()); {
+	case err != nil:
+		fmt.Fprintf(stderr, "Warning: %s\n", termtext.Escape(err.Error()))
+	case kept:
+		fmt.Fprintf(stderr, "Its audit history stays in %s; brig audit %s reads it, and brig audit prune --deleted-vms deletes it.\n", st.Dir(v.Name), v.Name)
+	}
 	return nil
 }
 

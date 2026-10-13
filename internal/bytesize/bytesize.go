@@ -72,6 +72,20 @@ func (s Size) String() string {
 	return strconv.FormatUint(uint64(s), 10) + "B"
 }
 
+// Approx formats the size to a tenth of the largest binary unit it reaches,
+// such as "4.2MiB", for sizes that are seldom whole units.
+func (s Size) Approx() string {
+	for _, u := range []struct {
+		name string
+		size Size
+	}{{"TiB", TiB}, {"GiB", GiB}, {"MiB", MiB}, {"KiB", KiB}} {
+		if s >= u.size {
+			return strconv.FormatFloat(float64(s)/float64(u.size), 'f', 1, 64) + u.name
+		}
+	}
+	return strconv.FormatUint(uint64(s), 10) + "B"
+}
+
 // MiB returns the size in whole mebibytes, rounding down.
 func (s Size) MiB() uint64 { return uint64(s / MiB) }
 
