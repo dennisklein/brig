@@ -68,3 +68,27 @@ func TestBroad(t *testing.T) {
 		}
 	}
 }
+
+func TestEndpoints(t *testing.T) {
+	raw, err := RawRules([]byte(`network_policies:
+  r:
+    endpoints:
+      - {host: registry.npmjs.org, port: 443, protocol: rest, enforcement: enforce}
+      - {host: pypi.org, ports: [80, 443], enforcement: audit}
+      - {host: example.org}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Endpoints(raw["r"])
+	want := []string{"registry.npmjs.org:443", "pypi.org:80 (audit)", "pypi.org:443 (audit)", "example.org:443"}
+	if len(got) != len(want) {
+		t.Fatalf("Endpoints = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Endpoints = %q, want %q", got, want)
+			break
+		}
+	}
+}

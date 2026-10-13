@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,5 +195,76 @@ func TestPolicySaveInAWorkspace(t *testing.T) {
 	out, _, _, _ := runSplit(t, "policy", "diff", "dev", "other", "-o", "json")
 	if rep := decodeReport(t, out); rep.Workspace != "default" || rep.Source == nil || rep.Source.How == "recorded" {
 		t.Errorf("report:\n%s", out)
+	}
+}
+
+// onTerminal makes brig believe that it runs on a terminal.
+func onTerminal(t *testing.T) {
+	t.Helper()
+	orig := isInteractive
+	isInteractive = func(io.Reader, io.Writer) bool { return true }
+	t.Cleanup(func() { isInteractive = orig })
+}
+
+func TestPolicySaveAsksOnATerminal(t *testing.T) {
+	_, dir := policyFixture(t, `{"filesystem_policy": {"include_workdir": true, "read_only": ["/usr"]},
+  "landlock": {"compatibility": "best_effort"},
+  "network_policies": {"npm": {"endpoints": [{"host": "registry.npmjs.org", "port": 443, "protocol": "rest", "enforcement": "enforce"}]}, `+pipRule+`}}`)
+	file := filepath.Join(dir, "webapp.yaml")
+	onTerminal(t)
+
+	// An answer other than yes, or none, saves nothing.
+	for _, in := range []string{"", "\n", "n\n", "yep\n"} {
+		out, errOut, _, err := runSplitIn(t, in, "policy", "save", "dev", "webapp")
+		if err != nil {
+			t.Fatalf("%q: exit = %v\n%s", in, err, out)
+		}
+		for _, want := range []string{"Would save rules pip to " + file, "+  pip:\n", "Sandboxes created from the file would reach:\n  pip: pypi.org:443 (audit)\n", "Rule pip only logs", "Nothing saved."} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%q: output lacks %q:\n%s", in, want, out)
+			}
+		}
+		if !strings.Contains(errOut, "Save these rules to "+file+"? [y/N] ") || strings.Contains(out, "Saved rules") {
+			t.Errorf("%q: stderr %q, stdout:\n%s", in, errOut, out)
+		}
+		if readPolicy(t, file) != testPolicyBase+testPolicyNPM {
+			t.Fatalf("%q: the file changed", in)
+		}
+	}
+
+	out, _, _, err := runSplitIn(t, "Y\n", "policy", "save", "dev", "webapp")
+	if err != nil || !strings.Contains(out, "Saved rules pip to "+file) {
+		t.Fatalf("exit = %v\n%s", err, out)
+	}
+	if !strings.Contains(readPolicy(t, file), "  pip:\n") {
+		t.Error("yes did not save")
+	}
+}
+
+func TestPolicySaveYesSkipsTheQuestion(t *testing.T) {
+	_, dir := policyFixture(t, `{"filesystem_policy": {"include_workdir": true, "read_only": ["/usr"]},
+  "landlock": {"compatibility": "best_effort"},
+  "network_policies": {"npm": {"endpoints": [{"host": "registry.npmjs.org", "port": 443, "protocol": "rest", "enforcement": "enforce"}]}, `+pipRule+`}}`)
+	onTerminal(t)
+	out, errOut, _, err := runSplitIn(t, "", "policy", "save", "dev", "webapp", "--yes")
+	if err != nil || errOut != "" || !strings.Contains(out, "Saved rules pip to ") {
+		t.Fatalf("exit = %v\n%s\n%s", err, out, errOut)
+	}
+	if !strings.Contains(readPolicy(t, filepath.Join(dir, "webapp.yaml")), "  pip:\n") {
+		t.Error("the file lacks the rule")
+	}
+}
+
+func TestPolicySaveCreatesAfterAsking(t *testing.T) {
+	_, dir := policyFixture(t, `{"filesystem_policy": {"include_workdir": true, "read_only": ["/usr"]},
+  "landlock": {"compatibility": "best_effort"}, "network_policies": {`+pipRule+`}}`)
+	onTerminal(t)
+	created := filepath.Join(dir, "other.yaml")
+	_, errOut, _, err := runSplitIn(t, "n\n", "policy", "save", "dev", "other", "--to", "other")
+	if err != nil || !strings.Contains(errOut, "Create "+created+" with these rules? [y/N] ") {
+		t.Fatalf("exit = %v\n%s", err, errOut)
+	}
+	if _, err := os.Stat(created); err == nil {
+		t.Fatal("created the file after no")
 	}
 }

@@ -78,3 +78,36 @@ func Broad(protocol, access, binary string) []string {
 	}
 	return why
 }
+
+// Endpoints lists the endpoints of a rule as host:port, as RawRules returns
+// the rule. An endpoint with a port list gives one entry per port, and one
+// that only logs says so.
+func Endpoints(rule map[string]any) []string {
+	var out []string
+	eps, _ := rule["endpoints"].([]any)
+	for _, e := range eps {
+		ep, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		host, _ := ep["host"].(string)
+		var ports []any
+		if p, ok := ep["port"]; ok && p != nil {
+			ports = append(ports, p)
+		}
+		if l, ok := ep["ports"].([]any); ok {
+			ports = append(ports, l...)
+		}
+		if len(ports) == 0 {
+			ports = []any{defaultPort}
+		}
+		for _, p := range ports {
+			s := fmt.Sprintf("%s:%v", host, p)
+			if enf, _ := ep["enforcement"].(string); enf == "audit" {
+				s += " (audit)"
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}

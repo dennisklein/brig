@@ -15,6 +15,12 @@ import (
 // output and error apart, and whether a display was started.
 func runSplit(t *testing.T, args ...string) (stdout, stderr string, started bool, err error) {
 	t.Helper()
+	return runSplitIn(t, "", args...)
+}
+
+// runSplitIn is runSplit with the standard input in.
+func runSplitIn(t *testing.T, in string, args ...string) (stdout, stderr string, started bool, err error) {
+	t.Helper()
 	p := &progressRun{options: func(o *cliprogress.Options) {
 		o.Stderr, o.OnTerminal = new(bytes.Buffer), false
 	}}
@@ -22,6 +28,7 @@ func runSplit(t *testing.T, args ...string) (stdout, stderr string, started bool
 	var out, errb bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errb)
+	cmd.SetIn(strings.NewReader(in))
 	cmd.SetArgs(args)
 	err = cmd.Execute()
 	p.end(err)
