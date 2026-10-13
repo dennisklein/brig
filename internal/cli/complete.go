@@ -13,8 +13,8 @@ import (
 
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/paths"
-	"github.com/dennisklein/brig/internal/ui/osclient"
 	"github.com/dennisklein/brig/internal/vm"
 )
 

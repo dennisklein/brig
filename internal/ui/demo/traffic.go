@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dennisklein/brig/internal/ui/osclient"
+	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 

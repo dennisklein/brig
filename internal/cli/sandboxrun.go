@@ -27,8 +27,8 @@ import (
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
+	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/action"
-	"github.com/dennisklein/brig/internal/ui/osclient"
 	"github.com/dennisklein/brig/internal/vm"
 )
 

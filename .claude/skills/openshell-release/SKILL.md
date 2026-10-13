@@ -121,19 +121,19 @@ configuration and the docs against what brig relies on:
   `internal/guest/mkosi/mkosi.extra/usr/lib/systemd/user/openshell-gateway.service.d/50-brig.conf`:
   check it against upstream's new gateway unit, for example new
   `ExecStartPre=` steps that read configuration the drop-in replaces.
-- **brig ui's gateway client** (`internal/ui/osclient`) reads gateways over
+- **brig's gateway client** (`internal/osclient`) reads gateways over
   gRPC with OpenShell's generated Go stubs. Move them to `TAG`:
   `go get github.com/NVIDIA/OpenShell/sdk/go@<TAG's commit>` (the SDK has no
   tags of its own; this yields a pseudo-version), then `go mod tidy`, and set
   `StubsVersion` to `TAG` without the `v`. Check `git diff PREV TAG --
   proto/openshell.proto proto/sandbox.proto proto/datamodel.proto` against
-  the calls in `internal/ui/osclient/reads.go`. `osclient/policy.go` writes
+  the calls in `internal/osclient/reads.go`. `osclient/policy.go` writes
   policies the way `from_proto` in `crates/openshell-policy/src/lib.rs`
   does; carry over changes to it, such as new endpoint fields or enum values.
 - **brig ui's traffic feed** reads the supervisor's OCSF lines, which reach
   the gateway only as display text. Check `git diff PREV TAG --
   crates/openshell-ocsf/src/format/shorthand.rs` against
-  `internal/ui/osclient/shorthand.go`, and copy new shorthand test lines
+  `internal/osclient/shorthand.go`, and copy new shorthand test lines
   into `shorthand_test.go`. Allow… runs `openshell rule approve` and
   `openshell policy update --add-endpoint`: check their flags and the
   endpoint spec in `crates/openshell-cli/src/policy_update.rs` against
