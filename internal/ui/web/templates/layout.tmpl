@@ -11,18 +11,20 @@
 <link rel="icon" type="image/svg+xml" href="{{call .Asset "icon.svg"}}">
 <link rel="stylesheet" href="{{call .Asset "app.css"}}">
 <script src="{{call .Asset "app.js"}}"></script>
+<script src="{{call .Asset "help.js"}}" defer></script>
 <script src="{{call .Asset "htmx.min.js"}}" defer></script>
 <script src="{{call .Asset "htmx-ext-sse.js"}}" defer></script>
 </head>
-<body hx-headers='{"X-Brig-CSRF": "{{.CSRF}}"}'>
+<body hx-headers='{"X-Brig-CSRF": "{{.CSRF}}"}' data-help-page="{{.HelpPage}}" data-help-tab="{{.Tab}}">
 <div class="app"{{if .Events}} hx-ext="sse" sse-connect="{{.Events}}"{{end}}>
   <header class="top">
     <a class="brand" href="/"><span class="glyph">▥</span> brig <small>ui</small></a>
-    <button type="button" class="search" data-palette-open><span>Jump to a VM, sandbox or page</span><kbd>/</kbd></button>
+    <button type="button" class="search" data-palette-open><span>Jump to a VM, sandbox, page or help</span><kbd>/</kbd></button>
     <div class="spacer"></div>
     {{if .Events}}<span class="live" id="live" title="Live: changes show as they happen"><span class="dot"></span><span>live</span></span>{{end}}
     {{if .Demo}}<span class="mockbadge" title="Everything here is made up. Nothing runs.">mock data</span>{{end}}
     <span class="hostchip"><span class="dot"></span>{{with .Snap.Host.Name}}{{.}} · {{end}}{{.Snap.Host.Addr}}</span>
+    <button type="button" class="btn ghost sm helpbtn" data-help-toggle title="Help (?)" aria-controls="helppane" aria-expanded="false">?</button>
     <button type="button" class="btn ghost sm" data-theme-toggle title="Switch theme">◐</button>
   </header>
   <nav class="rail" id="rail" sse-swap="rail">{{template "rail" .}}</nav>
@@ -30,9 +32,10 @@
   <div class="tasks" id="tasks" sse-swap="tasks" aria-live="polite">{{template "tasks" .}}</div>
 </div>
 <div id="layer"></div>
+{{template "help-pane"}}
 <div class="scrim" id="palette" hidden>
   <div class="modal palette" role="dialog" aria-label="Jump to">
-    <input name="q" placeholder="Jump to…" aria-label="Search" autocomplete="off"
+    <input name="q" placeholder="Jump to…   start with ? for help only" aria-label="Search" autocomplete="off"
       hx-get="/palette" hx-trigger="input changed delay:80ms, palette-open" hx-target="#palette-list">
     <ul id="palette-list"></ul>
   </div>

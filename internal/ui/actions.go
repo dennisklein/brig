@@ -272,6 +272,8 @@ func dialogURL(id string, kv ...string) string {
 
 // actButton is a button that opens an action's dialog.
 type actButton struct {
+	// ID names the action, for its hint card.
+	ID                string
 	URL, Label, Class string
 	// Disabled and Why say that brig is busy with the VM.
 	Disabled bool
@@ -281,7 +283,7 @@ type actButton struct {
 // act returns the button that opens the dialog of the action id, with the
 // fields in kv filled in. It is disabled while a command works on the VM.
 func act(v *view, id, label, class string, kv ...string) actButton {
-	b := actButton{URL: dialogURL(id, kv...), Label: label, Class: class}
+	b := actButton{ID: id, URL: dialogURL(id, kv...), Label: label, Class: class}
 	if label == "" {
 		b.Label = actionLabel(id)
 	}
@@ -364,7 +366,7 @@ func nextAct(t taskCard) actButton {
 		kv = append(kv, "vm", t.VM)
 	}
 	kv = append(kv, t.NextForm...)
-	return actButton{URL: dialogURL(t.Next, kv...), Label: actionLabel(t.Next), Class: "sm primary"}
+	return actButton{ID: t.Next, URL: dialogURL(t.Next, kv...), Label: actionLabel(t.Next), Class: "sm primary"}
 }
 
 // previewView is what the answer to a preview is rendered from.

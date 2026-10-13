@@ -71,7 +71,7 @@ type templates struct {
 
 func newTemplates(fsys fs.FS, funcs template.FuncMap, dev bool) (*templates, error) {
 	t := &templates{dev: dev, load: func() (*template.Template, map[string]*template.Template, error) {
-		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl", "templates/trafficparts.tmpl", "templates/auditparts.tmpl")
+		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl", "templates/trafficparts.tmpl", "templates/auditparts.tmpl", "templates/help.tmpl")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -158,6 +158,8 @@ type view struct {
 	Sel string
 	// Query is the jump box's query, for the palette.
 	Query string
+	// HelpPage names the page for the help pane: the page's template.
+	HelpPage string
 	// Asset returns the URL of a static file.
 	Asset func(string) string
 }

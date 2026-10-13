@@ -343,6 +343,15 @@ last week. Host shows each VM's collector, its gaps and the space its
 history takes by sandbox, and **Prune…** runs `brig audit prune`. A running
 VM whose traffic nothing records shows under Needs you.
 
+The UI explains itself when asked and stays quiet otherwise. A dotted word
+shows what it means when the pointer rests on it, and a button what it runs
+and whether it can be undone; a word you have looked at loses its dots. `?`
+opens help for what the pointer is on, the open dialog or the page, with
+its words, its how-tos with a **Show me** link and their commands; the jump
+box finds help too, and only help after a `?`. The help pane's **Hints
+Off** turns the cards off; `?` keeps working. The texts are those of `brig
+help TOPIC`.
+
 Only you can open it. It prints a URL with a token that is new each run and
 swaps it for a cookie, answers only to `127.0.0.1` and `localhost`, refuses
 connections from other users' processes, and loads nothing from the

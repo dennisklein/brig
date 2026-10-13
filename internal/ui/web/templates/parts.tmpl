@@ -15,7 +15,7 @@
 
 {{/* A button that opens an action's dialog. */}}
 
-{{define "act"}}<button type="button" class="btn{{with .Class}} {{.}}{{end}}" hx-get="{{.URL}}" hx-target="#layer" hx-swap="innerHTML"{{if .Disabled}} disabled title="{{.Why}}"{{end}}>{{.Label}}</button>{{end}}
+{{define "act"}}<button type="button" class="btn{{with .Class}} {{.}}{{end}}" data-help="{{.ID}}" hx-get="{{.URL}}" hx-target="#layer" hx-swap="innerHTML"{{if .Disabled}} disabled title="{{.Why}}"{{end}}>{{.Label}}</button>{{end}}
 
 {{/* The task cards: a command that brig ui runs, with its steps from the activity log. */}}
 
@@ -65,9 +65,7 @@
 {{end}}
 
 {{define "vm-cards"}}
-{{range .Snap.VMs}}{{template "vm-card" (cardOf $ .)}}{{else}}
-<section class="panel empty">No VMs yet. Create one with New VM, or in a terminal: <code>brig create NAME</code></section>
-{{end}}
+{{range .Snap.VMs}}{{template "vm-card" (cardOf $ .)}}{{else}}{{template "welcome" .}}{{end}}
 {{end}}
 
 {{define "vm-card"}}{{$v := .VM}}
@@ -76,24 +74,24 @@
   <div class="meters">
     <span>cpu</span>{{template "meter" (stat $v "cpu")}}<span>{{if $v.Running}}{{pct (stat $v "cpu")}}{{else}}–{{end}}</span>
     <span>mem</span>{{template "meter" (stat $v "mem")}}{{if and $v.Running $v.Stats $v.Stats.MemoryFromHost}}<span title="What QEMU holds on the host; the guest has not reported its own use yet">≈{{pct (stat $v "mem")}}</span>{{else}}<span>{{if $v.Running}}{{pct (stat $v "mem")}}{{else}}–{{end}}</span>{{end}}
-    <span>data</span>{{template "datameter" (stat $v "data")}}<span>{{pct (stat $v "data")}}</span>
+    <span>{{term "data-disk" "data"}}</span>{{template "datameter" (stat $v "data")}}<span>{{pct (stat $v "data")}}</span>
   </div>
   <dl class="kv">
     <dt>resources</dt><dd>{{$v.CPUs}} CPUs · {{size $v.Memory}}</dd>
-    <dt>network</dt><dd>{{$v.NetworkProfile}}</dd>
+    <dt>{{term "fence-2" "network"}}</dt><dd>{{$v.NetworkProfile}}</dd>
     {{if and $v.Running (not $v.Up.IsZero)}}<dt>up</dt><dd>{{since $v.Up}}</dd>{{end}}
     <dt>mounts</dt><dd>{{with $v.Mounts}}{{range .}}<span class="chip">{{.Target}}</span>{{end}}{{else}}<span class="faint">none</span>{{end}}</dd>
     <dt>sandboxes</dt><dd>{{with .Sandboxes}}{{range .}}<span class="chip">{{.Name}}{{if not .Ready}} <span class="faint">{{.Phase}}</span>{{end}}</span>{{end}}{{else}}<span class="faint">none</span>{{end}}</dd>
   </dl>
   {{if or .SyncErr .Older}}<div class="flags">
-    {{if .SyncErr}}<span class="pill bad">sync error</span>{{end}}
-    {{if .Older}}<span class="pill info">upgrade available</span>{{end}}
+    {{if .SyncErr}}<span class="pill bad">{{term "config-sync" "sync error"}}</span>{{end}}
+    {{if .Older}}<span class="pill info">{{term "base-image" "upgrade available"}}</span>{{end}}
   </div>{{end}}
 </a>
 {{end}}
 
 {{define "needs"}}{{$n := needs .Snap}}
-<div class="ph"><h2>Needs you</h2><span class="grow"></span><span class="faint small">{{len $n}} item{{if ne (len $n) 1}}s{{end}}</span></div>
+<div class="ph"><h2>{{term "needs-you" "Needs you"}}</h2><span class="grow"></span><span class="faint small">{{len $n}} item{{if ne (len $n) 1}}s{{end}}</span></div>
 <div class="attn">
 {{range $n}}<div class="it"><span class="bar {{.Sev}}"></span><div><div class="t">{{.Title}}</div>{{with .Detail}}<div class="d">{{.}}</div>{{end}}</div><div class="actions">{{if .Dialog}}<button type="button" class="btn sm" hx-get="{{.Dialog}}" hx-target="#layer" hx-swap="innerHTML">{{.Action}}</button><a class="btn sm ghost" href="{{.Link}}">Open</a>{{else}}<a class="btn sm" href="{{.Link}}">{{.Action}}</a>{{end}}</div></div>
 {{else}}<div class="empty">Nothing needs you.</div>{{end}}
@@ -101,7 +99,7 @@
 {{end}}
 
 {{define "recent-activity"}}
-<div class="ph"><h2>Recent activity</h2><span class="grow"></span><a class="btn sm ghost" href="/activity">All activity</a></div>
+<div class="ph"><h2>{{term "activity" "Recent activity"}}</h2><span class="grow"></span><a class="btn sm ghost" href="/activity">All activity</a></div>
 <div class="recent">{{with .Snap.Activity}}<ul>
 {{range $i, $r := .}}{{if lt $i 6}}<li><span class="dot {{runClass $r}}"></span><span class="title">{{$r.Title}}</span><span class="faint small">{{if $r.Done}}{{rel $r.Start}}{{else}}running{{end}}</span></li>{{end}}{{end}}
 </ul>{{else}}<div class="empty">No brig commands yet. Commands you run in a terminal show here too.</div>{{end}}</div>
@@ -110,7 +108,7 @@
 {{/* VMs. */}}
 
 {{define "vm-table"}}
-<table><thead><tr><th>Name</th><th>State</th><th>Gateway</th><th class="num">CPUs</th><th class="num">Memory</th><th>Network</th><th>Base image</th><th class="num">Mounts</th><th></th></tr></thead><tbody>
+<table><thead><tr><th>Name</th><th>State</th><th>{{term "gateway" "Gateway"}}</th><th class="num">CPUs</th><th class="num">Memory</th><th>{{term "fence-2" "Network"}}</th><th>{{term "base-image" "Base image"}}</th><th class="num">Mounts</th><th></th></tr></thead><tbody>
 {{range .Snap.VMs}}<tr class="click" data-href="/vms/{{.Name}}">
   <td><a class="rowlink" href="/vms/{{.Name}}">{{.Name}}</a></td><td>{{template "pill" .State}}</td>
   <td class="mono">{{.GatewayName}} <span class="faint">{{.OpenShell}}</span></td>
@@ -150,20 +148,20 @@
 <div class="grid g2">
   <section class="panel"><div class="ph"><h2>Resources</h2><span class="grow"></span>{{template "act" (act $ "resources" "" "sm" "vm" $v.Name)}}</div><div class="pb">
     <dl class="kv"><dt>CPUs</dt><dd>{{$v.CPUs}}</dd><dt>Memory</dt><dd>{{size $v.Memory}}</dd>
-    <dt>Root disk</dt><dd>{{size $v.RootDisk}} <span class="faint">overlay of the base image, thrown away on upgrade</span></dd>
-    <dt>Data disk</dt><dd>{{size $v.DataDisk}} at /home/agent{{with stat $v "data"}}, {{pct .}} used{{end}} <span class="faint">gateway state, secrets, images, workspaces</span></dd></dl>
+    <dt>{{term "root-disk" "Root disk"}}</dt><dd>{{size $v.RootDisk}} <span class="faint">overlay of the base image, thrown away on upgrade</span></dd>
+    <dt>{{term "data-disk" "Data disk"}}</dt><dd>{{size $v.DataDisk}} at /home/agent{{with stat $v "data"}}, {{pct .}} used{{end}} <span class="faint">gateway state, secrets, images, workspaces</span></dd></dl>
     <p class="note">Change them with brig update {{$v.Name}}; CPU, memory and disk changes apply at the next boot.</p></div></section>
   <section class="panel"><div class="ph"><h2>Image and gateway</h2></div><div class="pb">
-    <dl class="kv"><dt>Base image</dt><dd class="mono">{{$v.Image}}{{if older .Snap $v}} <span class="pill info">{{.Snap.NewestImage.ID}} available</span>{{else if .Snap.NewestImage}} <span class="pill ok">newest</span>{{end}}</dd>
-    <dt>Gateway</dt><dd class="mono">{{$v.GatewayName}}{{with $v.OpenShell}} · OpenShell {{.}}{{end}}</dd>
+    <dl class="kv"><dt>{{term "base-image" "Base image"}}</dt><dd class="mono">{{$v.Image}}{{if older .Snap $v}} <span class="pill info">{{.Snap.NewestImage.ID}} available</span>{{else if .Snap.NewestImage}} <span class="pill ok">newest</span>{{end}}</dd>
+    <dt>{{term "gateway" "Gateway"}}</dt><dd class="mono">{{$v.GatewayName}}{{with $v.OpenShell}} · OpenShell {{.}}{{end}}</dd>
     <dt>Host ports</dt><dd class="mono">ssh 127.0.0.1:{{$v.Ports.SSH}} · gateway 127.0.0.1:{{$v.Ports.Gateway}}</dd>
     <dt>libvirt</dt><dd class="mono">qemu:///session · {{$v.DomainName}}</dd><dt>Created</dt><dd>{{rel $v.CreatedAt}}</dd></dl></div></section>
 </div>
 {{end}}
 
 {{define "vm-mounts"}}{{$v := .VM}}
-<section class="panel"><div class="ph"><h2>Host directories</h2><span class="faint small">virtiofs. brig update {{$v.Name}} --add-mount changes them on a running VM at once.</span><span class="grow"></span>{{template "act" (act $ "mount-add" "" "sm" "vm" $v.Name)}}</div>
-<div class="tw"><table><thead><tr><th>Host</th><th>In the VM</th><th>Access</th><th>Sandbox volume</th><th></th></tr></thead><tbody>
+<section class="panel"><div class="ph"><h2>{{term "mount" "Host directories"}}</h2><span class="faint small">virtiofs. brig update {{$v.Name}} --add-mount changes them on a running VM at once.</span><span class="grow"></span>{{template "act" (act $ "mount-add" "" "sm" "vm" $v.Name)}}</div>
+<div class="tw"><table><thead><tr><th>Host</th><th>In the VM</th><th>Access</th><th>{{term "sandbox-volume" "Sandbox volume"}}</th><th></th></tr></thead><tbody>
 {{range $v.Mounts}}<tr><td class="mono">{{tilde .Source}}</td><td class="mono">{{.Target}}</td><td>{{if .ReadOnly}}<span class="chip">ro</span>{{else}}<span class="chip acc">rw</span>{{end}}</td><td>{{if .Sandbox}}<span class="chip">{{.Tag}}</span>{{else}}<span class="faint">–</span>{{end}}</td><td class="act">{{template "act" (act $ "mount-rm" "" "sm ghost" "vm" $v.Name "target" .Target)}}</td></tr>
 {{else}}<tr><td colspan="5" class="empty">No host directories are shared with this VM.</td></tr>{{end}}
 </tbody></table></div></section>
@@ -171,16 +169,16 @@
 {{end}}
 
 {{define "vm-openshell"}}{{$v := .VM}}
-<section class="panel"><div class="ph"><h2>Config directories</h2><span class="grow"></span>{{template "act" (act $ "config-add" "" "sm" "vm" $v.Name)}}</div><div class="pb stack">
+<section class="panel"><div class="ph"><h2>{{term "config-dir" "Config directories"}}</h2><span class="grow"></span>{{template "act" (act $ "config-add" "" "sm" "vm" $v.Name)}}</div><div class="pb stack">
   {{range $v.OpenShellConfigs}}<div class="dirrow"><span class="mono">{{tilde .}}</span>{{template "act" (act $ "config-rm" "" "sm ghost" "vm" $v.Name "dir" .)}}</div>{{else}}<p class="muted">None. Providers on this gateway were created by hand, if any.</p>{{end}}
-  {{with $v.LastSync}}{{if .Error}}<div class="callout bad"><b>The last sync, {{rel .Time}}, failed.</b><br>{{.Error}}</div>{{else}}<div><span class="pill ok"><span class="dot"></span>synced {{rel .Time}}</span></div>{{end}}{{else}}{{if $v.OpenShellConfigs}}<div><span class="pill">never synced</span></div>{{end}}{{end}}
+  {{with $v.LastSync}}{{if .Error}}<div class="callout bad"><b>The last sync, {{rel .Time}}, failed.</b><br>{{.Error}}</div>{{else}}<div><span class="pill ok"><span class="dot"></span>{{term "config-sync" "synced"}} {{rel .Time}}</span></div>{{end}}{{else}}{{if $v.OpenShellConfigs}}<div><span class="pill">never synced</span></div>{{end}}{{end}}
   {{if $v.OpenShellConfigs}}<div class="actions">{{template "act" (act $ "sync-preview" "" "" "vm" $v.Name)}}{{template "act" (act $ "sync" "" "primary" "vm" $v.Name)}}</div>{{end}}
 </div></section>
 {{end}}
 
 {{define "vm-network"}}{{$v := .VM}}{{$p := profile .Snap $v.NetworkProfile}}
 <div class="grid g2">
-  <section class="panel"><div class="ph"><h2>Network profile <span class="chip acc">{{$v.NetworkProfile}}</span></h2><span class="grow"></span>{{template "act" (act $ "profile" "" "sm" "vm" $v.Name)}}</div>
+  <section class="panel"><div class="ph"><h2>{{term "fence-2" "Network profile"}} <span class="chip acc">{{$v.NetworkProfile}}</span></h2><span class="grow"></span>{{template "act" (act $ "profile" "" "sm" "vm" $v.Name)}}</div>
   {{if $p}}<table><tbody>
     {{template "netrow" (netrow $p.Internet "Internet" "public addresses, DNS from the host")}}
     {{template "netrow" (netrow $p.LAN "LAN" "private ranges, VPN intranets, host networks")}}
@@ -188,8 +186,8 @@
     {{template "netrow" (netrow $p.IPv6 "IPv6" "")}}
   </tbody></table>{{else}}<div class="pb"><div class="callout warn">config.yaml has no profile {{$v.NetworkProfile}}; brig start {{$v.Name}} will fail until it does.</div></div>{{end}}</section>
   <section class="panel"><div class="ph"><h2>Two fences</h2></div><div class="pb fences">
-    <div><span class="fence f1">fence 1</span> each sandbox's OpenShell policy, per host, binary, method and path. It reloads at once.</div>
-    <div><span class="fence f2">fence 2</span> this profile, enforced by nftables on the host, outside the VM. Root in the VM cannot lift it. Changes apply at the next boot.</div>
+    <div><span class="fence f1">{{term "fence-1" "fence 1"}}</span> each sandbox's OpenShell policy, per host, binary, method and path. It reloads at once.</div>
+    <div><span class="fence f2">{{term "fence-2" "fence 2"}}</span> this profile, enforced by nftables on the host, outside the VM. Root in the VM cannot lift it. Changes apply at the next boot.</div>
     <div class="muted">A request leaves only if both allow it.</div></div></section>
 </div>
 {{end}}

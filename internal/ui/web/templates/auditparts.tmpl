@@ -10,7 +10,7 @@
      its history takes. */}}
 
 {{define "host-audit"}}{{$a := .Snap.Audit}}
-<section class="panel"><div class="ph"><h2>Audit trail</h2><span class="faint small">Each VM's requests, policy changes and commands{{with $a.Dir}}, kept in <span class="mono">{{tilde .}}</span>{{end}}</span></div>
+<section class="panel"><div class="ph"><h2>{{term "audit-trail" "Audit trail"}}</h2><span class="faint small">Each VM's requests, policy changes and commands{{with $a.Dir}}, kept in <span class="mono">{{tilde .}}</span>{{end}}</span></div>
 {{if not $a.Read}}<div class="pb faint">Reading the audit trail…</div>
 {{else if not $a.VMs}}<div class="empty">No VM has an audit history yet. brig start runs a collector for each VM it starts.</div>
 {{else}}<div class="tw"><table><thead><tr><th>VM</th><th>Collector</th><th>Last event</th><th class="num" title="Times in the last 24 hours that requests may have gone unrecorded">Gaps 24h</th><th class="num">Records</th><th class="num">Size</th><th>Oldest</th><th></th></tr></thead><tbody>

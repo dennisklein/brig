@@ -43,7 +43,7 @@ func TestWorkspaceBadges(t *testing.T) {
 		"/sandboxes/review/default/pr-review": "default", "/sandboxes/dev/default/webapp": "default", "/sandboxes/dev/team/webapp": "team",
 	} {
 		body := ts.get(target).Body.String()
-		if !strings.Contains(body, `workspace <span class="chip">`+ws+`</span>`) || !strings.Contains(body, "--workspace "+ws+" sandbox connect webapp") && ws != "default" {
+		if !strings.Contains(body, `>workspace</span> <span class="chip">`+ws+`</span>`) || !strings.Contains(body, "--workspace "+ws+" sandbox connect webapp") && ws != "default" {
 			t.Errorf("%s does not name its workspace %s", target, ws)
 		}
 	}

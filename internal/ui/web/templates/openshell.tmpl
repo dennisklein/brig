@@ -21,7 +21,7 @@
 {{/* Sandboxes. */}}
 
 {{define "sandbox-table"}}
-<table><thead><tr><th>Sandbox</th><th>VM</th><th>State</th><th>Image</th><th>Providers</th><th class="num">Policy</th></tr></thead><tbody>
+<table><thead><tr><th>Sandbox</th><th>VM</th><th>State</th><th>Image</th><th>{{term "provider" "Providers"}}</th><th class="num">{{term "policies" "Policy"}}</th></tr></thead><tbody>
 {{range sandboxRows .Snap .Filter .WSFilter}}<tr class="click" data-href="{{sandboxURL .VM .Workspace .Name}}">
   <td><a class="rowlink" href="{{sandboxURL .VM .Workspace .Name}}">{{.Name}}</a>{{if .Gateway.MultiWorkspace}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{end}}</td>
   <td class="mono">{{.VM}}{{if ne .Gateway.State "ready"}} <span class="faint">{{.Gateway.State}}</span>{{end}}</td>
@@ -42,7 +42,7 @@
 {{else}}
 <div class="crumbs"><a href="/sandboxes">Sandboxes</a><span>/</span><a href="/vms/{{$g.VM}}">{{$g.VM}}</a><span>/</span><a href="{{sandboxesURL $g.VM $s.Workspace}}">{{$s.Workspace}}</a><span>/</span><span>{{$s.Name}}</span></div>
 <div class="head"><div class="titles"><h1>{{$s.Name}}</h1>
-  <div class="sub">{{template "phase" $s.Phase}}<span>on <a href="/gateways/{{$g.VM}}">{{$g.Name}}</a></span><span>workspace <span class="chip">{{$s.Workspace}}</span></span>{{with $s.Image}}<span class="mono">{{.}}</span>{{end}}{{if not $s.Created.IsZero}}<span>created {{rel $s.Created}}</span>{{end}}</div></div>
+  <div class="sub">{{template "phase" $s.Phase}}<span>on <a href="/gateways/{{$g.VM}}">{{$g.Name}}</a></span><span>{{term "workspace" "workspace"}} <span class="chip">{{$s.Workspace}}</span></span>{{with $s.Image}}<span class="mono">{{.}}</span>{{end}}{{if not $s.Created.IsZero}}<span>created {{rel $s.Created}}</span>{{end}}</div></div>
   <div class="actions">
     <button type="button" class="btn{{if $s.Ready}} primary{{end}}" hx-get="/terminal?vm={{$g.VM}}&amp;workspace={{$s.Workspace}}&amp;sandbox={{$s.Name}}" hx-target="#layer" hx-swap="innerHTML">Connect…</button>
     {{if or (eq $s.Phase "Stopped") (eq $s.Phase "Error")}}{{template "act" (act $ "sandbox-start" "" "primary" "vm" $g.VM "workspace" $s.Workspace "sandbox" $s.Name)}}{{else if ne $s.Phase "Deleting"}}{{template "act" (act $ "sandbox-stop" "" "" "vm" $g.VM "workspace" $s.Workspace "sandbox" $s.Name)}}{{end}}
@@ -61,7 +61,7 @@
 
 {{define "sandbox-overview"}}{{$g := .Gateway}}{{$s := .Sandbox}}
 <div class="grid g2">
-  <section class="panel"><div class="ph"><h2>Providers</h2><span class="faint small">The agent sees placeholders.</span><span class="grow"></span>{{template "act" (act $ "sandbox-attach" "" "sm" "vm" $g.VM "workspace" $s.Workspace "sandbox" $s.Name)}}</div>
+  <section class="panel"><div class="ph"><h2>{{term "provider" "Providers"}}</h2><span class="faint small">The agent sees {{term "placeholder" "placeholders"}}.</span><span class="grow"></span>{{template "act" (act $ "sandbox-attach" "" "sm" "vm" $g.VM "workspace" $s.Workspace "sandbox" $s.Name)}}</div>
   <div class="tw"><table><tbody>
   {{range $s.Providers}}{{$p := providerOf $g $s.Workspace .}}<tr><td class="strong">{{.}}</td>
     <td class="mono small">{{with $p}}{{range .Credentials}}{{.}}<br>{{end}}{{else}}<span class="faint">not on the gateway</span>{{end}}</td>
@@ -71,9 +71,9 @@
   </tbody></table></div></section>
   <section class="panel"><div class="ph"><h2>Setup</h2></div><div class="pb">
     <dl class="kv">
-      <dt>Template</dt><dd class="mono">{{with $s.Template}}{{.}}{{else}}<span class="faint">none</span>{{end}}</dd>
+      <dt>{{term "template" "Template"}}</dt><dd class="mono">{{with $s.Template}}{{.}}{{else}}<span class="faint">none</span>{{end}}</dd>
       <dt>Image</dt><dd class="mono">{{$s.Image}}</dd>
-      <dt>Policy</dt><dd>{{with $s.Policy}}{{if .Global}}the gateway's global policy, {{end}}version {{.Version}}{{if .ProviderRules}}, with {{len .ProviderRules}} provider rule{{if ne (len .ProviderRules) 1}}s{{end}}{{end}} · <a href="{{sandboxTabURL $g.VM $s.Workspace $s.Name "policy"}}">show</a>{{else}}<span class="faint">not read yet</span>{{end}}</dd>
+      <dt>{{term "policies" "Policy"}}</dt><dd>{{with $s.Policy}}{{if .Global}}the gateway's global policy, {{end}}version {{.Version}}{{if .ProviderRules}}, with {{len .ProviderRules}} provider rule{{if ne (len .ProviderRules) 1}}s{{end}}{{end}} · <a href="{{sandboxTabURL $g.VM $s.Workspace $s.Name "policy"}}">show</a>{{else}}<span class="faint">not read yet</span>{{end}}</dd>
       <dt>Workspace</dt><dd class="mono">{{$s.Workspace}}</dd>
       <dt>Directory</dt><dd class="mono">/sandbox <span class="faint">kept across stop and start</span></dd>
     </dl></div></section>
@@ -89,11 +89,11 @@
 {{else if $p.Err}}<div class="callout bad">brig ui cannot show this sandbox's policy: {{$p.Err}}</div>
 {{else}}
 <div class="grid g2">
-  <section class="panel"><div class="ph"><h2>Base</h2><span class="faint small">the policy the sandbox was created with, and rules added since</span></div><div class="pb stack">
+  <section class="panel"><div class="ph"><h2>{{term "base-policy" "Base"}}</h2><span class="faint small">the policy the sandbox was created with, and rules added since</span></div><div class="pb stack">
     {{template "policy-code" (policyLines $p.Base nil nil)}}
     {{template "cmd" (cmd "" (oscmd $g.VM $s.Workspace "policy" "get" $s.Name "--base"))}}
   </div></section>
-  <section class="panel"><div class="ph"><h2>Effective</h2><span class="faint small">base and the rules of attached providers</span></div><div class="pb stack">
+  <section class="panel"><div class="ph"><h2>{{term "effective-policy" "Effective"}}</h2><span class="faint small">base and the rules of attached providers</span></div><div class="pb stack">
     {{template "policy-code" (policyLines $p.Effective $p.ProviderRules $s.Providers)}}
     {{template "cmd" (cmd "" (oscmd $g.VM $s.Workspace "policy" "get" $s.Name "--full"))}}
   </div></section>
@@ -157,7 +157,7 @@
 {{end}}{{end}}
 
 {{define "gateway-providers"}}{{$g := .Gateway}}{{$v := .VM}}
-<section class="panel tw"><table><thead><tr><th>Provider</th><th>Profile</th><th>Credentials</th><th>Source</th><th>Attached to</th></tr></thead><tbody>
+<section class="panel tw"><table><thead><tr><th>{{term "provider" "Provider"}}</th><th>{{term "provider-profile" "Profile"}}</th><th>Credentials</th><th>{{term "config-dir" "Source"}}</th><th>Attached to</th></tr></thead><tbody>
 {{range providerGroups $g}}{{$ws := .Workspace}}{{if .Heading}}<tr class="grouprow"><th colspan="5">Workspace <span class="mono">{{$ws}}</span></th></tr>{{end}}
 {{range .Rows}}<tr>
   <td class="strong">{{.Name}}</td>
@@ -193,7 +193,7 @@
 {{end}}
 
 {{define "gateway-policies"}}{{$g := .Gateway}}{{$c := $g.Config}}
-<section class="panel"><div class="ph"><h2>Default sandbox policy</h2><span class="faint mono small">{{with $c.DefaultPolicy}}{{tilde .}}{{end}}</span>{{if $c.DefaultPolicy}}<span class="grow"></span><span class="chip acc">OPENSHELL_SANDBOX_POLICY</span>{{end}}</div><div class="pb">
+<section class="panel"><div class="ph"><h2>{{term "policies" "Default sandbox policy"}}</h2><span class="faint mono small">{{with $c.DefaultPolicy}}{{tilde .}}{{end}}</span>{{if $c.DefaultPolicy}}<span class="grow"></span><span class="chip acc">OPENSHELL_SANDBOX_POLICY</span>{{end}}</div><div class="pb">
 {{if $c.DefaultPolicy}}{{template "policy-code" (policyLines $c.DefaultPolicyText nil nil)}}
 <p class="note">brig use {{$g.VM}} and brig sandbox create export it, so that openshell sandbox create picks it up.</p>
 {{else}}<p class="muted">{{if $c.Dirs}}The config directories have no policies/default.yaml.{{else}}{{$g.VM}} has no OpenShell config directories.{{end}} New sandboxes get the policy in their image, or OpenShell's built-in default.</p>{{end}}
@@ -207,7 +207,7 @@
 {{end}}
 
 {{define "gateway-templates"}}{{$g := .Gateway}}
-<section class="panel tw"><table><thead><tr><th>Template</th><th>Image</th><th>Resources</th><th>Sandboxes</th></tr></thead><tbody>
+<section class="panel tw"><table><thead><tr><th>{{term "template" "Template"}}</th><th>Image</th><th>Resources</th><th>Sandboxes</th></tr></thead><tbody>
 {{range templateGroups $g}}{{$ws := .Workspace}}{{if .Heading}}<tr class="grouprow"><th colspan="4">Workspace <span class="mono">{{$ws}}</span></th></tr>{{end}}
 {{range .Rows}}<tr><td class="strong">{{.Name}}</td><td class="mono">{{.Image}}</td><td class="mono small">{{with .CPU}}{{.}} CPU{{end}}{{if and .CPU .Memory}} · {{end}}{{.Memory}}</td>
   <td>{{range $i, $s := .Sandboxes}}{{if $i}}, {{end}}<a href="{{sandboxURL $g.VM $ws $s}}">{{$s}}</a>{{else}}<span class="faint">–</span>{{end}}</td></tr>
