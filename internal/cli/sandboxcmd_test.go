@@ -38,7 +38,7 @@ func TestSandboxCreateUsesTheVMsSandboxMount(t *testing.T) {
 	want := []string{
 		"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create", "--driver-config-json",
 		`{"podman":{"mounts":[{"type":"volume","source":"brig1","target":"/usr/local/share/kit"}]}}`,
-		"--name", "kit", "--", "pi", "-g",
+		"--no-auto-providers", "--name", "kit", "--", "pi", "-g",
 	}
 	if !slices.Equal(*got, want) {
 		t.Errorf("exec %q\nwant %q", *got, want)
@@ -60,7 +60,7 @@ func TestSandboxCreateTakesTheVMFromTheEnvironment(t *testing.T) {
 	if out, err := run(t, "sandbox", "create"); err != nil {
 		t.Fatalf("brig sandbox create: %v: %s", err, out)
 	}
-	if want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create"}; !slices.Equal(*got, want) {
+	if want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create", "--no-auto-providers"}; !slices.Equal(*got, want) {
 		t.Errorf("exec %q, want %q", *got, want)
 	}
 	t.Setenv("OPENSHELL_GATEWAY", "other")
@@ -80,9 +80,33 @@ func TestSandboxCreateInAWorkspace(t *testing.T) {
 	if out, err := run(t, "sandbox", "create", "dev", "--workspace", "team", "--", "--name", "kit", "--", "x", "--workspace", "y"); err != nil {
 		t.Fatalf("brig sandbox create: %v: %s", err, out)
 	}
-	want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "team", "sandbox", "create", "--name", "kit", "--", "x", "--workspace", "y"}
+	want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "team", "sandbox", "create", "--no-auto-providers", "--name", "kit", "--", "x", "--workspace", "y"}
 	if !slices.Equal(*got, want) {
 		t.Errorf("exec %q\nwant %q", *got, want)
+	}
+}
+
+func TestSandboxCreateAttachesOnlyTheProvidersNamed(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	for _, tc := range []struct {
+		pass []string
+		want []string
+	}{
+		// What brig ui runs: no second --no-auto-providers.
+		{[]string{"--name", "kit", "--provider", "llm", "--detach", "--no-auto-providers"}, []string{"--name", "kit", "--provider", "llm", "--detach", "--no-auto-providers"}},
+		{[]string{"--auto-providers", "--provider", "github"}, []string{"--auto-providers", "--provider", "github"}},
+		// The sandbox's command may take the flag for itself.
+		{[]string{"--name", "kit", "--", "x", "--auto-providers"}, []string{"--no-auto-providers", "--name", "kit", "--", "x", "--auto-providers"}},
+	} {
+		got := captureExec(t)
+		if out, err := run(t, append([]string{"sandbox", "create", "dev", "--"}, tc.pass...)...); err != nil {
+			t.Fatalf("brig sandbox create: %v: %s", err, out)
+		}
+		want := append([]string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create"}, tc.want...)
+		if !slices.Equal(*got, want) {
+			t.Errorf("exec %q\nwant %q", *got, want)
+		}
 	}
 }
 

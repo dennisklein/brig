@@ -51,7 +51,13 @@ A sandbox sees DIR through a read-only sandbox mount of the VM (see brig
 create --help). brig uses the VM's sandbox mount of DIR, or adds one to the
 running VM, at /mnt/<tag> in the VM, which stays until brig update
 --remove-mount removes it. As brig env does, it points openshell at the VM's
-default sandbox policy, if it has one.`,
+default sandbox policy, if it has one.
+
+The sandbox gets the providers that --provider names after --, and no
+others: as brig ui does, brig passes --no-auto-providers, so that a provider
+the gateway lacks is an error rather than one that openshell creates from
+credentials it finds on the host. Give --auto-providers after -- for
+openshell's own behaviour.`,
 		Example: `  brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit -- \
     --name kit-dev --from localhost/pi-agent:2026-10-08 --provider llm
   brig use dev && brig sandbox create -m ~/notes:/usr/local/share/notes`,
@@ -108,6 +114,9 @@ default sandbox policy, if it has one.`,
 			if config != "" {
 				argv = append(argv, "--driver-config-json", config)
 			}
+			if !choosesProviders(pass) {
+				argv = append(argv, "--no-auto-providers")
+			}
 			return execve("openshell", append(argv, pass...))
 		},
 	}
@@ -123,6 +132,20 @@ func vmArgs(cmd *cobra.Command, args []string) []string {
 		return args[:dash]
 	}
 	return args
+}
+
+// choosesProviders reports whether the openshell options args say whether
+// openshell may create missing providers.
+func choosesProviders(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--":
+			return false
+		case "--auto-providers", "--no-auto-providers":
+			return true
+		}
+	}
+	return false
 }
 
 // checkSandboxArgs rejects openshell options that brig sets itself. Options
