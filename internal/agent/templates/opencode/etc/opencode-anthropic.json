@@ -1,0 +1,6 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled"{{if .Model}},
+  "model": "anthropic/{{.Model}}"{{end}}
+}

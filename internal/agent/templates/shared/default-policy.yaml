@@ -1,0 +1,8 @@
+# policies/default.yaml
+version: 1
+filesystem_policy:
+  include_workdir: true          # /sandbox
+  read_only: [/bin, /usr, /lib, /etc, /proc, /dev/urandom, /var/log]
+  read_write: [/tmp, /dev/null]
+landlock:
+  compatibility: best_effort

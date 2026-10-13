@@ -1,0 +1,35 @@
+# Containerfile
+FROM registry.fedoraproject.org/fedora-minimal:44
+
+ARG OPENCODE_VERSION={{.Version}}
+RUN dnf -y install --setopt=install_weak_deps=False \
+      findutils gh git-core jq nodejs24 nodejs24-bin nodejs24-npm-bin ripgrep tar \
+ && dnf clean all \
+ && useradd --create-home --uid 1000 opencode
+# opencode's npm package starts a platform binary from node_modules. Keep only
+# that binary, at the path the profile admits, and no node_modules.
+RUN set -e; \
+    npm install -g --prefix /tmp/oc --ignore-scripts "opencode-ai@${OPENCODE_VERSION}"; \
+    arch="$(uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')"; \
+    bin="$(find /tmp/oc -type f -path "*/opencode-linux-${arch}/bin/opencode" | head -n 1)"; \
+    [ -n "$bin" ] || { echo "opencode-ai ${OPENCODE_VERSION} has no opencode-linux-${arch} binary" >&2; exit 1; }; \
+    install -m 755 "$bin" /usr/local/bin/opencode; \
+    rm -rf /tmp/oc /root/.npm
+
+COPY --chmod=644 etc/opencode.json /etc/opencode/opencode.json
+COPY etc/AGENTS.md /usr/local/etc/opencode/AGENTS.md
+COPY --chmod=755 opencode-sandbox /usr/local/bin/opencode-sandbox
+
+RUN git config --system credential.https://github.com.helper \
+      '!/usr/bin/gh auth git-credential'
+
+USER opencode
+WORKDIR /sandbox
+ENV XDG_CONFIG_HOME=/sandbox/.config \
+    XDG_DATA_HOME=/sandbox/.local/share \
+    XDG_CACHE_HOME=/sandbox/.cache \
+    XDG_STATE_HOME=/sandbox/.local/state \
+    GH_CONFIG_DIR=/sandbox/.config/gh \
+    GIT_CONFIG_GLOBAL=/sandbox/.gitconfig \
+    OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_LSP_DOWNLOAD=1 \
+    OPENCODE_DISABLE_MODELS_FETCH=1

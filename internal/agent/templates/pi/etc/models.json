@@ -1,0 +1,10 @@
+{
+  "providers": {
+    "llm": {
+      "baseUrl": "{{.EndpointURL}}",
+      "api": "openai-completions",
+      "apiKey": "$LLM_API_KEY",
+      "models": [{ "id": "{{.Model}}" }]
+    }
+  }
+}

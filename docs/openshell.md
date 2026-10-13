@@ -319,11 +319,12 @@ pi-image/
   etc/settings.json           # Pi settings for a fresh sandbox
   etc/models.json             # your model endpoint, see Model endpoint
   etc/AGENTS.md               # your standing instructions
-  pi-kit/                     # your Pi package
+  pi-kit/                     # optional: your Pi package, see the Containerfile
     package.json
     extensions/  skills/  prompts/  themes/
 ```
 
+<!-- agent-file: pi agents/pi/Containerfile -->
 ```dockerfile
 # Containerfile
 FROM registry.fedoraproject.org/fedora-minimal:44
@@ -341,12 +342,17 @@ ENV NPM_CONFIG_PREFIX=/usr/local
 
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
 # Third-party Pi packages, pinned. --legacy-peer-deps keeps npm from
-# installing a second copy of Pi, which Pi's packages must not bundle.
-RUN npm install -g --ignore-scripts --legacy-peer-deps @example/pi-tools@1.0.0
+# installing a second copy of Pi, which Pi's packages must not bundle. List
+# each in "packages" in etc/settings.json by its path under
+# /usr/local/lib/node_modules.
+# RUN npm install -g --ignore-scripts --legacy-peer-deps @example/pi-tools@1.0.0
 
-COPY pi-kit/ /usr/local/share/pi-kit/
-RUN cd /usr/local/share/pi-kit \
- && npm install --omit=dev --ignore-scripts --legacy-peer-deps
+# Your own Pi package (extensions, skills, prompts, themes): create pi-kit/
+# next to this file, list /usr/local/share/pi-kit in "packages" in
+# etc/settings.json and uncomment these lines.
+# COPY pi-kit/ /usr/local/share/pi-kit/
+# RUN cd /usr/local/share/pi-kit \
+#  && npm install --omit=dev --ignore-scripts --legacy-peer-deps
 COPY etc/ /usr/local/etc/pi/
 COPY --chmod=755 pi-sandbox /usr/local/bin/pi-sandbox
 
@@ -376,6 +382,7 @@ once, at creation, and image updates never reach them again.
 The start script copies Pi's settings into a fresh sandbox (copied, not
 linked, because Pi writes to them) and links what the image keeps managing:
 
+<!-- agent-file: pi agents/pi/pi-sandbox -->
 ```sh
 #!/bin/sh
 # pi-sandbox: start Pi with this image's settings, extensions and skills
@@ -389,14 +396,14 @@ exec pi "$@"
 ```
 
 `etc/settings.json` lists packages by absolute path, so they load in place and
-a newer image brings new code:
+a newer image brings new code. It starts empty: add `/usr/local/share/pi-kit`
+for your own package, and the path under `/usr/local/lib/node_modules` of each
+third-party one.
 
+<!-- agent-file: pi agents/pi/etc/settings.json -->
 ```json
 {
-  "packages": [
-    "/usr/local/share/pi-kit",
-    "/usr/local/lib/node_modules/@example/pi-tools"
-  ],
+  "packages": [],
   "defaultProvider": "llm",
   "defaultModel": "your-model-id"
 }
@@ -418,6 +425,7 @@ and Groq, and self-hosted servers such as vLLM, LiteLLM and Ollama. One profile,
 one provider and one `models.json` entry connect it. The profile is your own,
 in the shared directory:
 
+<!-- agent-file: pi profiles/llm.yaml -->
 ```yaml
 # profiles/llm.yaml
 id: llm
@@ -435,18 +443,20 @@ credentials:
 discovery:
   credentials: [api_key]
 endpoints:
-  - host: llm.example.com         # the host in baseUrl below
+  - host: llm.example.com         # the host in baseUrl
     port: 443
     protocol: rest
     access: read-write
     enforcement: enforce
-binaries: [/usr/bin/node, /usr/bin/node-*]   # node by its real path, whichever it is
+# Pi's node by its real path, whichever it is, and opencode's own binary
+binaries: [/usr/bin/node, /usr/bin/node-*, /usr/local/bin/opencode]
 ```
 
 The provider file looks up `LLM_API_KEY` as `service llm.example.com`, like
 the GitHub one above. `etc/models.json` tells Pi where the endpoint is and
 which models it serves:
 
+<!-- agent-file: pi agents/pi/etc/models.json -->
 ```json
 {
   "providers": {
@@ -462,7 +472,7 @@ which models it serves:
 
 Pi sends the placeholder in `LLM_API_KEY` as a bearer token, and the proxy
 swaps in your key on requests to the profile's host. The profile admits only
-`node` there; a rule that lets other programs reach that host lets them use the
+`node` there (and opencode, which can share it); a rule that lets other programs reach that host lets them use the
 key too. To change endpoints, change the host in both files. A server on your
 LAN or on the host also needs its port in the profile and a [network
 profile](../README.md#configuration) for the VM that allows it, such as
@@ -554,6 +564,7 @@ claude-image/
   skills/                     # your skills, one directory each
 ```
 
+<!-- agent-file: claude agents/claude/Containerfile -->
 ```dockerfile
 # Containerfile
 FROM registry.fedoraproject.org/fedora-minimal:44
@@ -587,6 +598,7 @@ telemetry, error reports (on by default for subscriptions) and Claude Code's
 bundled ripgrep, in favour of the image's. The file must be readable by every
 user, or Claude Code silently ignores it:
 
+<!-- agent-file: claude agents/claude/managed-settings.json -->
 ```json
 {
   "env": {
@@ -600,6 +612,7 @@ user, or Claude Code silently ignores it:
 
 The start script links what the image keeps managing into the config dir:
 
+<!-- agent-file: claude agents/claude/claude-sandbox -->
 ```sh
 #!/bin/sh
 # claude-sandbox: start Claude Code with this image's instructions and skills
@@ -628,15 +641,21 @@ secret-tool store --label='Claude Code token (agents)' service claude.ai user al
 With the provider file below in place, `claude setup-token | brig secret set
 dev claude-code` stores and syncs it in one step.
 
-Copy OpenShell's
+Start from OpenShell's
 [`providers/claude-code.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.3/providers/claude-code.yaml)
-into `profiles/` and replace its API key with the subscription token. Keep
+and replace its API key with the subscription token, as below. Keep
 `api.anthropic.com`, and add `platform.claude.com` read-only: Claude Code's
 first-run setup checks it and exits when it cannot reach it. With the image's
 settings, Claude Code needs nothing else.
 
+<!-- agent-file: claude profiles/claude-code.yaml -->
 ```yaml
-# profiles/claude-code.yaml: credentials, endpoints and binaries changed
+# profiles/claude-code.yaml: after OpenShell's, with other credentials,
+# endpoints and binaries
+id: claude-code
+display_name: Claude Code
+description: Claude Code on a Claude subscription token from claude setup-token
+category: agent
 credentials:
   - name: oauth_token
     description: Claude subscription token from claude setup-token
@@ -702,6 +721,168 @@ The first start walks through Claude Code's setup screens once; the answers
 stay in `/sandbox/.claude`. `claude-sandbox --continue` resumes the last
 conversation in the current directory. Detaching, templates and the GitHub
 setup below work as for Pi.
+
+## opencode
+
+[opencode](https://opencode.ai) is an open-source coding agent that talks to
+most model providers. It cannot use a Claude subscription: Anthropic limits
+subscription tokens to Claude Code and claude.ai, and opencode dropped its
+subscription login. Point it at an OpenAI-compatible endpoint, as for Pi, or
+at Anthropic's API with an API key. The image follows the pattern of the two
+above: the program and its settings in the image, what opencode writes in
+`/sandbox`.
+
+| What | Where | Why |
+| --- | --- | --- |
+| opencode, git, gh, ripgrep | image, `/usr/local/bin` and `/usr/bin` | pinned at build time; opencode's own updates are off |
+| Updates, sharing and downloads off | image, `/etc/opencode/opencode.json` and the `OPENCODE_DISABLE_*` variables | opencode's managed config on Linux, which user and project config cannot override |
+| Your model endpoint and its models | the same managed file | a new image brings a new model list |
+| Your standing instructions | image, `/usr/local/etc/opencode/AGENTS.md` | linked into the config dir, so a new image brings new versions |
+| opencode's sessions and `auth.json` | `/sandbox/.local/share/opencode` via `XDG_DATA_HOME`, with the cache and state dirs under `/sandbox` too | writable and persistent |
+
+### The image
+
+```text
+opencode-image/
+  Containerfile
+  opencode-sandbox            # start script, below
+  etc/opencode.json           # managed config: endpoint, models, switches
+  etc/AGENTS.md               # your standing instructions
+```
+
+The npm package `opencode-ai` starts a platform binary that it keeps under
+`node_modules`. A sandbox policy admits programs by their real path, so the
+Containerfile installs the package into a scratch prefix, copies the one
+binary to `/usr/local/bin/opencode` and throws the rest away. The build fails
+if the package has no binary for the host's architecture.
+
+<!-- agent-file: opencode agents/opencode/Containerfile -->
+```dockerfile
+# Containerfile
+FROM registry.fedoraproject.org/fedora-minimal:44
+
+ARG OPENCODE_VERSION=1.19.0
+RUN dnf -y install --setopt=install_weak_deps=False \
+      findutils gh git-core jq nodejs24 nodejs24-bin nodejs24-npm-bin ripgrep tar \
+ && dnf clean all \
+ && useradd --create-home --uid 1000 opencode
+# opencode's npm package starts a platform binary from node_modules. Keep only
+# that binary, at the path the profile admits, and no node_modules.
+RUN set -e; \
+    npm install -g --prefix /tmp/oc --ignore-scripts "opencode-ai@${OPENCODE_VERSION}"; \
+    arch="$(uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')"; \
+    bin="$(find /tmp/oc -type f -path "*/opencode-linux-${arch}/bin/opencode" | head -n 1)"; \
+    [ -n "$bin" ] || { echo "opencode-ai ${OPENCODE_VERSION} has no opencode-linux-${arch} binary" >&2; exit 1; }; \
+    install -m 755 "$bin" /usr/local/bin/opencode; \
+    rm -rf /tmp/oc /root/.npm
+
+COPY --chmod=644 etc/opencode.json /etc/opencode/opencode.json
+COPY etc/AGENTS.md /usr/local/etc/opencode/AGENTS.md
+COPY --chmod=755 opencode-sandbox /usr/local/bin/opencode-sandbox
+
+RUN git config --system credential.https://github.com.helper \
+      '!/usr/bin/gh auth git-credential'
+
+USER opencode
+WORKDIR /sandbox
+ENV XDG_CONFIG_HOME=/sandbox/.config \
+    XDG_DATA_HOME=/sandbox/.local/share \
+    XDG_CACHE_HOME=/sandbox/.cache \
+    XDG_STATE_HOME=/sandbox/.local/state \
+    GH_CONFIG_DIR=/sandbox/.config/gh \
+    GIT_CONFIG_GLOBAL=/sandbox/.gitconfig \
+    OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_LSP_DOWNLOAD=1 \
+    OPENCODE_DISABLE_MODELS_FETCH=1
+```
+
+The managed config turns off updates and sharing, and names the model
+endpoint. `{env:LLM_API_KEY}` is filled in from the sandbox's environment,
+where the provider puts a placeholder; the proxy swaps in your key on requests
+to the profile's host. It is the Pi pair of `profiles/llm.yaml` and provider
+described [above](#model-endpoint), and Pi and opencode can share both:
+
+<!-- agent-file: opencode agents/opencode/etc/opencode.json -->
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "model": "llm/your-model-id",
+  "provider": {
+    "llm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LLM endpoint",
+      "options": {
+        "baseURL": "https://llm.example.com/v1",
+        "apiKey": "{env:LLM_API_KEY}"
+      },
+      "models": {
+        "your-model-id": { "name": "your-model-id" }
+      }
+    }
+  }
+}
+```
+
+For Anthropic's API, `brig agent init opencode --anthropic` writes a config
+without the `provider` block, since opencode knows Anthropic, and this profile
+in place of `llm.yaml`. Keep the API key in the keyring like any other secret
+(`brig secret set dev anthropic`):
+
+```yaml
+# profiles/anthropic.yaml: Anthropic's API with an API key, for opencode
+id: anthropic
+display_name: Anthropic API
+description: Anthropic's API with an API key; a subscription token only works in Claude Code
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: An Anthropic API key
+    env_vars: [ANTHROPIC_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+discovery:
+  credentials: [api_key]
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries: [/usr/local/bin/opencode]
+```
+
+The start script links the instructions into opencode's config dir, which is
+under `/sandbox`:
+
+<!-- agent-file: opencode agents/opencode/opencode-sandbox -->
+```sh
+#!/bin/sh
+# opencode-sandbox: start opencode with this image's instructions
+set -e
+mkdir -p "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME/opencode"
+ln -sf /usr/local/etc/opencode/AGENTS.md "$XDG_CONFIG_HOME/opencode/AGENTS.md"
+exec opencode "$@"
+```
+
+Build, push, start and detach as for the other two:
+
+```sh
+brig agent build dev opencode
+brig sandbox create dev --connect -- --name webapp-oc --template opencode \
+  --provider llm --provider github
+# in the sandbox
+git clone https://github.com/alice/webapp.git && cd webapp
+opencode-sandbox
+```
+
+Do not run `opencode auth login` in a sandbox: it would store a real key in
+`auth.json`. opencode talks to an OpenAI-compatible endpoint through the npm
+package `@ai-sdk/openai-compatible`. If a version fetches it on first use
+instead of bundling it, the sandbox denies the request, and the Containerfile
+has to install the package at build time.
 
 ## Giving agents GitHub and GitLab access
 

@@ -1,0 +1,25 @@
+# Containerfile
+FROM registry.fedoraproject.org/fedora-minimal:44
+
+ARG CLAUDE_VERSION={{.Version}}
+RUN dnf -y install --setopt=install_weak_deps=False gh git-core jq ripgrep tar \
+ && dnf clean all
+# The native installer installs into $HOME; keep only its single binary.
+RUN curl -fsSL https://claude.ai/install.sh | HOME=/tmp/claude bash -s "$CLAUDE_VERSION" \
+ && install -m 755 "$(readlink -f /tmp/claude/.local/bin/claude)" /usr/local/bin/claude \
+ && rm -rf /tmp/claude
+
+COPY --chmod=644 managed-settings.json /etc/claude-code/managed-settings.json
+COPY etc/ /usr/local/etc/claude/
+COPY skills/ /usr/local/share/claude-kit/skills/
+COPY --chmod=755 claude-sandbox /usr/local/bin/claude-sandbox
+
+RUN git config --system credential.https://github.com.helper \
+      '!/usr/bin/gh auth git-credential' \
+ && useradd --create-home --uid 1000 claude
+
+USER claude
+WORKDIR /sandbox
+ENV CLAUDE_CONFIG_DIR=/sandbox/.claude \
+    GH_CONFIG_DIR=/sandbox/.config/gh \
+    GIT_CONFIG_GLOBAL=/sandbox/.gitconfig
