@@ -1,0 +1,7 @@
+#!/bin/sh
+# claude-sandbox: start Claude Code with this image's instructions and skills
+set -e
+mkdir -p "$CLAUDE_CONFIG_DIR"
+ln -sf /usr/local/etc/claude/CLAUDE.md "$CLAUDE_CONFIG_DIR/CLAUDE.md"
+ln -sfn /usr/local/share/claude-kit/skills "$CLAUDE_CONFIG_DIR/skills"
+exec claude "$@"

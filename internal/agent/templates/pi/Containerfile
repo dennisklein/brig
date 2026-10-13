@@ -1,0 +1,39 @@
+# Containerfile
+FROM registry.fedoraproject.org/fedora-minimal:44
+
+ARG PI_VERSION={{.Version}}
+RUN dnf -y install --setopt=install_weak_deps=False \
+      fd-find gh git-core jq nodejs24 nodejs24-bin nodejs24-full-i18n \
+      nodejs24-npm-bin ripgrep tar \
+ && dnf clean all \
+ && useradd --create-home --uid 1000 pi
+# glab: add it to the list if your Fedora release packages it, or install the
+# .rpm from its releases page, at /usr/bin/glab
+# npm's global installs go to /usr/local, where the paths below expect them.
+ENV NPM_CONFIG_PREFIX=/usr/local
+
+RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
+# Third-party Pi packages, pinned. --legacy-peer-deps keeps npm from
+# installing a second copy of Pi, which Pi's packages must not bundle. List
+# each in "packages" in etc/settings.json by its path under
+# /usr/local/lib/node_modules.
+# RUN npm install -g --ignore-scripts --legacy-peer-deps @example/pi-tools@1.0.0
+
+# Your own Pi package (extensions, skills, prompts, themes): create pi-kit/
+# next to this file, list /usr/local/share/pi-kit in "packages" in
+# etc/settings.json and uncomment these lines.
+# COPY pi-kit/ /usr/local/share/pi-kit/
+# RUN cd /usr/local/share/pi-kit \
+#  && npm install --omit=dev --ignore-scripts --legacy-peer-deps
+COPY etc/ /usr/local/etc/pi/
+COPY --chmod=755 pi-sandbox /usr/local/bin/pi-sandbox
+
+RUN git config --system credential.https://github.com.helper \
+      '!/usr/bin/gh auth git-credential'
+
+USER pi
+WORKDIR /sandbox
+ENV PI_CODING_AGENT_DIR=/sandbox/.pi/agent \
+    GH_CONFIG_DIR=/sandbox/.config/gh \
+    GIT_CONFIG_GLOBAL=/sandbox/.gitconfig \
+    PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0

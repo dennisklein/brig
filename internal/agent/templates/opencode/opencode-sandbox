@@ -1,0 +1,6 @@
+#!/bin/sh
+# opencode-sandbox: start opencode with this image's instructions
+set -e
+mkdir -p "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME/opencode"
+ln -sf /usr/local/etc/opencode/AGENTS.md "$XDG_CONFIG_HOME/opencode/AGENTS.md"
+exec opencode "$@"
