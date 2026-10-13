@@ -945,6 +945,7 @@ and evaluates what it prints (see brig shell-init --help).`
 // shell returns the shell to write for, "sh" or "fish".
 func envCommand(use, short string, unset *bool, shell func() (string, error)) *cobra.Command {
 	optional := strings.HasSuffix(use, "[NAME]")
+	var workspace string
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
@@ -959,29 +960,53 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 		},
 		ValidArgsFunction: completeVMs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// What is printed to standard output is evaluated by the
-			// shell, so the answer goes to standard error.
-			if optional && !*unset && len(args) == 0 {
-				return showSelectedVM(cmd.ErrOrStderr())
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			if optional && !*unset && name == "" {
+				// What is printed to standard output is evaluated by the
+				// shell, so the answer goes to standard error.
+				if workspace == "" {
+					return showSelectedVM(cmd.ErrOrStderr())
+				}
+				// -w alone moves to a workspace of the VM already selected.
+				var err error
+				if name, err = selectedVM(); err != nil {
+					return err
+				}
+			}
+			if workspace != "" {
+				if err := openshell.CheckWorkspace(workspace); err != nil {
+					return err
+				}
 			}
 			sh, err := shell()
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			if *unset {
-				if sh == "fish" {
-					fmt.Fprintln(out, "set -e OPENSHELL_GATEWAY OPENSHELL_SANDBOX_POLICY")
-				} else {
-					fmt.Fprintln(out, "unset OPENSHELL_GATEWAY OPENSHELL_SANDBOX_POLICY")
+			set, unsetVars := func(key, value string) {
+				fmt.Fprintf(out, "export %s=%s\n", key, value)
+			}, func(keys ...string) {
+				fmt.Fprintf(out, "unset %s\n", strings.Join(keys, " "))
+			}
+			if sh == "fish" {
+				set, unsetVars = func(key, value string) {
+					fmt.Fprintf(out, "set -gx %s %s\n", key, value)
+				}, func(keys ...string) {
+					fmt.Fprintf(out, "set -e %s\n", strings.Join(keys, " "))
 				}
+			}
+			if *unset {
+				unsetVars(gatewayEnv, "OPENSHELL_SANDBOX_POLICY", workspaceEnv)
 				return nil
 			}
 			a, err := newApp()
 			if err != nil {
 				return err
 			}
-			v, err := a.vms.Load(args[0])
+			v, err := a.vms.Load(name)
 			if err != nil {
 				return err
 			}
@@ -992,26 +1017,29 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 			if err != nil {
 				return err
 			}
-			// Unset a default policy that another VM's environment exported.
-			if sh == "fish" {
-				fmt.Fprintf(out, "set -gx OPENSHELL_GATEWAY %s\n", v.GatewayName())
-				if policy == "" {
-					fmt.Fprintln(out, "set -e OPENSHELL_SANDBOX_POLICY")
-				} else {
-					fmt.Fprintf(out, "set -gx OPENSHELL_SANDBOX_POLICY %s\n", fishQuote(policy))
-				}
-				return nil
+			set(gatewayEnv, v.GatewayName())
+			// Unset what another VM's environment exported: a default
+			// policy, and a workspace, which belongs to one gateway.
+			switch {
+			case policy == "":
+				unsetVars("OPENSHELL_SANDBOX_POLICY")
+			case sh == "fish":
+				set("OPENSHELL_SANDBOX_POLICY", fishQuote(policy))
+			default:
+				set("OPENSHELL_SANDBOX_POLICY", shellQuote(policy))
 			}
-			fmt.Fprintf(out, "export OPENSHELL_GATEWAY=%s\n", v.GatewayName())
-			if policy == "" {
-				fmt.Fprintln(out, "unset OPENSHELL_SANDBOX_POLICY")
+			if workspace == "" {
+				unsetVars(workspaceEnv)
 			} else {
-				fmt.Fprintf(out, "export OPENSHELL_SANDBOX_POLICY=%s\n", shellQuote(policy))
+				set(workspaceEnv, workspace)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(unset, "unset", false, "unset the variables instead, without a NAME")
+	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "export "+workspaceEnv+", the workspace that brig commands work in by default (and, without NAME, keep the selected VM)")
+	cmd.MarkFlagsMutuallyExclusive("unset", "workspace")
+	_ = cmd.RegisterFlagCompletionFunc("workspace", completeWorkspaces)
 	return cmd
 }
 
@@ -1023,6 +1051,14 @@ func showSelectedVM(w io.Writer) error {
 	}
 	if err != nil {
 		return err
+	}
+	ws, err := envWorkspace()
+	if err != nil {
+		return err
+	}
+	if ws != "" {
+		fmt.Fprintf(w, "This shell points at VM %s, workspace %s.\n", termtext.Escape(name), ws)
+		return nil
 	}
 	fmt.Fprintf(w, "This shell points at VM %s.\n", termtext.Escape(name))
 	return nil

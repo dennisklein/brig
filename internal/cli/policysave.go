@@ -33,7 +33,7 @@ func newPolicySaveCmd() *cobra.Command {
 		workspace string
 	)
 	cmd := &cobra.Command{
-		Use:   "save [VM] SANDBOX [--workspace W] [--rule KEY]... [--to FILE]",
+		Use:   "save [VM] SANDBOX [-w W] [--rule KEY]... [--to FILE]",
 		Short: "Write rules added to a sandbox into its policy file",
 		Long: `Write the network rules that SANDBOX has and its policy file lacks, such as
 rules added with openshell policy update, into that file, so that sandboxes
@@ -72,8 +72,12 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 			if err != nil {
 				return err
 			}
+			ws, err := chosenWorkspace(workspace)
+			if err != nil {
+				return err
+			}
 			req := saveRequest{
-				workspace: workspace, sandbox: args[len(args)-1], keys: rules, to: to, dryRun: dryRun,
+				workspace: ws, sandbox: args[len(args)-1], keys: rules, to: to, dryRun: dryRun,
 				confirm: confirmer(cmd.InOrStdin(), cmd.ErrOrStderr(), yes),
 			}
 			return a.policySave(cmd.Context(), v, req, cmd.OutOrStdout(), cmd.ErrOrStderr())

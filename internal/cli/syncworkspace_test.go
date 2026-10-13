@@ -64,4 +64,17 @@ esac
 	if out, err := run(t, "sync", "dev", "-w", "nosuch"); err == nil || !strings.Contains(out+err.Error(), "workspace nosuch is not defined") {
 		t.Errorf("unknown workspace: %v\n%s", err, out)
 	}
+
+	// BRIG_WORKSPACE is the default of -w.
+	t.Setenv(workspaceEnv, "nosuch")
+	if out, err := run(t, "sync", "dev"); err == nil || !strings.Contains(out+err.Error(), "workspace nosuch is not defined") {
+		t.Errorf("sync in BRIG_WORKSPACE=nosuch: %v\n%s", err, out)
+	}
+	if out, err := run(t, "sync", "dev", "-w", "team"); err != nil {
+		t.Errorf("-w over BRIG_WORKSPACE: %v\n%s", err, out)
+	}
+	t.Setenv(workspaceEnv, "Not_Valid")
+	if _, err := run(t, "sync", "dev"); err == nil || !strings.Contains(err.Error(), workspaceEnv+": invalid workspace name") {
+		t.Errorf("sync in an invalid BRIG_WORKSPACE: %v", err)
+	}
 }

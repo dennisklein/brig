@@ -78,7 +78,7 @@ func newPolicyDiffCmd() *cobra.Command {
 		workspace string
 	)
 	cmd := &cobra.Command{
-		Use:   "diff [VM] SANDBOX [--workspace W]",
+		Use:   "diff [VM] SANDBOX [-w W]",
 		Short: "Show how a sandbox's network rules differ from its policy file",
 		Long: `Compare the base policy of SANDBOX (openshell policy get --base) with the
 policy file it came from, rule by rule. A rule is
@@ -117,7 +117,11 @@ brig cannot tell which file to compare with.`,
 			if remember && source == "" {
 				return errors.New("--remember needs --source")
 			}
-			rep, err := a.policyDiff(cmd.Context(), v, workspace, args[len(args)-1], source, remember, cmd.ErrOrStderr())
+			ws, err := chosenWorkspace(workspace)
+			if err != nil {
+				return err
+			}
+			rep, err := a.policyDiff(cmd.Context(), v, ws, args[len(args)-1], source, remember, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -276,11 +280,6 @@ func (e noPolicyFileError) Error() string {
 // policySourceKey is the key of a sandbox in policySourcesFile. Names have no
 // slash, so the key is unambiguous.
 func policySourceKey(workspace, sandbox string) string { return workspace + "/" + sandbox }
-
-// addWorkspaceFlag adds --workspace, for commands on one sandbox.
-func addWorkspaceFlag(cmd *cobra.Command, workspace *string) {
-	cmd.Flags().StringVar(workspace, "workspace", openshell.DefaultWorkspace, "the workspace of the sandbox")
-}
 
 func (a *app) recordedPolicySource(v *vm.VM, workspace, sandbox string) (string, error) {
 	data, err := os.ReadFile(a.vmFile(v, policySourcesFile))
