@@ -3,7 +3,9 @@
 
 // Package osclient reads an OpenShell gateway over gRPC, with the mTLS
 // client bundle that brig start keeps in the openshell CLI's configuration
-// directory. It only reads: every change goes through a command.
+// directory. It only reads, except for what brig sandbox run needs: running
+// a command in a sandbox and deleting one. Every other change goes through a
+// command.
 //
 // It uses the stubs that OpenShell generates for Go, pinned in go.mod to the
 // OpenShell release in StubsVersion. A gateway of another minor version may

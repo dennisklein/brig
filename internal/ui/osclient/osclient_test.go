@@ -48,6 +48,28 @@ type gateway struct {
 	watches []*pb.WatchSandboxRequest
 	// profileScopes are the workspaces ListProviderProfiles was asked for.
 	profileScopes []string
+	// deleted are the sandboxes it was asked to delete, as workspace/name.
+	deleted []string
+	// deleteBusy is how many deletions it refuses as pending first.
+	deleteBusy int
+}
+
+func (g *gateway) DeleteSandbox(_ context.Context, r *pb.DeleteSandboxRequest) (*pb.DeleteSandboxResponse, error) {
+	if err := checkScope(r.GetWorkspaceScope()); err != nil {
+		return nil, err
+	}
+	if !r.GetAllowMissing() {
+		return nil, status.Error(codes.NotFound, "sandbox not found")
+	}
+	g.mu.Lock()
+	if g.deleteBusy > 0 {
+		g.deleteBusy--
+		g.mu.Unlock()
+		return nil, status.Error(codes.FailedPrecondition, "previous driver operation is still pending; retry and deletion are blocked")
+	}
+	g.deleted = append(g.deleted, r.GetWorkspaceScope().GetWorkspace()+"/"+r.GetName())
+	g.mu.Unlock()
+	return &pb.DeleteSandboxResponse{}, nil
 }
 
 func page[T any](items []T, token string, size int) ([]T, string) {
@@ -143,7 +165,7 @@ func (g *gateway) ListSandboxes(_ context.Context, r *pb.ListSandboxesRequest) (
 					Spec:     &pb.SandboxSpec{Template: &pb.SandboxTemplate{Image: "localhost/claude-agent:2026-10-01"}, Providers: []string{"llm"}},
 					Status:   &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_STOPPED, CurrentPolicyVersion: 7},
 				},
-				&pb.Sandbox{Metadata: metaIn("team", "ci"), Status: &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_READY, CurrentPolicyVersion: 1}},
+				&pb.Sandbox{Metadata: &dm.ObjectMeta{Name: "ci", Workspace: "team", Labels: map[string]string{"brig.dev/run": "r1"}}, Status: &pb.SandboxStatus{Phase: pb.SandboxPhase_SANDBOX_PHASE_READY, CurrentPolicyVersion: 1}},
 			)
 		}
 	}
@@ -268,6 +290,11 @@ func (g *gateway) ExecSandbox(r *pb.ExecSandboxRequest, stream grpc.ServerStream
 		stdout("what\x00")
 		exit(0)
 	case "silent":
+	case "task":
+		stdout("out")
+		send(&pb.ExecSandboxEvent{Payload: &pb.ExecSandboxEvent_Stderr{Stderr: &pb.ExecSandboxStderr{Data: []byte("err")}}})
+		stdout("put")
+		exit(3)
 	case "huge":
 		var b strings.Builder
 		for i := range maxFiles + 5 {
@@ -416,7 +443,7 @@ func TestReads(t *testing.T) {
 			Workspace: "default", Name: "webapp", Phase: "Ready", Image: "localhost/pi-agent:2026-10-08", Template: "pi",
 			Providers: []string{"github", "llm"}, Created: created, PolicyVersion: 3,
 		},
-		{Workspace: "team", Name: "ci", Phase: "Ready", PolicyVersion: 1},
+		{Workspace: "team", Name: "ci", Phase: "Ready", Labels: map[string]string{"brig.dev/run": "r1"}, PolicyVersion: 1},
 		{
 			Workspace: "team", Name: "webapp", Phase: "Stopped", Image: "localhost/claude-agent:2026-10-01",
 			Providers: []string{"llm"}, PolicyVersion: 7,
@@ -659,5 +686,43 @@ func TestListDir(t *testing.T) {
 	}
 	if d, err := c.ListDir(ctx, "default", "huge", "/sandbox"); err != nil || len(d.Files) != maxFiles || !d.Truncated {
 		t.Errorf("huge: %d files, truncated %v, %v", len(d.Files), d.Truncated, err)
+	}
+}
+
+func TestExec(t *testing.T) {
+	c := serve(t, &gateway{})
+	ctx := context.Background()
+	var stdout, stderr strings.Builder
+	code, err := c.Exec(ctx, ExecRequest{
+		Workspace: "default", Sandbox: "task", Command: []string{"make", "test"}, Workdir: "task",
+		Env: map[string]string{"CI": "1"}, Timeout: 90 * time.Second, Stdin: []byte("in"),
+	}, &stdout, &stderr)
+	if err != nil || code != 3 || stdout.String() != "output" || stderr.String() != "err" {
+		t.Errorf("Exec = %d, %v; stdout %q, stderr %q", code, err, stdout.String(), stderr.String())
+	}
+	req := lastExec.Load()
+	if !reflect.DeepEqual(req.GetCommand(), []string{"make", "test"}) || req.GetWorkdir() != "task" || req.GetEnvironment()["CI"] != "1" ||
+		req.GetExecutionTimeout().AsDuration() != 90*time.Second || string(req.GetStdin()) != "in" || req.GetNoLoginShell() || req.GetTty() {
+		t.Errorf("request: %+v", req)
+	}
+	if _, err := c.Exec(ctx, ExecRequest{Workspace: "default", Sandbox: "silent", Command: []string{"true"}}, &stdout, &stderr); err == nil {
+		t.Error("a command without exit status succeeded")
+	}
+	if _, err := c.Exec(ctx, ExecRequest{Workspace: "default", Sandbox: "task", Stdin: make([]byte, MaxStdin+1)}, &stdout, &stderr); err == nil {
+		t.Error("Exec took more standard input than the gateway does")
+	}
+}
+
+func TestDeleteSandbox(t *testing.T) {
+	orig := deleteRetry
+	deleteRetry = time.Millisecond
+	t.Cleanup(func() { deleteRetry = orig })
+	g := &gateway{deleteBusy: 2}
+	c := serve(t, g)
+	if err := c.DeleteSandbox(context.Background(), "team", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(g.deleted, []string{"team/run-1"}) {
+		t.Errorf("deleted %q", g.deleted)
 	}
 }
