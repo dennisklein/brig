@@ -115,7 +115,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newUpCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
-		newSandboxCmd(), newPolicyCmd(),
+		newSandboxCmd(), newPolicyCmd(), newSecretCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)
@@ -127,7 +127,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
 	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
 	// These own the terminal, or must keep standard output exactly as is;
 	// ui runs until stopped and is no work to show.
-	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"ui"}} {
+	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"secret", "set"}, {"ui"}} {
 		if c, _, err := cmd.Find(path); err == nil && c != cmd {
 			if c.Annotations == nil {
 				c.Annotations = map[string]string{}

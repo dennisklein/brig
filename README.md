@@ -186,6 +186,8 @@ starts with `brig-`.
 | `start [NAME]`, `stop [NAME]` | boot and re-register the gateway, shut down; `start --wait` (also on `create`) fails unless the gateway answers and the config directories sync |
 | `update [NAME]` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
 | `sync [NAME]` (`-w`) | apply the VM's OpenShell config directories to its gateway |
+| `secret set [NAME] PROVIDER [CREDENTIAL]` (`-w`) | store a provider's secret in the keyring under the attributes its provider file gives (read without echo, or from standard input), then sync just that provider if the VM runs (`--no-sync`) |
+| `secret list [NAME]` (`-w`) | show whether each credential of the VM's providers is stored or missing, never the value (`-o json`) |
 | `upgrade [NAME]` | move onto the newest base image, keeping the data disk and rolling back on failure |
 | `delete [NAME]` | delete the VM, its disks and its gateway registration; asks first on a terminal (`--yes` skips the question, `--force` deletes a running VM) |
 | `ssh [NAME]`, `console [NAME]` | shell (`--root` for root), serial console |
@@ -386,7 +388,9 @@ Attach directories with `brig create --openshell-config DIR` or `brig update
 `openshell.configs`. A provider's secrets may be sent to every endpoint of its
 profile, so check a shared profile before you pair it with your own secrets;
 `brig sync --dry-run` names the endpoints. Without `--prune`, brig never
-deletes anything. [The guide](docs/openshell.md#openshell-config-directories)
+deletes anything. `brig secret set VM PROVIDER` stores a provider's secret in
+the keyring under the attributes its file gives, and `brig secret list` shows
+which are stored. [The guide](docs/openshell.md#openshell-config-directories)
 has a worked example, and `brig sync --help` the rules.
 
 ## Package repository

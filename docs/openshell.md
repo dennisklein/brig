@@ -196,11 +196,40 @@ brig sync dev --dry-run      # what would change, and where each token may be se
 brig sync dev
 ```
 
+With the provider files in place, `brig secret set` does the storing for you.
+It takes the attributes from the provider file, so they cannot differ from
+what `brig sync` looks up, reads the secret without echo or from standard
+input, and then syncs just that provider if the VM runs:
+
+```sh
+brig secret set dev github              # prompts; prints only how long the secret was
+claude setup-token | brig secret set dev claude-code
+brig secret list dev                    # stored or missing for each credential, never values
+```
+
 For new VMs, list both under `openshell.configs` in
-`~/.config/brig/config.yaml`. To use another keyring client with the same
-`lookup` arguments, such as a wrapper around `pass`, set
+`~/.config/brig/config.yaml`. To use another keyring client, set
 `openshell.secret_tool` there; config directories cannot set it, so a shared
-one cannot run programs on your host.
+one cannot run programs on your host. The program takes two verbs, as
+`secret-tool` does: `lookup ATTRIBUTE VALUE...` prints the secret, and `store
+--label=LABEL ATTRIBUTE VALUE...` reads it from standard input. A wrapper
+around `pass`:
+
+```sh
+#!/bin/sh
+# ~/.local/bin/pass-secret-tool
+verb=$1; shift
+case $verb in
+lookup) pass show "agents/$(printf %s "$*" | tr ' /' '__')" ;;
+store)
+	shift # --label=LABEL
+	pass insert --multiline --force "agents/$(printf %s "$*" | tr ' /' '__')" ;;
+*) exit 2 ;;
+esac
+```
+
+A wrapper without `store` still works for syncing; `brig secret set` then
+prints the attributes so you can store the secret yourself.
 
 A CI job has no keyring. There a credential can name an environment variable
 of brig's own instead of a keyring entry:
@@ -596,6 +625,9 @@ claude setup-token
 secret-tool store --label='Claude Code token (agents)' service claude.ai user alice
 ```
 
+With the provider file below in place, `claude setup-token | brig secret set
+dev claude-code` stores and syncs it in one step.
+
 Copy OpenShell's
 [`providers/claude-code.yaml`](https://github.com/NVIDIA/OpenShell/blob/v0.1.3/providers/claude-code.yaml)
 into `profiles/` and replace its API key with the subscription token. Keep
@@ -648,10 +680,10 @@ token, and the proxy swaps in your token. Three things to know:
   do not work with it. Do not run `/login` in a sandbox: it would store a real
   token in `/sandbox/.claude`.
 - After a year, run `claude setup-token` again, store the new token under the
-  same attributes and run `brig sync dev`. Then start Claude Code from a new
-  shell, `brig sandbox exec dev webapp-claude --tty -- bash -l`, or stop
-  and start the sandbox: a Claude Code restarted in an old shell keeps sending
-  the old token.
+  same attributes (`brig secret set dev claude-code`). Then start Claude Code
+  from a new shell, `brig sandbox exec dev webapp-claude --tty -- bash -l`, or
+  stop and start the sandbox: a Claude Code restarted in an old shell keeps
+  sending the old token.
 
 ### Start it
 
@@ -927,9 +959,10 @@ Keep one VM, and one long-lived sandbox per project.
   without network rules.
 - Review on the host: `git fetch` the agent's branch and read the diff before
   anything merges.
-- Rotated a token? `secret-tool store` it again under the same attributes and
-  run `brig sync dev`; brig notices the change and updates the provider.
-  Running agents keep the old token: start them again from a new shell,
+- Rotated a token? `brig secret set dev github` stores it again under the
+  same attributes and updates that provider (with `secret-tool store`, run
+  `brig sync dev` yourself; brig notices the change either way). Running
+  agents keep the old token: start them again from a new shell,
   `brig sandbox exec dev webapp --tty -- bash -l`, or stop and start the
   sandbox.
 
@@ -1016,6 +1049,7 @@ Podman refuses to remove an image a container still uses.
 | --- | --- |
 | Point the CLI at a VM | `brig use dev`, or `eval "$(brig env dev)"` without the [shell integration](../README.md#shell-integration) |
 | Apply config directories | `brig sync dev --dry-run`, then `brig sync dev` |
+| Store or rotate a secret | `brig secret set dev PROVIDER`; `brig secret list dev` shows which are stored |
 | List profiles, providers | `openshell profile list`, `openshell provider list` |
 | New sandbox | `openshell sandbox create --name N --template pi --provider P ...` |
 | List, start, stop, delete sandboxes | `brig sandbox list dev`, `brig sandbox start dev N`, `stop`, `delete` |
@@ -1045,7 +1079,7 @@ Podman refuses to remove an image a container still uses.
 | `git push` denied, clone works | Profiles allow fetch only | Add the project's push rule ([GitHub](#grant-push-and-pull-requests-for-one-repository), [GitLab](#grant-push-and-merge-requests-for-one-project)) |
 | Every `glab` project call denied | `%2F` in the API path | `allow_encoded_slash: true` on the GitLab endpoint |
 | Writes to `~` fail in the sandbox | Only the workspace and `/tmp` are writable | Point config at `/sandbox`: `PI_CODING_AGENT_DIR`, `GH_CONFIG_DIR`, `GIT_CONFIG_GLOBAL` |
-| `brig sync` says a secret is missing | No keyring entry with exactly those attributes | `secret-tool lookup service github.com user alice` on the host; store it again |
+| `brig sync` says a secret is missing | No keyring entry with exactly those attributes | `brig secret list dev` on the host; `brig secret set dev github` stores it again |
 | `brig start` says it held back a profile change | The change adds endpoints to a credential already in the gateway | Review with `brig sync dev --dry-run`, then `brig sync dev` |
 | Files in `~` are missing after a host crash or disk error | The VM's boot repaired its data disk and moved what it could not place | Look in `/home/agent/lost+found` (`brig ssh dev -- ls -la lost+found`) and in the boot log (`brig ssh dev --root -- journalctl -b -u 'systemd-fsck@*'`) |
 | `--driver-config-json` is rejected | The VM was last started by an older brig, so its gateway still has driver config off | `brig stop dev && brig start dev` |

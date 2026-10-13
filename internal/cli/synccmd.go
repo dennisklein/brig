@@ -160,9 +160,12 @@ func (a *app) syncOpenShell(ctx context.Context, cli *openshell.CLI, v *vm.VM, o
 	if opts.DryRun {
 		return err
 	}
-	st.LastSync = &ocsync.Record{Time: time.Now().UTC()}
-	if err != nil {
-		st.LastSync.Error = err.Error()
+	// A sync of some providers says nothing about the last full sync.
+	if len(opts.Providers) == 0 {
+		st.LastSync = &ocsync.Record{Time: time.Now().UTC()}
+		if err != nil {
+			st.LastSync.Error = err.Error()
+		}
 	}
 	return errors.Join(err, st.Save(statePath))
 }
