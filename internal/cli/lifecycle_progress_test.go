@@ -196,7 +196,7 @@ func TestRemoveProgress(t *testing.T) {
 	ctx, w := progresstest.Watch(t.Context(), t)
 	var stdout, stderr bytes.Buffer
 	conn := &fakeDomains{state: libvirt.StateRunning}
-	if err := a.remove(ctx, conn, v, true, &stdout, &stderr); err != nil {
+	if err := a.remove(ctx, conn, v, true, nil, &stdout, &stderr); err != nil {
 		t.Fatalf("remove: %v\n%s", err, &stderr)
 	}
 	want := "step power off the VM: ok\nstep remove the VM: ok\n"
