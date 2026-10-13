@@ -128,7 +128,8 @@ A gateway has workspaces, and `-w WORKSPACE` picks one on every command that
 works in one: `sync` (repeatable, default every workspace), `sandbox create`,
 `policy diff` and `policy save` (default `default`). `brig use dev -w team`
 also exports `BRIG_WORKSPACE=team`, which is the default of `-w` in that
-shell; `brig use dev` clears it, and `brig use -w team` changes the workspace
+shell, and `OPENSHELL_WORKSPACE=team`, which makes plain `openshell` commands
+work in the same workspace; `brig use dev` clears it, and `brig use -w team` changes the workspace
 and keeps the VM.
 
 In zsh it also defines a [Powerlevel10k](https://github.com/romkatv/powerlevel10k)

@@ -1039,7 +1039,7 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 				}
 			}
 			if *unset {
-				unsetVars(gatewayEnv, "OPENSHELL_SANDBOX_POLICY", workspaceEnv)
+				unsetVars(gatewayEnv, "OPENSHELL_SANDBOX_POLICY", workspaceEnv, openshellWorkspaceEnv)
 				return nil
 			}
 			a, err := newApp()
@@ -1069,15 +1069,16 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 				set("OPENSHELL_SANDBOX_POLICY", shellQuote(policy))
 			}
 			if workspace == "" {
-				unsetVars(workspaceEnv)
+				unsetVars(workspaceEnv, openshellWorkspaceEnv)
 			} else {
 				set(workspaceEnv, workspace)
+				set(openshellWorkspaceEnv, workspace)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(unset, "unset", false, "unset the variables instead, without a NAME")
-	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "export "+workspaceEnv+", the workspace that brig commands work in by default (and, without NAME, keep the selected VM)")
+	cmd.Flags().StringVarP(&workspace, "workspace", "w", "", "export "+workspaceEnv+" and "+openshellWorkspaceEnv+", the workspace that brig and openshell work in by default (without NAME, keep the selected VM)")
 	cmd.MarkFlagsMutuallyExclusive("unset", "workspace")
 	_ = cmd.RegisterFlagCompletionFunc("workspace", completeWorkspaces)
 	return cmd
