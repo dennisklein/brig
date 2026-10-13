@@ -4,8 +4,10 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"text/tabwriter"
 
@@ -14,6 +16,40 @@ import (
 
 	"github.com/dennisklein/brig/internal/doctor"
 )
+
+// hostPreflight returns the failed checks of brig doctor that take no time;
+// tests replace it.
+var hostPreflight = func(ctx context.Context) []doctor.Result {
+	return doctor.Preflight(ctx, doctor.System())
+}
+
+// checkHost fails, before a command starts long work, if the host fails a
+// check of brig doctor that the work needs. It tells on w which checks and
+// how to fix them.
+func checkHost(ctx context.Context, w io.Writer) error {
+	failed := hostPreflight(ctx)
+	if len(failed) == 0 {
+		return nil
+	}
+	fmt.Fprintln(w, "This host fails checks that brig needs:")
+	for _, r := range failed {
+		fmt.Fprintf(w, "  %s: %s\n", termtext.Escape(r.Name), termtext.Escape(r.Detail))
+	}
+	printHints(w, failed)
+	return errors.New("this host is not ready for brig; fix the above, then see brig doctor for the other checks")
+}
+
+// printHints writes the hints of results to w, each once.
+func printHints(w io.Writer, results []doctor.Result) {
+	hints := map[string]bool{}
+	for _, r := range results {
+		if r.Hint != "" && !hints[r.Hint] {
+			hints[r.Hint] = true
+			// Indent the continuation lines of a multi-line hint.
+			fmt.Fprintf(w, "\nTo fix %s: %s\n", termtext.Escape(r.Name), strings.ReplaceAll(termtext.EscapeLines(r.Hint), "\n", "\n    "))
+		}
+	}
+}
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
@@ -29,14 +65,7 @@ func newDoctorCmd() *cobra.Command {
 			if err := tw.Flush(); err != nil {
 				return err
 			}
-			hints := map[string]bool{}
-			for _, r := range results {
-				if r.Hint != "" && !hints[r.Hint] {
-					hints[r.Hint] = true
-					// Indent the continuation lines of a multi-line hint.
-					fmt.Fprintf(cmd.OutOrStdout(), "\nTo fix %s: %s\n", termtext.Escape(r.Name), strings.ReplaceAll(termtext.EscapeLines(r.Hint), "\n", "\n    "))
-				}
-			}
+			printHints(cmd.OutOrStdout(), results)
 			if doctor.Worst(results) == doctor.Fail {
 				return errors.New("this host is not ready for brig")
 			}

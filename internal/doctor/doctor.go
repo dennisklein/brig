@@ -102,6 +102,27 @@ const sessionHint = "log in through a session that starts your systemd user mana
 
 // Run performs all checks.
 func Run(ctx context.Context, h Host) []Result {
+	results := hostChecks(ctx, h)
+	return append(results, checkNetwork(ctx, h, results))
+}
+
+// Preflight performs the checks that take no time, which is all of them but
+// the one that starts a VM network, and returns the ones that failed. A
+// command that is about to do long work, such as building an image, uses it
+// to refuse a host that cannot get through it.
+func Preflight(ctx context.Context, h Host) []Result {
+	var failed []Result
+	for _, r := range hostChecks(ctx, h) {
+		if r.Status == Fail {
+			failed = append(failed, r)
+		}
+	}
+	return failed
+}
+
+// hostChecks performs the checks of the host itself, with the hints of the
+// failing ones collapsed.
+func hostChecks(ctx context.Context, h Host) []Result {
 	results := []Result{
 		checkUser(h),
 		checkKVM(h),
@@ -127,7 +148,7 @@ func Run(ctx context.Context, h Host) []Result {
 		checkOpenShell(ctx, h),
 	}
 	collapsePackageHints(results)
-	return append(results, checkNetwork(ctx, h, results))
+	return results
 }
 
 // collapsePackageHints replaces the hints that name one missing package of
@@ -305,7 +326,7 @@ func checkMkosi(ctx context.Context, h Host) Result {
 func checkOpenShell(ctx context.Context, h Host) Result {
 	r := Result{Name: "openshell", Status: OK}
 	if _, err := h.LookPath("openshell"); err != nil {
-		r.Status, r.Detail, r.Hint = Warn, "not found (drives the VMs' gateways)", openshell.InstallHint
+		r.Status, r.Detail, r.Hint = Fail, "not found (drives the VMs' gateways)", openshell.InstallHint
 		return r
 	}
 	out, err := h.Output(ctx, "openshell", "--version")
