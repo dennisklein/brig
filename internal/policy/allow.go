@@ -59,3 +59,22 @@ func RuleName(host string, port int) string {
 	}
 	return fmt.Sprintf("%s_%d", b.String(), port)
 }
+
+// Broad lists the ways in which a rule lets a sandbox do more
+// than its user is likely to expect, for the user to confirm: the
+// protocol is "rest" to inspect HTTP requests, or empty for the whole
+// connection, access is the HTTP access level, and binary is the program
+// path. The list is empty for a rule that needs no confirmation.
+func Broad(protocol, access, binary string) []string {
+	var why []string
+	switch {
+	case protocol == "":
+		why = append(why, "the whole connection is allowed, so the proxy does not look at the HTTP requests in it")
+	case access == "full":
+		why = append(why, "full access allows every HTTP method, including DELETE and PUT")
+	}
+	if strings.Contains(binary, "*") {
+		why = append(why, "the program path has a wildcard, so more than one program may connect")
+	}
+	return why
+}
