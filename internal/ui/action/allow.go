@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dennisklein/brig/internal/policy"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
@@ -33,9 +34,6 @@ const (
 var (
 	// ruleKeyRE matches a rule's key under network_policies.
 	ruleKeyRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
-	// hostRE matches a host name, an IPv4 address or a wildcard such as
-	// *.example.com.
-	hostRE = regexp.MustCompile(`^[A-Za-z0-9*_]([A-Za-z0-9*_.-]{0,252})$`)
 	// fileNameRE matches the name of a policy file to create.
 	fileNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 )
@@ -95,7 +93,7 @@ func buildAllow(f Form, c Context) (Command, error) {
 	}
 	rule := strings.TrimSpace(f.Get("rule"))
 	if rule == "" {
-		rule = DefaultRuleName(host, port)
+		rule = policy.RuleName(host, port)
 	}
 	switch {
 	case !ruleKeyRE.MatchString(rule):
@@ -138,26 +136,14 @@ func fieldErr(label, msg string) error { return fmt.Errorf("%s: %s", label, msg)
 // "port".
 func endpoint(f Form) (string, int, error) {
 	host := strings.ToLower(strings.TrimSpace(f.Get("host")))
-	if !hostRE.MatchString(host) {
-		return "", 0, fieldErr("Host", "write a host name or IPv4 address, such as registry.npmjs.org")
+	if err := policy.CheckHost(host); err != nil {
+		return "", 0, fieldErr("Host", err.Error())
 	}
 	port, err := strconv.Atoi(strings.TrimSpace(f.Get("port")))
 	if err != nil || port < 1 || port > 65535 {
 		return "", 0, fieldErr("Port", "write a number from 1 to 65535")
 	}
 	return host, port, nil
-}
-
-// DefaultRuleName is the name OpenShell gives a rule that policy update adds
-// without --rule-name.
-func DefaultRuleName(host string, port int) string {
-	var b strings.Builder
-	for _, r := range strings.NewReplacer(".", "_", "-", "_").Replace(host) {
-		if r == '_' || ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	return fmt.Sprintf("allow_%s_%d", b.String(), port)
 }
 
 // policySave returns the brig policy save command of the form.
