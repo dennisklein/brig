@@ -2,7 +2,7 @@
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
 {{define "content"}}{{$q := .TrafficQ}}
-<div class="head"><div class="titles"><h1>Traffic{{with $q.Sandbox}} <span class="muted">· {{.}}{{with $q.Workspace}} ({{.}}){{end}}</span>{{else}}{{with $q.Workspace}} <span class="muted">· workspace {{.}}</span>{{end}}{{end}}</h1><div class="sub">Requests of sandboxes as OpenShell's proxy decided them (fence 1). Drops at fence 2, the VM's network profile, are not logged yet.</div></div>
+<div class="head"><div class="titles"><h1>Traffic{{with $q.Sandbox}} <span class="muted">· {{.}}{{with $q.Workspace}} ({{.}}){{end}}</span>{{else}}{{with $q.Workspace}} <span class="muted">· workspace {{.}}</span>{{end}}{{end}}</h1><div class="sub">Requests of sandboxes as OpenShell's proxy decided them ({{term "fence-1" "fence 1"}}). Drops at {{term "fence-2" "fence 2"}}, the VM's network profile, are not logged yet.</div></div>
   <div class="actions">
     <nav class="seg" aria-label="Verdict"><a class="{{if not $q.Denied}}on{{end}}" href="{{($q.With false).URL}}">All</a><a class="{{if $q.Denied}}on{{end}}" href="{{($q.With true).URL}}">Denied</a></nav>
     <nav class="seg" aria-label="Filter by VM"><a class="{{if not $q.VM}}on{{end}}" href="{{($q.OnVM "").URL}}">All VMs</a>{{range .Snap.VMs}}<a class="{{if and (eq .Name $q.VM) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnVM .Name).URL}}">{{.Name}}</a>{{end}}</nav>
@@ -13,7 +13,7 @@
 </div>
 {{with .History}}<section class="panel tw">{{template "traffic-rows" (trafficTable $ .Rows false)}}
 {{with .Err}}<div class="pb"><div class="callout warn">{{.}}</div></div>{{end}}
-<div class="pb note">From the audit trail, as read when this page loaded{{if gt .Total (len .Rows)}}: the newest {{len .Rows}} of {{.Total}} show{{end}}. <code>brig audit</code> shows them all.</div></section>
+<div class="pb note">From the {{term "audit-trail" "audit trail"}}, as read when this page loaded{{if gt .Total (len .Rows)}}: the newest {{len .Rows}} of {{.Total}} show{{end}}. <code>brig audit</code> shows them all.</div></section>
 {{if and $q.Sandbox (deletedSandbox $)}}<div class="gap-above" hx-get="/sandboxes/{{$q.VM}}/{{$q.Workspace}}/{{$q.Sandbox}}/history" hx-trigger="load"><section class="panel"><div class="pb faint">Reading the history of {{$q.Sandbox}}…</div></section></div>{{end}}
 {{else}}<section class="panel tw" sse-swap="traffic-table">{{template "traffic-table" .}}</section>{{end}}
 {{end}}

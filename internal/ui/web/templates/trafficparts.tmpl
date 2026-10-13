@@ -5,7 +5,7 @@
      (fence 1), from each gateway's log, and the rules OpenShell drafted
      from the denied ones. */}}
 
-{{define "verdict"}}{{if eq . "deny"}}<span class="verdict deny">DENY</span>{{else if eq . "allow"}}<span class="verdict allow">ALLOW</span>{{else}}<span class="verdict">?</span>{{end}}{{end}}
+{{define "verdict"}}{{if eq . "deny"}}<span class="verdict deny" data-term="verdict">DENY</span>{{else if eq . "allow"}}<span class="verdict allow" data-term="verdict">ALLOW</span>{{else}}<span class="verdict">?</span>{{end}}{{end}}
 
 {{/* A table of requests, newest first: .V is the view, .Rows the rows, and
      .Compact leaves out the sandbox. */}}
@@ -33,7 +33,7 @@
 {{/* A sandbox's Traffic tab: its pending drafts, and its requests. */}}
 
 {{define "sandbox-traffic"}}{{$g := .Gateway}}{{$s := .Sandbox}}
-{{with sandboxDrafts .}}<section class="panel gap-below"><div class="ph"><h2>Rules OpenShell drafted</h2><span class="faint small">from the denied requests of {{$s.Name}}; approve one to add it to this sandbox, or reject it to drop it</span></div>
+{{with sandboxDrafts .}}<section class="panel gap-below"><div class="ph"><h2>{{term "draft" "Rules OpenShell drafted"}}</h2><span class="faint small">from the denied requests of {{$s.Name}}; approve one to add it to this sandbox, or reject it to drop it</span></div>
 <div class="tw"><table><thead><tr><th>Rule</th><th>Program</th><th>Endpoints</th><th class="num">Hits</th><th title="OpenShell checks whether the rule opens a new path for data to leave">Security check</th><th></th></tr></thead><tbody>
 {{range .}}<tr><td class="mono">{{.Rule}}</td><td class="mono small">{{.Binary}}</td><td class="mono small">{{range $i, $e := .Endpoints}}{{if $i}}, {{end}}{{$e.Host}}:{{$e.Port}}{{end}}</td><td class="num">{{.Hits}}</td><td class="small">{{with .Validation}}{{.}}{{else}}<span class="faint">–</span>{{end}}</td><td class="act">{{template "act" (draftAct $ .)}} {{template "act" (rejectAct $ .)}}</td></tr>{{end}}
 </tbody></table></div></section>{{end}}
@@ -47,7 +47,7 @@
 {{/* The Overview's recent denials. */}}
 
 {{define "recent-denials"}}{{$rows := denialRows . 6}}
-<div class="ph"><h2>Recent denials</h2><span class="grow"></span><a class="btn sm ghost" href="/traffic?verdict=deny">All traffic</a></div>
+<div class="ph"><h2>{{term "fence-1" "Recent denials"}}</h2><span class="grow"></span><a class="btn sm ghost" href="/traffic?verdict=deny">All traffic</a></div>
 {{if $rows}}<div class="tw">{{template "traffic-rows" (trafficTable . $rows false)}}</div>{{else}}<div class="empty">No denied requests. Sandboxes that try to reach what their policy does not allow show here, with Allow….</div>{{end}}
 {{end}}
 

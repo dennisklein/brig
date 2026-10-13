@@ -1,0 +1,93 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{/*
+  Help: the parts that help.js loads into the help pane and into hint cards.
+  The texts come from package help, which brig help TOPIC prints too.
+*/}}
+
+{{define "help-pane"}}
+<aside class="helppane" id="helppane" aria-label="Help" hidden>
+  <div class="hp-head"><button type="button" data-help-back aria-label="Back" title="Back" hidden>←</button><span class="crumb" id="help-crumb">Help</span><button type="button" data-help-close aria-label="Close help" title="Close (Esc)">×</button></div>
+  <div class="hp-search"><input type="search" id="help-q" placeholder="Search help: fence, token, mount…" aria-label="Search help" autocomplete="off" spellcheck="false"></div>
+  <div class="hp-body" id="help-body" aria-live="polite"></div>
+  <div class="hp-foot"><span>Hints</span><div class="seg" role="group" aria-label="Hints"><button type="button" data-hints="on">On</button><button type="button" data-hints="off">Off</button></div><span class="grow"></span><a href="/help/all" data-help-link>All topics</a></div>
+</aside>
+{{end}}
+
+{{define "help-chip"}}{{with helpTopic .}}<a href="/help/concept/{{.ID}}" data-help-link data-chip="{{.ID}}">{{.Title}}</a>{{end}}{{end}}
+
+{{define "help-keys"}}
+<dl class="hp-keys">
+  <dt><kbd>?</kbd></dt><dd>Help for what the pointer is on, else for this page</dd>
+  <dt><kbd>/</kbd> <kbd>Ctrl</kbd><kbd>K</kbd></dt><dd>Jump to anything, help included</dd>
+  <dt><kbd>/</kbd> <kbd>?</kbd></dt><dd>Search help only</dd>
+  <dt><kbd>Esc</kbd></dt><dd>Close the hint, the dialog or this pane</dd>
+</dl>
+{{end}}
+
+{{define "help-page"}}{{$p := .Page}}
+<div class="hp-sec" data-crumb="This page"><span class="kindtag">This page</span><h2>{{$p.Title}}</h2><p class="lead">{{$p.Summary}}</p></div>
+{{with $p.PageConcepts .Tab}}<div><h4>Words on this page</h4><div class="hp-chips">{{range .}}{{template "help-chip" .}}{{end}}</div></div>{{end}}
+{{with $p.Tasks}}<div><h4>How do I…</h4><ul class="hp-list">{{range .}}{{with helpTopic .}}<li><a href="/help/task/{{.ID}}" data-help-link>{{.Title}}</a></li>{{end}}{{end}}</ul></div>{{end}}
+<div><h4>Keys</h4>{{template "help-keys"}}</div>
+{{end}}
+
+{{define "help-all"}}
+<div class="hp-sec" data-crumb="All topics"><span class="kindtag">Index</span><h2>Concepts and how-tos</h2><p class="lead">The same texts as <code>brig help topics</code> in a terminal.</p></div>
+<div><h4>How do I…</h4><ul class="hp-list">{{range helpTasks}}<li><a href="/help/task/{{.ID}}" data-help-link>{{.Title}}</a></li>{{end}}</ul></div>
+<div><h4>Concepts</h4><div class="hp-chips">{{range helpTerms}}{{template "help-chip" .ID}}{{end}}</div></div>
+{{end}}
+
+{{define "help-entry"}}
+{{with .Topic}}
+<div class="hp-sec" data-crumb="{{if eq .Kind "task"}}How to{{else}}Concept{{end}}"><span class="kindtag">{{if eq .Kind "task"}}How to{{else}}Concept{{end}}</span><h2>{{.Title}}</h2>{{with .Summary}}<p class="lead">{{helpText .}}</p>{{end}}</div>
+{{range .Body}}{{with .Steps}}<ol class="hp-steps">{{range .}}<li>{{helpText .}}</li>{{end}}</ol>{{else}}<p>{{helpText .Text}}</p>{{end}}{{end}}
+{{with .Show}}<div><a class="btn primary sm" href="{{.Href}}{{with .Action}}#show-{{.}}{{end}}" data-help-show>Show me</a></div>{{end}}
+{{with .Commands}}<div><h4>In a terminal</h4><div class="stack tight">{{range .}}{{template "cmd" (cmd "" .)}}{{end}}</div></div>{{end}}
+{{with .UI}}<div><h4>In brig ui</h4><a href="{{.}}">Open the page</a></div>{{end}}
+{{with .Concepts}}<div><h4>Words</h4><div class="hp-chips">{{range .}}{{template "help-chip" .}}{{end}}</div></div>{{end}}
+{{with .See}}<div><h4>Related</h4><div class="hp-chips">{{range .}}{{template "help-chip" .}}{{end}}</div></div>{{end}}
+<p class="hp-src">In a terminal: <code>brig help {{.ID}}</code></p>
+{{end}}
+{{with .Action}}
+<div class="hp-sec" data-crumb="Action"><span class="kindtag">Action</span><h2>{{.Title}}</h2><p class="lead">{{.Summary}}</p>
+{{with .Danger}}<div class="callout bad">{{.}}</div>{{else}}{{with .Undo}}<p class="muted">Undo it with {{.}}.</p>{{end}}{{end}}</div>
+<div><h4>Runs</h4>{{template "cmd" (cmd "" .Command)}}<p class="note">The dialog shows the exact command before it runs, and Activity keeps it after.</p></div>
+{{with .Concepts}}<div><h4>Words</h4><div class="hp-chips">{{range .}}{{template "help-chip" .}}{{end}}</div></div>{{end}}
+{{end}}
+{{end}}
+
+{{define "help-hint"}}
+{{with .Topic}}<div class="kind"><span>Concept</span></div><div class="ht">{{.Title}}</div><p>{{helpText .Summary}}</p>{{with .Commands}}<div class="hc"><span class="ps">$ </span>{{index . 0}}</div>{{end}}{{end}}
+{{with .Action}}<div class="kind"><span>Action</span>{{if .Danger}}<span class="danger">cannot be undone</span>{{else}}{{with .Undo}}<span>undo: {{.}}</span>{{end}}{{end}}</div><div class="ht">{{.Title}}</div><p>{{.Summary}}</p><div class="hc"><span class="ps">$ </span>{{.Command}}</div>{{end}}
+<div class="hf"><span><kbd>?</kbd> more</span></div>
+{{end}}
+
+{{define "help-search"}}
+{{with .Hits}}<ul class="hp-list" data-crumb="Search">{{range .}}<li><a href="/help/{{.Kind}}/{{.ID}}" data-help-link>{{.Title}}<span class="k">{{if eq .Kind "task"}}how to{{else}}{{.Kind}}{{end}}</span></a></li>{{end}}</ul>
+{{else}}<p class="muted" data-crumb="Search">Nothing in help matches. Try a word from the page or a command, such as sync or allow.</p>{{end}}
+{{end}}
+
+{{/* The Overview while there is no VM yet: the first steps, and how the
+     parts fit together. */}}
+
+{{define "welcome"}}
+<section class="panel welcome wide">
+  <div class="ph"><h2>Welcome to brig</h2><span class="grow"></span><span class="faint small">No VMs on this host yet</span></div>
+  <div class="welcome-body">
+    <ol class="firststeps">
+      <li><b>Check this host</b><span class="d">KVM, libvirt, the openshell CLI and the rest that brig needs.</span><a class="btn sm" href="/host">Host checks</a></li>
+      <li><b>Create a VM</b><span class="d">brig builds a base image first if there is none, then starts the VM with its own OpenShell gateway.</span>{{template "act" (act . "create" "" "primary sm")}}</li>
+      <li><b>Start an agent in a sandbox</b><span class="d">Pick its image, the host directories it may read and the credentials it may use.</span>{{template "act" (act . "sandbox-create" "" "sm")}}</li>
+    </ol>
+    <div class="chain">
+      <div class="lk"><span class="g">▥</span>{{term "vm" "VM"}}<span class="d">on this host; fence 2, its network profile, guards it from outside</span></div>
+      <div class="lk"><span class="g">⇄</span>{{term "gateway" "Gateway"}}<span class="d">OpenShell inside the VM, reached as brig-NAME</span></div>
+      <div class="lk"><span class="g">▣</span>{{term "sandboxes" "Sandbox"}}<span class="d">one agent, fenced by its policy, fence 1</span></div>
+      <div class="lk"><span class="g">⚿</span>{{term "provider" "Provider"}}<span class="d">a credential the agent only sees as a placeholder</span></div>
+    </div>
+  </div>
+  <p class="pb note">Dotted words explain themselves when you point at them. Press <kbd>?</kbd> for help on any page, or run <code>brig help topics</code> in a terminal.</p>
+</section>
+{{end}}

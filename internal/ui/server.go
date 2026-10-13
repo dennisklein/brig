@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/audit"
+	"github.com/dennisklein/brig/internal/help"
 	"github.com/dennisklein/brig/internal/ui/run"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
@@ -32,6 +33,7 @@ type Server struct {
 	port      int
 	tmpl      *templates
 	assets    *assets
+	help      *help.Help
 	demo      bool
 	log       *slog.Logger
 	checkHost func(context.Context, *store.Store)
@@ -72,12 +74,20 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	t, err := newTemplates(a.fs, funcs(c.Home), a.dev)
+	h, err := help.Load()
+	if err != nil {
+		return nil, err
+	}
+	fm := funcs(c.Home)
+	for name, fn := range helpFuncs(h) {
+		fm[name] = fn
+	}
+	t, err := newTemplates(a.fs, fm, a.dev)
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{
-		st: c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a,
+		st: c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a, help: h,
 		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
@@ -97,6 +107,11 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("GET /traffic", s.traffic)
 	s.mux.HandleFunc("GET /topology", s.topology)
 	s.mux.HandleFunc("GET /palette", s.palette)
+	s.mux.HandleFunc("GET /help", s.helpPane)
+	s.mux.HandleFunc("GET /help/search", s.helpSearch)
+	s.mux.HandleFunc("GET /help/all", s.helpAll)
+	s.mux.HandleFunc("GET /help/{kind}/{id}", s.helpEntry)
+	s.mux.HandleFunc("GET /help/hint/{kind}/{id}", s.helpEntry)
 	s.mux.HandleFunc("GET /terminal", s.terminal)
 	s.mux.HandleFunc("GET /a/{id}", s.dialog)
 	s.mux.HandleFunc("POST /a/{id}/preview", s.preview)
@@ -163,6 +178,7 @@ func (s *Server) newView(r *http.Request, page, title string) *view {
 
 // render writes a page, or a server error.
 func (s *Server) render(w http.ResponseWriter, status int, name string, v *view) {
+	v.HelpPage = name
 	html, err := s.tmpl.page(name, v)
 	if err != nil {
 		s.log.Error("rendering page", "page", name, "err", err)
