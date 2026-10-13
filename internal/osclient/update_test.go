@@ -6,6 +6,8 @@ package osclient
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	pb "github.com/NVIDIA/OpenShell/sdk/go/proto/openshellv1"
 	sb "github.com/NVIDIA/OpenShell/sdk/go/proto/sandboxv1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // policyGateway is the fake gateway with a sandbox policy that can be
@@ -150,5 +153,52 @@ func TestWaitLoadedFails(t *testing.T) {
 	defer cancel()
 	if _, _, err := c.WaitLoaded(ctx, "default", "webapp", 4); err == nil || !strings.Contains(err.Error(), "deadline") {
 		t.Errorf("WaitLoaded of a pending revision = %v", err)
+	}
+}
+
+// revisionGateway lists seven revisions of webapp's policy, newest first,
+// in pages of two.
+type revisionGateway struct{ gateway }
+
+func (g *revisionGateway) ListSandboxPolicies(_ context.Context, r *pb.ListSandboxPoliciesRequest) (*pb.ListSandboxPoliciesResponse, error) {
+	if err := checkScope(r.GetWorkspaceScope()); err != nil {
+		return nil, err
+	}
+	var all []*pb.SandboxPolicyRevision
+	for v := uint32(7); v >= 1; v-- {
+		rev := &pb.SandboxPolicyRevision{
+			Version: v, PolicyHash: "h" + strconv.Itoa(int(v)), Status: pb.PolicyStatus_POLICY_STATUS_SUPERSEDED,
+			CreatedTime: timestamppb.New(created.Add(time.Duration(v) * time.Minute)), Policy: testPolicy(),
+		}
+		if v == 7 {
+			rev.Status = pb.PolicyStatus_POLICY_STATUS_LOADED
+			rev.Provenance = map[string]string{"brig.dev/by": "policy-allow"}
+		}
+		all = append(all, rev)
+	}
+	items, next := page(all, r.GetPageToken(), 2)
+	return &pb.ListSandboxPoliciesResponse{Revisions: items, NextPageToken: next}, nil
+}
+
+func TestRevisions(t *testing.T) {
+	c := serve(t, &revisionGateway{})
+	revs, err := c.Revisions(context.Background(), "default", "webapp", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var versions []uint32
+	for _, r := range revs {
+		versions = append(versions, r.Version)
+	}
+	if !slices.Equal(versions, []uint32{5, 6, 7}) {
+		t.Fatalf("versions %v", versions)
+	}
+	last := revs[2]
+	if last.Status != PolicyLoaded || last.Hash != "h7" || last.Provenance["brig.dev/by"] != "policy-allow" ||
+		!last.Created.Equal(created.Add(7*time.Minute)) || !strings.Contains(last.Policy, "network_policies:") || last.Err != "" {
+		t.Errorf("revision 7: %+v", last)
+	}
+	if revs[0].Status != PolicySuperseded {
+		t.Errorf("revision 5: %+v", revs[0])
 	}
 }

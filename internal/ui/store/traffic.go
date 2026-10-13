@@ -107,6 +107,10 @@ type Draft struct {
 	// Hits counts how often the denied endpoint was seen.
 	Hits     int
 	LastSeen time.Time
+	// Status is pending, approved or rejected; Decided is when it was
+	// approved or rejected.
+	Status  string
+	Decided time.Time
 }
 
 // DraftEndpoint is a host and port that a drafted rule allows.
