@@ -89,3 +89,16 @@ func (t *tailWriter) String() string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// lockedWriter lets several commands write to w at once. os/exec copies
+// output that does not go to a file from a goroutine of its own per command.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}

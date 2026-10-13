@@ -359,6 +359,32 @@ func TestSyncCarriesOnAfterFailures(t *testing.T) {
 	}
 }
 
+func TestSyncRecordsEachChange(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	writeFile(t, filepath.Join(dir, "providers", "b.yaml"), "name: b\ntype: nosuch\ncredentials:\n  T:\n    secret_tool: {lookup: [x, y]}\n")
+	var got []Change
+	_, _, err := syncDir(t, dir, newFakeGateway(), fakeSecrets{"service github.com user alice": "t"}, &State{},
+		Options{DryRun: true, Record: func(c Change) { got = append(got, c) }})
+	if err == nil {
+		t.Fatal("no error")
+	}
+	// Results and errors start like these.
+	want := []Change{
+		{Workspace: "default", Kind: "profile", Name: "github", Result: "would import from "},
+		{Workspace: "default", Kind: "provider", Name: "b", Error: "unknown provider type nosuch"},
+		{Workspace: "default", Kind: "provider", Name: "github", Result: "would create (type github); GH_TOKEN may be sent to"},
+	}
+	if !slices.EqualFunc(got, want, func(g, w Change) bool {
+		return g.Workspace == w.Workspace && g.Kind == w.Kind && g.Name == w.Name &&
+			strings.HasPrefix(g.Result, w.Result) && (g.Result == "") == (w.Result == "") &&
+			strings.HasPrefix(g.Error, w.Error) && (g.Error == "") == (w.Error == "")
+	}) {
+		t.Errorf("changes\n%+v\nwant\n%+v", got, want)
+	}
+}
+
 func TestSyncAdoptsAnExistingProvider(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)

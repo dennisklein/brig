@@ -27,6 +27,7 @@ func newUpgradeCmd() *cobra.Command {
 	var (
 		imageID    string
 		allowMinor bool
+		format     outputFormat
 	)
 	cmd := vmCommand("upgrade [NAME]", "Move a VM onto a newer base image, keeping its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
@@ -44,8 +45,8 @@ func newUpgradeCmd() *cobra.Command {
 		}
 		w := cmd.ErrOrStderr()
 		if target.ID == v.Image {
-			fmt.Fprintf(cmd.OutOrStdout(), "VM %s already uses image %s.\n", v.Name, v.Image)
-			return nil
+			fmt.Fprintf(resultWriter(cmd, format), "VM %s already uses image %s.\n", v.Name, v.Image)
+			return a.printVM(ctx, cmd, v, format)
 		}
 		if current, err := a.images.Get(v.Image); err == nil && !allowMinor &&
 			!openshell.CompatibleVersions(current.OpenShellVersion, target.OpenShellVersion) {
@@ -81,8 +82,8 @@ func newUpgradeCmd() *cobra.Command {
 		if err := a.upgrade(ctx, conn, v, target.ID, wasRunning, w); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Upgraded %s to image %s.\n", v.Name, target.ID)
-		return nil
+		fmt.Fprintf(resultWriter(cmd, format), "Upgraded %s to image %s.\n", v.Name, target.ID)
+		return a.printVM(ctx, cmd, v, format)
 	})
 	cmd.Flags().StringVar(&imageID, "image", "", "base image ID (default: newest)")
 	cmd.Flags().BoolVar(&allowMinor, "allow-minor", false, "allow an OpenShell minor version change")
@@ -90,6 +91,7 @@ func newUpgradeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allowMinor, "force", false, "allow an OpenShell minor version change")
 	_ = cmd.Flags().MarkDeprecated("force", "use --allow-minor")
 	_ = cmd.RegisterFlagCompletionFunc("image", completeImages)
+	addOutputFlag(cmd, &format)
 	return cmd
 }
 

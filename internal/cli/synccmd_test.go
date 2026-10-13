@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,6 +254,12 @@ esac
 	if _, err := os.Stat(a.vmFile(v, ocsync.StateFile)); err == nil {
 		t.Error("the dry run saved state")
 	}
+	stdout, _, _, err := runSplit(t, "sync", "dev", "--dry-run", "-o", "json")
+	var rep syncReport
+	if err != nil || json.Unmarshal([]byte(stdout), &rep) != nil || !rep.DryRun || len(rep.Changes) != 2 ||
+		rep.Changes[1] != (ocsync.Change{Workspace: "default", Kind: "provider", Name: "github", Result: "would create (type github); GH_TOKEN may be sent to api.github.com:443"}) {
+		t.Fatalf("dry run -o json: %v\n%s", err, stdout)
+	}
 
 	out, err = run(t, "sync", "dev")
 	if err != nil {
@@ -276,8 +283,9 @@ esac
 		t.Errorf("show:\n%s", out)
 	}
 	// A secret-tool given on the command line wins over config.yaml.
-	if _, err := run(t, "sync", "dev", "--refresh-secrets", "--secret-tool", filepath.Join(bin, "missing-tool")); err == nil {
-		t.Error("sync with a missing --secret-tool succeeded")
+	stdout, _, _, err = runSplit(t, "sync", "dev", "--refresh-secrets", "--secret-tool", filepath.Join(bin, "missing-tool"), "-o", "json")
+	if exitStatus(err) != exitSyncFailed || json.Unmarshal([]byte(stdout), &rep) != nil || rep.Error == "" || rep.Changes[1].Error == "" {
+		t.Errorf("sync with a missing --secret-tool: %v\n%s", err, stdout)
 	}
 	if out, _ := run(t, "show", "dev"); !strings.Contains(out, "failed:") {
 		t.Errorf("show after a failed sync:\n%s", out)

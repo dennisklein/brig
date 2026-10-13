@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/doctor"
@@ -211,7 +214,7 @@ func TestCreateLeavesAVMCreatedMeanwhileAlone(t *testing.T) {
 	v := &vm.VM{Name: "dev", Image: old.Image, CPUs: 1, Memory: bytesize.GiB, RootDisk: 20 * bytesize.GiB, DataDisk: bytesize.GiB}
 	cmd := newCreateCmd()
 	cmd.SetOut(io.Discard)
-	err := a.create(t.Context(), cmd, v, false, readyBooted)
+	err := a.create(t.Context(), cmd, v, false, readyBooted, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("create() = %v, want an error saying that the VM exists", err)
 	}
@@ -567,5 +570,46 @@ func TestCreateChecksTheHostBeforeBuildingAnImage(t *testing.T) {
 	hostPreflight = func(context.Context) []doctor.Result { return nil }
 	if _, err := run(t, "create", "dev"); err != nil && strings.Contains(err.Error(), "not ready") {
 		t.Errorf("create on a ready host: %v", err)
+	}
+}
+
+func TestMutatingCommandsPrintJSON(t *testing.T) {
+	root := newRootCmd(&progressRun{})
+	for _, path := range [][]string{{"create"}, {"start"}, {"stop"}, {"update"}, {"upgrade"}, {"sync"}, {"image", "push"}} {
+		if c, _, err := root.Find(path); err != nil || c.Flags().Lookup("output") == nil {
+			t.Errorf("brig %q has no -o: %v", path, err)
+		}
+	}
+
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	var out, errOut bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	if resultWriter(cmd, "json") != &errOut || resultWriter(cmd, "table") != &out {
+		t.Error("result line goes to the wrong stream")
+	}
+	if err := a.printVM(t.Context(), cmd, v, "table"); err != nil || out.Len() > 0 {
+		t.Errorf("table: %v, %q", err, &out)
+	}
+	if err := a.printVM(t.Context(), cmd, v, "json"); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Name, State, Gateway string
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil || got.Name != "dev" || got.Gateway != "brig-dev" || got.State == "" {
+		t.Errorf("%v: %s", err, &out)
+	}
+}
+
+func TestImagePushPrintsJSON(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	fakeCommands(t, map[string]string{"podman": "echo image", "ssh": "cat >/dev/null; echo 'Loaded image: localhost/agent:latest'"})
+	stdout, stderr, _, err := runSplit(t, "image", "push", "dev", "localhost/agent:latest", "-o", "json")
+	if err != nil || stdout != "{\n  \"vm\": \"dev\",\n  \"image\": \"localhost/agent:latest\"\n}\n" || !strings.Contains(stderr, "Loaded image") {
+		t.Errorf("%v\nstdout %q\nstderr %q", err, stdout, stderr)
 	}
 }

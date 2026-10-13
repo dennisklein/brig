@@ -45,6 +45,7 @@ func newCreateCmd() *cobra.Command {
 		mounts, configs  []string
 		noStart, wait    bool
 		noConfigs        bool
+		format           outputFormat
 	)
 	cmd := &cobra.Command{
 		Use:   "create NAME",
@@ -140,7 +141,10 @@ config directories sync, as brig start --wait does.`,
 			if err := checkHost(cmd.Context(), cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			return a.create(cmd.Context(), cmd, v, !noStart, waitReadiness(wait))
+			if err := a.create(cmd.Context(), cmd, v, !noStart, waitReadiness(wait), resultWriter(cmd, format)); err != nil {
+				return err
+			}
+			return a.printVM(cmd.Context(), cmd, v, format)
 		},
 	}
 	f := cmd.Flags()
@@ -154,6 +158,7 @@ config directories sync, as brig start --wait does.`,
 	f.BoolVar(&noStart, "no-start", false, "create the VM without starting it")
 	addWaitFlag(cmd, &wait)
 	cmd.MarkFlagsMutuallyExclusive("no-start", "wait")
+	addOutputFlag(cmd, &format)
 	f.StringArrayVar(&configs, "openshell-config", nil, "OpenShell config directory to apply to the VM's gateway (repeatable; default: openshell.configs from config.yaml)")
 	f.BoolVar(&noConfigs, "no-openshell-config", false, "apply no OpenShell config directories")
 	cmd.MarkFlagsMutuallyExclusive("openshell-config", "no-openshell-config")
@@ -165,7 +170,8 @@ config directories sync, as brig start --wait does.`,
 	return cmd
 }
 
-func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bool, ready readiness) (err error) {
+// create creates v and, if start, starts it, saying on result that it did.
+func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bool, ready readiness, result io.Writer) (err error) {
 	w := cmd.ErrOrStderr()
 	if v.Image == "" {
 		img, err := a.images.Newest()
@@ -206,7 +212,7 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 	if err := a.provision(ctx, conn, v); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Created VM %s from image %s.\n", v.Name, v.Image)
+	fmt.Fprintf(result, "Created VM %s from image %s.\n", v.Name, v.Image)
 	if !start {
 		return nil
 	}
@@ -303,9 +309,15 @@ func vmCommand(use, short string, run func(ctx context.Context, cmd *cobra.Comma
 }
 
 func newStartCmd() *cobra.Command {
-	var wait bool
+	var (
+		wait   bool
+		format outputFormat
+	)
 	cmd := vmCommand("start [NAME]", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		return a.lockAndStart(ctx, v, cmd.ErrOrStderr(), waitReadiness(wait))
+		if err := a.lockAndStart(ctx, v, cmd.ErrOrStderr(), waitReadiness(wait)); err != nil {
+			return err
+		}
+		return a.printVM(ctx, cmd, v, format)
 	})
 	cmd.Long = `Start a VM, or reconnect a running one: register its OpenShell gateway with
 the host's openshell CLI and apply its OpenShell config directories.
@@ -315,6 +327,7 @@ is up for you to look into them. With --wait, they fail the command, with
 exit status 5 and 6 (see brig --help), which scripts that go on to use the
 gateway want.`
 	addWaitFlag(cmd, &wait)
+	addOutputFlag(cmd, &format)
 	return cmd
 }
 
@@ -352,8 +365,11 @@ func (a *app) lockAndStart(ctx context.Context, v *vm.VM, w io.Writer, ready rea
 }
 
 func newStopCmd() *cobra.Command {
-	var force bool
-	cmd := vmCommand("stop [NAME]", "Shut a VM down", func(ctx context.Context, _ *cobra.Command, a *app, v *vm.VM) error {
+	var (
+		force  bool
+		format outputFormat
+	)
+	cmd := vmCommand("stop [NAME]", "Shut a VM down", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
@@ -364,9 +380,13 @@ func newStopCmd() *cobra.Command {
 			return err
 		}
 		defer func() { _ = conn.Close() }()
-		return a.stop(ctx, conn, v, force)
+		if err := a.stop(ctx, conn, v, force); err != nil {
+			return err
+		}
+		return a.printVM(ctx, cmd, v, format)
 	})
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "power off immediately instead of shutting down gracefully")
+	addOutputFlag(cmd, &format)
 	return cmd
 }
 
@@ -618,18 +638,7 @@ func newListCmd() *cobra.Command {
 func newShowCmd() *cobra.Command {
 	var format outputFormat
 	cmd := vmCommand("show [NAME]", "Show a VM's settings and state", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		st := vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName(), OpenShellSync: a.lastSync(v)}
-		if conn, err := a.connect(ctx); err == nil {
-			defer func() { _ = conn.Close() }()
-			if s, err := conn.State(v.DomainName()); err == nil {
-				st.State = s.String()
-			}
-			one := []vmStatus{st}
-			if err := addStats(one, conn.Stats); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", termtext.Escape(err.Error()))
-			}
-			st = one[0]
-		}
+		st := a.vmShow(ctx, v, cmd.ErrOrStderr())
 		if format == "json" {
 			return writeJSON(cmd.OutOrStdout(), st)
 		}
@@ -677,6 +686,43 @@ func newShowCmd() *cobra.Command {
 	return cmd
 }
 
+// vmShow returns v with its state, as brig show prints it, and notes on
+// warn what it could not find out.
+func (a *app) vmShow(ctx context.Context, v *vm.VM, warn io.Writer) vmStatus {
+	st := vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName(), OpenShellSync: a.lastSync(v)}
+	conn, err := a.connect(ctx)
+	if err != nil {
+		return st
+	}
+	defer func() { _ = conn.Close() }()
+	if s, err := conn.State(v.DomainName()); err == nil {
+		st.State = s.String()
+	}
+	one := []vmStatus{st}
+	if err := addStats(one, conn.Stats); err != nil {
+		fmt.Fprintf(warn, "Warning: %s\n", termtext.Escape(err.Error()))
+	}
+	return one[0]
+}
+
+// resultWriter is where a command that changes a VM says what it did: on
+// standard output, unless -o json prints the VM there instead.
+func resultWriter(cmd *cobra.Command, format outputFormat) io.Writer {
+	if format == "json" {
+		return cmd.ErrOrStderr()
+	}
+	return cmd.OutOrStdout()
+}
+
+// printVM prints v as brig show -o json does, if format is json, for a
+// command that changed v.
+func (a *app) printVM(ctx context.Context, cmd *cobra.Command, v *vm.VM, format outputFormat) error {
+	if format != "json" {
+		return nil
+	}
+	return writeJSON(cmd.OutOrStdout(), a.vmShow(ctx, v, cmd.ErrOrStderr()))
+}
+
 func newUpdateCmd() *cobra.Command {
 	var (
 		cpus                     int
@@ -684,6 +730,7 @@ func newUpdateCmd() *cobra.Command {
 		profile                  string
 		addMounts, removeMounts  []string
 		addConfigs, rmConfigs    []string
+		format                   outputFormat
 	)
 	cmd := vmCommand("update [NAME]", "Change a VM's resources, mounts, network profile or OpenShell config directories", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
@@ -811,16 +858,19 @@ func newUpdateCmd() *cobra.Command {
 			_ = a.vms.Save(&old)
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Updated VM %s.\n", v.Name)
+		fmt.Fprintf(resultWriter(cmd, format), "Updated VM %s.\n", v.Name)
 		w := cmd.ErrOrStderr()
-		// These flags take effect at once on a running VM.
-		liveFlags := 0
+		// These flags take effect at once on a running VM; -o changes nothing.
+		liveFlags, changes := 0, f.NFlag()
 		for _, name := range []string{"add-openshell-config", "remove-openshell-config", "add-mount", "remove-mount"} {
 			if f.Changed(name) {
 				liveFlags++
 			}
 		}
-		if running && (f.NFlag() == 0 || f.NFlag() > liveFlags) {
+		if f.Changed("output") {
+			changes--
+		}
+		if running && (changes == 0 || changes > liveFlags) {
 			// The guest grows its file systems at boot.
 			fmt.Fprintf(w, "The changes, including the space on grown disks, apply when %s next starts: brig stop %[1]s && brig start %[1]s\n", v.Name)
 		}
@@ -836,7 +886,7 @@ func newUpdateCmd() *cobra.Command {
 		if running && !slices.Equal(old.OpenShellConfigs, v.OpenShellConfigs) {
 			fmt.Fprintf(w, "Apply the OpenShell config directories now with `brig sync %s`; brig start applies them too.\n", v.Name)
 		}
-		return nil
+		return a.printVM(ctx, cmd, v, format)
 	})
 	cmd.Long = `Change a VM's settings.
 
@@ -855,6 +905,7 @@ volume.`
 	f.StringArrayVar(&removeMounts, "remove-mount", nil, "remove the mount at this target directory (repeatable)")
 	f.StringArrayVar(&addConfigs, "add-openshell-config", nil, "add an OpenShell config directory (repeatable)")
 	f.StringArrayVar(&rmConfigs, "remove-openshell-config", nil, "remove an OpenShell config directory (repeatable)")
+	addOutputFlag(cmd, &format)
 	hideDefaults(cmd, "memory", "root-disk", "data-disk")
 	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
 	_ = cmd.RegisterFlagCompletionFunc("add-mount", completeDirs)
