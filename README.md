@@ -68,12 +68,19 @@ brig list
 brig use dev                    # point this shell's openshell CLI at the VM's gateway
 openshell sandbox create        # a shell in OpenShell's default image
 brig ssh dev                    # a shell in the VM, as the gateway's user
-brig stop dev
-brig delete dev
 ```
 
-`brig use` needs brig's [shell integration](#shell-integration); without it,
-run `eval "$(brig env dev)"` instead.
+`brig use` needs brig's [shell integration](#shell-integration), which the
+package sets up for new bash, zsh and fish sessions: open a new terminal after
+installing it. Without the package, add the integration to your shell's
+startup file, or run `eval "$(brig env dev)"` instead.
+
+When you are done, shut the VM down, or delete it with everything on it:
+
+```sh
+brig stop dev
+brig delete dev                 # asks first; the VM's data disk goes with it
+```
 
 To run an agent, build an image for it and give it credentials as described in
 [the guide](docs/openshell.md#your-first-agent-sandbox-pi).
@@ -102,8 +109,10 @@ The guide has an
 ## Shell integration
 
 The `openshell` CLI talks to the gateway that `OPENSHELL_GATEWAY` names, so
-each shell picks its VM. Load brig's shell integration from your shell's
-startup file to switch with `brig use NAME`:
+each shell picks its VM. The brig package loads brig's shell integration in
+new interactive bash and zsh sessions (`/etc/profile.d/brig.sh`) and fish
+sessions. Otherwise load it from your shell's startup file to switch with
+`brig use NAME`:
 
 ```sh
 eval "$(brig shell-init bash)"    # ~/.bashrc
