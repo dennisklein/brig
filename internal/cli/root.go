@@ -52,6 +52,8 @@ OpenShell gateway, so autonomous agents run inside a VM boundary in addition
 to OpenShell's own sandboxing.
 
 Each VM's gateway is registered with the host's openshell CLI as brig-<name>.
+A command that takes a VM NAME works on the VM that brig use selected when you
+leave NAME out, and says so on standard error.
 Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
 		Version:       version.Version(),
 		SilenceUsage:  true,

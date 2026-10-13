@@ -229,11 +229,12 @@ func newImagePruneCmd() *cobra.Command {
 }
 
 func newImagePushCmd() *cobra.Command {
-	cmd := vmCommand("push NAME IMAGE", "Copy a container image from the host's Podman into a VM", nil)
-	cmd.Args = cobra.ExactArgs(2)
+	cmd := vmCommand("push [NAME] IMAGE", "Copy a container image from the host's Podman into a VM", nil)
+	cmd.Args = cobra.RangeArgs(1, 2)
 	cmd.Long = `Copy a container image from the host's Podman storage into the VM's, where
 OpenShell sandboxes can use it, e.g. with openshell sandbox create --from.
-OpenShell cannot build images itself, so build them on the host.`
+OpenShell cannot build images itself, so build them on the host. Without
+NAME, the VM is the one that brig use selected.`
 	cmd.Example = `  podman build -t localhost/my-agent:latest .
   brig image push dev localhost/my-agent:latest`
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -241,17 +242,23 @@ OpenShell cannot build images itself, so build them on the host.`
 		if err != nil {
 			return err
 		}
-		v, err := a.vms.Load(args[0])
+		v, err := a.resolveVMArg(cmd, args[:len(args)-1])
 		if err != nil {
 			return err
 		}
-		return a.pushImage(cmd.Context(), v, args[1], cmd)
+		return a.pushImage(cmd.Context(), v, args[len(args)-1], cmd)
 	}
 	cmd.ValidArgsFunction = func(c *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 1 {
 			return completePodmanImages(c.Context())
 		}
-		return completeVMs(c, args, toComplete)
+		// The first argument is an image if a VM is selected, else the VM.
+		vms, d := completeVMs(c, args, toComplete)
+		if len(args) == 0 && os.Getenv(gatewayEnv) != "" {
+			images, _ := completePodmanImages(c.Context())
+			vms = append(vms, images...)
+		}
+		return vms, d
 	}
 	return cmd
 }
