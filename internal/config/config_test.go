@@ -120,3 +120,26 @@ func TestLoadOpenShell(t *testing.T) {
 		t.Errorf("openshell section = %+v, want %+v", cfg.OpenShell, want)
 	}
 }
+
+func TestNetworkProfileAllows(t *testing.T) {
+	for name, want := range map[string]string{
+		"default":  "internet",
+		"open":     "internet, LAN, all host services, IPv6",
+		"isolated": "nothing outside the VM",
+	} {
+		p, err := Builtin().Profile(name)
+		if err != nil || p.Allows() != want {
+			t.Errorf("profile %s allows %q, %v; want %q", name, p.Allows(), err, want)
+		}
+	}
+	if got := (NetworkProfile{HostPorts: []uint16{11434, 8080}}).Allows(); got != "host ports 11434, 8080" {
+		t.Errorf("host ports: %q", got)
+	}
+}
+
+func TestUnknownProfileListsTheKnownOnes(t *testing.T) {
+	_, err := Builtin().Profile("nope")
+	if err == nil || !strings.Contains(err.Error(), "(have default, isolated, open)") {
+		t.Errorf("Profile(nope) = %v", err)
+	}
+}

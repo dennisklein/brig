@@ -213,7 +213,7 @@
   <pre class="code">{{$d.YAML}}</pre>
   <dl class="kv">
     {{with $d.Rationale}}<dt>Why</dt><dd>{{.}}</dd>{{end}}
-    <dt>Prover</dt><dd>{{with $d.Validation}}{{.}}{{else}}<span class="faint">no verdict</span>{{end}}</dd>
+    <dt>Security check</dt><dd>{{with $d.Validation}}{{.}}{{else}}<span class="faint">no verdict</span>{{end}}</dd>
     <dt>Seen</dt><dd>{{$d.Hits}} time{{if ne $d.Hits 1}}s{{end}}{{if not $d.LastSeen.IsZero}}, last {{rel $d.LastSeen}}{{end}}</dd>
   </dl>
 </div>

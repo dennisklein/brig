@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -70,6 +71,34 @@ type NetworkProfile struct {
 	LAN bool `yaml:"lan" json:"lan"`
 	// IPv6 allows IPv6 traffic; otherwise the VM gets no IPv6 connectivity.
 	IPv6 bool `yaml:"ipv6" json:"ipv6"`
+}
+
+// Allows describes what the profile lets a VM reach, such as "internet, host
+// ports 11434", for people who want to know what a profile's name means.
+func (p NetworkProfile) Allows() string {
+	var parts []string
+	if p.Internet {
+		parts = append(parts, "internet")
+	}
+	if p.LAN {
+		parts = append(parts, "LAN")
+	}
+	if p.Host {
+		parts = append(parts, "all host services")
+	} else if len(p.HostPorts) > 0 {
+		ports := make([]string, len(p.HostPorts))
+		for i, port := range p.HostPorts {
+			ports[i] = strconv.Itoa(int(port))
+		}
+		parts = append(parts, "host ports "+strings.Join(ports, ", "))
+	}
+	if p.IPv6 {
+		parts = append(parts, "IPv6")
+	}
+	if len(parts) == 0 {
+		return "nothing outside the VM"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Builtin returns the configuration used when no config file exists.
@@ -248,7 +277,7 @@ func (p NetworkProfile) validate() error {
 func (c *Config) Profile(name string) (NetworkProfile, error) {
 	p, ok := c.NetworkProfiles[name]
 	if !ok {
-		return NetworkProfile{}, fmt.Errorf("unknown network profile %q", name)
+		return NetworkProfile{}, fmt.Errorf("unknown network profile %q (have %s)", name, strings.Join(c.ProfileNames(), ", "))
 	}
 	return p, nil
 }

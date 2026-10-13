@@ -606,7 +606,11 @@ func newShowCmd() *cobra.Command {
 		}
 		row("Root disk", v.RootDisk)
 		row("Data disk", v.DataDisk)
-		row("Network profile", v.NetworkProfile)
+		if p, err := a.cfg.Profile(v.NetworkProfile); err == nil {
+			row("Network profile", fmt.Sprintf("%s (allows %s)", v.NetworkProfile, p.Allows()))
+		} else {
+			row("Network profile", v.NetworkProfile)
+		}
 		for _, m := range v.Mounts {
 			if m.Sandbox {
 				row("Mount", fmt.Sprintf("%s (sandbox volume %s)", m, m.Tag))
