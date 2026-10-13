@@ -98,3 +98,78 @@ func TestSecretToolStoreHint(t *testing.T) {
 		t.Errorf("Lookup() error = %v", err)
 	}
 }
+
+func TestSecretToolStore(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "stdin")
+	path, log := fakeSecretTool(t, "cat >'"+in+"'")
+	secret := "s3cret\nline two"
+	err := SecretTool{Path: path}.Store(context.Background(), "brig: github GH_TOKEN", []string{"service", "github.com", "user", "alice smith"}, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The label and attributes are arguments; the secret is not.
+	if data, _ := os.ReadFile(log); string(data) != "store --label=brig: github GH_TOKEN service github.com user alice smith\n" {
+		t.Errorf("argv: %q", data)
+	}
+	if data, _ := os.ReadFile(in); string(data) != secret {
+		t.Errorf("stdin: %q", data)
+	}
+}
+
+func TestSecretToolStoreFailures(t *testing.T) {
+	attrs := []string{"service", "GitHub token", "user", "alice's"}
+	for name, tc := range map[string]struct {
+		body string
+		want string
+	}{
+		"no store verb": {"echo \"unknown verb: $1\" >&2; exit 2", "unknown verb: store"},
+		"echoes secret": {"echo \"cannot store $(cat)\" >&2; exit 1", "cannot store "},
+		"silent":        {"echo leaked; exit 3", "exit status 3"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path, _ := fakeSecretTool(t, tc.body)
+			err := SecretTool{Path: path}.Store(context.Background(), "L", attrs, "hunter2")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Store() error = %v, want %q", err, tc.want)
+			}
+			// The attributes come quoted, to paste into a shell.
+			if !strings.Contains(err.Error(), `service 'GitHub token' user 'alice'\''s'`) {
+				t.Errorf("error lacks the attributes: %v", err)
+			}
+			for _, leak := range []string{"hunter2", "leaked"} {
+				if strings.Contains(err.Error(), leak) {
+					t.Errorf("error shows %q: %v", leak, err)
+				}
+			}
+		})
+	}
+
+	path, _ := fakeSecretTool(t, "sleep 5")
+	start := time.Now()
+	if err := (SecretTool{Path: path, Timeout: 100 * time.Millisecond}).Store(context.Background(), "L", attrs, "x"); err == nil || time.Since(start) > 3*time.Second {
+		t.Errorf("timeout: %v after %s", err, time.Since(start))
+	}
+	if err := (SecretTool{Path: "brig-no-such-secret-tool"}).Store(context.Background(), "L", attrs, "x"); err == nil || !strings.Contains(err.Error(), "openshell.secret_tool") {
+		t.Errorf("missing tool: %v", err)
+	}
+}
+
+func TestLookupEnv(t *testing.T) {
+	t.Setenv("BRIG_SECRET_X", "v\n")
+	if got, err := LookupEnv("BRIG_SECRET_X"); err != nil || got != "v\n" {
+		t.Errorf("LookupEnv() = %q, %v", got, err)
+	}
+	t.Setenv("BRIG_SECRET_EMPTY", "")
+	if _, err := LookupEnv("BRIG_SECRET_EMPTY"); !errors.Is(err, ErrSecretNotFound) {
+		t.Errorf("empty: %v", err)
+	}
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "k")
+	if _, err := LookupEnv("AWS_SECRET_ACCESS_KEY"); err == nil || !strings.Contains(err.Error(), "must start with BRIG_SECRET_") {
+		t.Errorf("unrelated: %v", err)
+	}
+	t.Setenv("BRIG_SECRET_BIG", strings.Repeat("x", maxSecretSize+1))
+	if _, err := LookupEnv("BRIG_SECRET_BIG"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("big: %v", err)
+	}
+}
