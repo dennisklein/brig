@@ -126,7 +126,7 @@ func (a *app) upgrade(ctx context.Context, conn domains, v *vm.VM, id string, ke
 	})
 	if err == nil {
 		fmt.Fprintf(w, "Booting %s on image %s...\n", v.Name, id)
-		err = a.startVM(ctx, conn, v, w, true)
+		err = a.startVM(ctx, conn, v, w, readyGateway)
 	}
 	if err != nil {
 		// Roll back even when ctx was cancelled, e.g. by Ctrl-C during the
