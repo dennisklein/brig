@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -78,7 +77,7 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 			}
 			req := saveRequest{
 				workspace: ws, sandbox: args[len(args)-1], keys: rules, to: to, dryRun: dryRun,
-				confirm: confirmer(cmd.InOrStdin(), cmd.ErrOrStderr(), yes),
+				confirm: confirmer(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), yes),
 			}
 			return a.policySave(cmd.Context(), v, req, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
@@ -303,36 +302,6 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, req saveRequest, out, wa
 	fmt.Fprintf(out, "Saved rules %s to %s.\n", termtext.Escape(strings.Join(keyList, ", ")), termtext.Escape(target))
 	fmt.Fprintf(out, "Sandboxes created from the file get them; apply it to a running one with openshell policy set NAME --policy %s --wait.\n", termtext.Escape(target))
 	return nil
-}
-
-// isInteractive reports whether brig may ask questions: whether in and out
-// are terminals. Tests replace it.
-var isInteractive = func(in io.Reader, out io.Writer) bool {
-	i, ok := in.(*os.File)
-	o, ok2 := out.(*os.File)
-	return ok && ok2 && isTerminal(i) && isTerminal(o)
-}
-
-// confirmer returns the function that asks a yes or no question on w and
-// reads the answer from in, or nil where brig does not ask: with yes, and
-// where in or w is no terminal.
-func confirmer(in io.Reader, w io.Writer, yes bool) func(prompt string) (bool, error) {
-	if yes || !isInteractive(in, w) {
-		return nil
-	}
-	r := bufio.NewReader(in)
-	return func(prompt string) (bool, error) {
-		fmt.Fprint(w, prompt)
-		line, err := r.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return false, err
-		}
-		switch strings.ToLower(strings.TrimSpace(line)) {
-		case "y", "yes":
-			return true, nil
-		}
-		return false, nil
-	}
 }
 
 // pickRules returns the rules to save: the named ones, or else every

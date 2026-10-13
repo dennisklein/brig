@@ -175,7 +175,7 @@ starts with `brig-`.
 | `update [NAME]` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
 | `sync [NAME]` (`-w`) | apply the VM's OpenShell config directories to its gateway |
 | `upgrade [NAME]` | move onto the newest base image, keeping the data disk and rolling back on failure |
-| `delete [NAME]` | delete the VM, its disks and its gateway registration |
+| `delete [NAME]` | delete the VM, its disks and its gateway registration; asks first on a terminal (`--yes` skips the question, `--force` deletes a running VM) |
 | `ssh [NAME]`, `console [NAME]` | shell (`--root` for root), serial console |
 | `use [NAME]` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)); without NAME, say which VM the shell points at; `-w WORKSPACE` also exports `BRIG_WORKSPACE` |
 | `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`), in the workspace of `-w` |

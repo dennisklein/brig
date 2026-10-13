@@ -331,7 +331,7 @@ func newStopCmd() *cobra.Command {
 }
 
 func newDeleteCmd() *cobra.Command {
-	var force bool
+	var force, yes bool
 	cmd := vmCommand("delete [NAME]", "Delete a VM and all its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
@@ -343,22 +343,57 @@ func newDeleteCmd() *cobra.Command {
 			return err
 		}
 		defer func() { _ = conn.Close() }()
-		return a.remove(ctx, conn, v, force, cmd.OutOrStdout(), cmd.ErrOrStderr())
+		var ask func(libvirt.State) error
+		if confirm := confirmer(ctx, cmd.InOrStdin(), cmd.ErrOrStderr(), yes); confirm != nil {
+			ask = func(state libvirt.State) error { return confirmDelete(cmd.ErrOrStderr(), confirm, v, state) }
+		}
+		return a.remove(ctx, conn, v, force, ask, cmd.OutOrStdout(), cmd.ErrOrStderr())
 	})
 	cmd.Aliases = []string{"rm"}
+	cmd.Long = `Delete a VM with its root disk, its data disk and its gateway registration.
+The data disk holds the gateway's encrypted secrets, the /sandbox of every
+sandbox and every image pushed to the VM, so none of it can be got back.
+
+On a terminal, delete asks first; --yes skips the question. Without a
+terminal on standard input, as in a script, it deletes without asking.`
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "delete a running VM")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
 	return cmd
 }
 
+// confirmDelete says on w what deleting VM v, which is in state, removes,
+// asks with confirm and fails if the answer is not yes.
+func confirmDelete(w io.Writer, confirm func(prompt string) (bool, error), v *vm.VM, state libvirt.State) error {
+	fmt.Fprintf(w, "Deleting VM %s removes its root disk (%s), its data disk (%s) and its gateway registration.\n", v.Name, v.RootDisk, v.DataDisk)
+	fmt.Fprintln(w, "The data disk holds the gateway's secrets, every sandbox's /sandbox and every pushed image.")
+	if state != libvirt.StateShutoff && state != libvirt.StateMissing {
+		fmt.Fprintf(w, "VM %s is %s and will be powered off first.\n", v.Name, state)
+	}
+	ok, err := confirm("Delete VM " + termtext.Escape(v.Name) + "? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("VM %s not deleted", v.Name)
+	}
+	return nil
+}
+
 // remove deletes the VM, which must be shut off or missing unless force is
-// set, with its domain, files and gateway.
-func (a *app) remove(ctx context.Context, conn domains, v *vm.VM, force bool, stdout, stderr io.Writer) error {
+// set, with its domain, files and gateway. If ask is not nil, it is asked
+// before anything is deleted, with the VM's state, and can refuse.
+func (a *app) remove(ctx context.Context, conn domains, v *vm.VM, force bool, ask func(libvirt.State) error, stdout, stderr io.Writer) error {
 	state, err := conn.State(v.DomainName())
 	if err != nil {
 		return err
 	}
 	if state != libvirt.StateShutoff && state != libvirt.StateMissing && !force {
 		return fmt.Errorf("VM %s is %s; stop it first or use --force", v.Name, state)
+	}
+	if ask != nil {
+		if err := ask(state); err != nil {
+			return err
+		}
 	}
 	if err := a.stop(ctx, conn, v, true); err != nil {
 		return err
