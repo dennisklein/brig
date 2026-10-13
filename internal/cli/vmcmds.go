@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -267,19 +268,20 @@ func (a *app) writeKeys(v *vm.VM) error {
 	return sshx.WriteKnownHosts(a.vmFile(v, knownHostsFile), v.DomainName(), hostPub)
 }
 
-// vmCommand builds a command that operates on one existing VM.
+// vmCommand builds a command that operates on one existing VM: the one NAME
+// names, else the one that brig use selected.
 func vmCommand(use, short string, run func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error) *cobra.Command {
 	return &cobra.Command{
 		Use:               use,
 		Short:             short,
-		Args:              cobra.ExactArgs(1),
+		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completeVMs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp()
 			if err != nil {
 				return err
 			}
-			v, err := a.vms.Load(args[0])
+			v, err := a.resolveVMArg(cmd, args)
 			if err != nil {
 				return err
 			}
@@ -289,7 +291,7 @@ func vmCommand(use, short string, run func(ctx context.Context, cmd *cobra.Comma
 }
 
 func newStartCmd() *cobra.Command {
-	return vmCommand("start NAME", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	return vmCommand("start [NAME]", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
@@ -310,7 +312,7 @@ func newStartCmd() *cobra.Command {
 
 func newStopCmd() *cobra.Command {
 	var force bool
-	cmd := vmCommand("stop NAME", "Shut a VM down", func(ctx context.Context, _ *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("stop [NAME]", "Shut a VM down", func(ctx context.Context, _ *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
@@ -329,7 +331,7 @@ func newStopCmd() *cobra.Command {
 
 func newDeleteCmd() *cobra.Command {
 	var force bool
-	cmd := vmCommand("delete NAME", "Delete a VM and all its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("delete [NAME]", "Delete a VM and all its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
@@ -539,7 +541,7 @@ func newListCmd() *cobra.Command {
 
 func newShowCmd() *cobra.Command {
 	var format outputFormat
-	cmd := vmCommand("show NAME", "Show a VM's settings and state", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("show [NAME]", "Show a VM's settings and state", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		st := vmStatus{VM: v, State: "unknown", Gateway: v.GatewayName(), OpenShellSync: a.lastSync(v)}
 		if conn, err := a.connect(ctx); err == nil {
 			defer func() { _ = conn.Close() }()
@@ -603,7 +605,7 @@ func newUpdateCmd() *cobra.Command {
 		addMounts, removeMounts  []string
 		addConfigs, rmConfigs    []string
 	)
-	cmd := vmCommand("update NAME", "Change a VM's resources, mounts, network profile or OpenShell config directories", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("update [NAME]", "Change a VM's resources, mounts, network profile or OpenShell config directories", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
@@ -816,25 +818,36 @@ func completeMountTargets(_ *cobra.Command, args []string, _ string) ([]string, 
 func newSSHCmd() *cobra.Command {
 	var root bool
 	cmd := &cobra.Command{
-		Use:   "ssh NAME [-- COMMAND...]",
+		Use:   "ssh [NAME] [-- COMMAND...]",
 		Short: "Open a shell in a VM, or run a command there",
 		Long: `Open a shell in a VM as user agent, which runs the OpenShell gateway and
-owns the persistent home directory, or as root with --root.`,
+owns the persistent home directory, or as root with --root. Without NAME,
+the VM is the one that brig use selected; a command then needs the --.`,
 		Example: `  brig ssh dev
   brig ssh dev -- systemctl --user status openshell-gateway
-  brig ssh dev --root -- journalctl -b`,
-		Args:              cobra.MinimumNArgs(1),
+  brig ssh dev --root -- journalctl -b
+  brig ssh -- journalctl -b`,
 		ValidArgsFunction: completeVMs,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp()
 			if err != nil {
 				return err
 			}
-			v, err := a.vms.Load(args[0])
+			// Without a --, the first argument is the VM, as before.
+			named, command := args, []string(nil)
+			if dash := cmd.ArgsLenAtDash(); dash >= 0 {
+				named, command = args[:dash], args[dash:]
+			} else if len(args) > 0 {
+				named, command = args[:1], args[1:]
+			}
+			if len(named) > 1 {
+				return fmt.Errorf("accepts at most one VM name before --, received %d", len(named))
+			}
+			v, err := a.resolveVMArg(cmd, named)
 			if err != nil {
 				return err
 			}
-			return execve("ssh", a.sshTarget(v, root).Interactive(args[1:]...))
+			return execve("ssh", a.sshTarget(v, root).Interactive(command...))
 		},
 	}
 	cmd.Flags().BoolVar(&root, "root", false, "log in as root")
@@ -842,7 +855,7 @@ owns the persistent home directory, or as root with --root.`,
 }
 
 func newConsoleCmd() *cobra.Command {
-	return vmCommand("console NAME", "Attach to a VM's serial console (exit with Ctrl+])", func(_ context.Context, _ *cobra.Command, _ *app, v *vm.VM) error {
+	return vmCommand("console [NAME]", "Attach to a VM's serial console (exit with Ctrl+])", func(_ context.Context, _ *cobra.Command, _ *app, v *vm.VM) error {
 		return execve("virsh", []string{"virsh", "--connect", "qemu:///session", "console", v.DomainName()})
 	})
 }
@@ -852,7 +865,7 @@ func newEnvCmd() *cobra.Command {
 		shell string
 		unset bool
 	)
-	cmd := envCommand("env [NAME]", "Print shell commands that point the openshell CLI at a VM", &unset, func() (string, error) {
+	cmd := envCommand("env NAME", "Print shell commands that point the openshell CLI at a VM", &unset, func() (string, error) {
 		sh := shell
 		if sh == "" {
 			sh = "sh"
@@ -891,7 +904,7 @@ const shellIntegrationEnv = "BRIG_SHELL_INTEGRATION"
 
 func newUseCmd() *cobra.Command {
 	var unset bool
-	cmd := envCommand("use [NAME]", "Point the openshell CLI in this shell at a VM", &unset, func() (string, error) {
+	cmd := envCommand("use [NAME]", "Point the openshell CLI in this shell at a VM, or show which one", &unset, func() (string, error) {
 		switch sh := os.Getenv(shellIntegrationEnv); sh {
 		case "sh", "fish":
 			return sh, nil
@@ -907,6 +920,10 @@ func newUseCmd() *cobra.Command {
 	})
 	cmd.Long = `Point the openshell CLI in this shell at VM NAME's gateway, as
 eval "$(brig env NAME)" does, or stop pointing it at any VM with --unset.
+Without NAME or --unset, it tells which VM this shell points at, on standard
+error; it fails if there is none.
+
+Commands that take a VM NAME work on that VM when you leave NAME out.
 
 A program cannot change its shell's environment, so brig use needs brig's
 shell integration, which defines a brig shell function that runs brig use
@@ -923,20 +940,30 @@ and evaluates what it prints (see brig shell-init --help).`
 
 // envCommand returns a command that prints shell commands that point the
 // openshell CLI at the VM its argument names, or, if *unset is set by the
-// --unset flag it defines, that unset what they set. shell returns the
-// shell to write for, "sh" or "fish".
+// --unset flag it defines, that unset what they set. If use ends in "[NAME]",
+// it may be run without either, and then tells which VM the shell points at.
+// shell returns the shell to write for, "sh" or "fish".
 func envCommand(use, short string, unset *bool, shell func() (string, error)) *cobra.Command {
+	optional := strings.HasSuffix(use, "[NAME]")
 	cmd := &cobra.Command{
 		Use:   use,
 		Short: short,
 		Args: func(cmd *cobra.Command, args []string) error {
-			if *unset {
+			switch {
+			case *unset:
 				return cobra.NoArgs(cmd, args)
+			case optional:
+				return cobra.MaximumNArgs(1)(cmd, args)
 			}
 			return cobra.ExactArgs(1)(cmd, args)
 		},
 		ValidArgsFunction: completeVMs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// What is printed to standard output is evaluated by the
+			// shell, so the answer goes to standard error.
+			if optional && !*unset && len(args) == 0 {
+				return showSelectedVM(cmd.ErrOrStderr())
+			}
 			sh, err := shell()
 			if err != nil {
 				return err
@@ -986,6 +1013,19 @@ func envCommand(use, short string, unset *bool, shell func() (string, error)) *c
 	}
 	cmd.Flags().BoolVar(unset, "unset", false, "unset the variables instead, without a NAME")
 	return cmd
+}
+
+// showSelectedVM tells on w which VM the shell points at.
+func showSelectedVM(w io.Writer) error {
+	name, err := selectedVM()
+	if errors.Is(err, errNoVMSelected) {
+		return errors.New("this shell points at no VM; select one with brig use NAME")
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "This shell points at VM %s.\n", termtext.Escape(name))
+	return nil
 }
 
 // defaultPolicy returns the default sandbox policy file of v's OpenShell

@@ -28,7 +28,7 @@ func newUpgradeCmd() *cobra.Command {
 		imageID string
 		force   bool
 	)
-	cmd := vmCommand("upgrade NAME", "Move a VM onto a newer base image, keeping its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("upgrade [NAME]", "Move a VM onto a newer base image, keeping its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err

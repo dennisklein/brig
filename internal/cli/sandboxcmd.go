@@ -6,7 +6,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -62,10 +61,6 @@ default sandbox policy, if it has one.`,
 		},
 		ValidArgsFunction: completeVMs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := sandboxVM(vmArgs(cmd, args))
-			if err != nil {
-				return err
-			}
 			pass := args[len(vmArgs(cmd, args)):]
 			if err := checkSandboxArgs(pass); err != nil {
 				return err
@@ -85,7 +80,7 @@ default sandbox policy, if it has one.`,
 			if err != nil {
 				return err
 			}
-			v, err := a.vms.Load(name)
+			v, err := a.resolveVMArg(cmd, vmArgs(cmd, args))
 			if err != nil {
 				return err
 			}
@@ -124,22 +119,6 @@ func vmArgs(cmd *cobra.Command, args []string) []string {
 		return args[:dash]
 	}
 	return args
-}
-
-// sandboxVM returns the VM that args name, or else the one whose gateway
-// OPENSHELL_GATEWAY names, as brig use sets it.
-func sandboxVM(args []string) (string, error) {
-	if len(args) == 1 {
-		return args[0], nil
-	}
-	gw := os.Getenv("OPENSHELL_GATEWAY")
-	if name, ok := strings.CutPrefix(gw, "brig-"); ok && name != "" {
-		return name, nil
-	}
-	if gw != "" {
-		return "", fmt.Errorf("OPENSHELL_GATEWAY names gateway %q, which is no brig VM's; name the VM", gw)
-	}
-	return "", errors.New("name the VM, or point this shell at one with brig use NAME")
 }
 
 // checkSandboxArgs rejects openshell options that brig sets itself. Options

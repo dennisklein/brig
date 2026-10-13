@@ -49,6 +49,7 @@ func TestUsePrintsWhatEnvPrints(t *testing.T) {
 			}
 		}
 	}
+	t.Setenv(gatewayEnv, "")
 	for _, args := range [][]string{{}, {"dev", "--unset"}} {
 		if _, err := run(t, append([]string{"use"}, args...)...); err == nil {
 			t.Errorf("use %q succeeded", args)

@@ -25,7 +25,7 @@ func newSyncCmd() *cobra.Command {
 		opts       ocsync.Options
 		secretTool string
 	)
-	cmd := vmCommand("sync NAME", "Apply a VM's OpenShell config directories to its gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+	cmd := vmCommand("sync [NAME]", "Apply a VM's OpenShell config directories to its gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err

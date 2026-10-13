@@ -64,15 +64,11 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: completeVMs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			vmName, err := sandboxVM(args[:len(args)-1])
-			if err != nil {
-				return err
-			}
 			a, err := newApp()
 			if err != nil {
 				return err
 			}
-			v, err := a.vms.Load(vmName)
+			v, err := a.resolveVMArg(cmd, args[:len(args)-1])
 			if err != nil {
 				return err
 			}
