@@ -253,7 +253,7 @@ func TestRunOpenShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"trace":"` + task.Trace + `"`, `"program":"openshell"`, `"name":"sandbox delete webapp"`, `"status":"ok"`} {
+	for _, want := range []string{`"trace":"` + task.Trace + `"`, `"program":"openshell"`, `"name":"sandbox delete webapp"`, `"node":"dev"`, `"status":"ok"`} {
 		if !strings.Contains(string(log), want) {
 			t.Errorf("activity log lacks %s:\n%s", want, log)
 		}

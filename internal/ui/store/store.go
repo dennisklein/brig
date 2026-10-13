@@ -161,6 +161,8 @@ type Run struct {
 	Err     string
 	Program string
 	Version string
+	// VM is the VM the command worked on, as it recorded it.
+	VM string
 	// Steps are the spans below the command a terminal display would
 	// show.
 	Steps []Span

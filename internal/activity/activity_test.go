@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
 // SPDX-License-Identifier: Apache-2.0
 
-package collect
+package activity
 
 import (
 	"bytes"
@@ -21,11 +21,21 @@ import (
 // command span named command, and the work of work below it.
 func logRun(t *testing.T, command string, work func(ctx context.Context) error) []byte {
 	t.Helper()
+	return logRunOn(t, "", command, work)
+}
+
+// logRunOn logs a command that names the VM it works on as its node.
+func logRunOn(t *testing.T, vm, command string, work func(ctx context.Context) error) []byte {
+	t.Helper()
 	var out bytes.Buffer
 	log := progress.NewLog(&out, progress.LogOptions{Program: "brig", Version: "v0.6.0"})
 	bus := progress.NewBus(progress.BusOptions{Sinks: []progress.Sink{log}})
 	ctx, span := progress.Start(progress.WithBus(context.Background(), bus), progress.KindCommand, command)
-	span.End(work(ctx))
+	var opts []progress.Option
+	if vm != "" {
+		opts = append(opts, progress.Node(vm))
+	}
+	span.End(work(ctx), opts...)
 	bus.Close()
 	if err := log.Close(); err != nil {
 		t.Fatal(err)
@@ -56,7 +66,7 @@ func failingStop(ctx context.Context) error {
 }
 
 func reduce(logs ...[]byte) []store.Run {
-	red := NewReducer()
+	red := NewReducer(200)
 	readLines(bytes.NewReader(bytes.Join(logs, nil)), red, nil)
 	return red.Runs()
 }
@@ -142,7 +152,8 @@ func TestReducerSkipsJunk(t *testing.T) {
 }
 
 func TestReducerKeepsNewest(t *testing.T) {
-	red := NewReducer()
+	const maxRuns = 20
+	red := NewReducer(maxRuns)
 	for range maxRuns + 5 {
 		// Each log draws a run of its own.
 		readLines(bytes.NewReader(logRun(t, "list", func(context.Context) error { return nil })), red, nil)
@@ -155,11 +166,11 @@ func TestReducerKeepsNewest(t *testing.T) {
 func TestTail(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "activity.jsonl")
-	tl := &tail{path: path, red: NewReducer()}
-	if !tl.poll() || len(tl.red.Runs()) != 0 {
+	tl := NewTail(path, NewReducer(200))
+	if !tl.Poll() || len(tl.red.Runs()) != 0 {
 		t.Fatal("a missing log is not an empty one")
 	}
-	if tl.poll() {
+	if tl.Poll() {
 		t.Error("a missing log changed")
 	}
 
@@ -168,14 +179,14 @@ func TestTail(t *testing.T) {
 	if err := os.WriteFile(path, start[:half], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !tl.poll() || len(tl.red.Runs()) != 1 || tl.red.Runs()[0].Done() {
+	if !tl.Poll() || len(tl.red.Runs()) != 1 || tl.red.Runs()[0].Done() {
 		t.Fatalf("first part: %+v", tl.red.Runs())
 	}
 	appendFile(t, path, start[half:])
-	if !tl.poll() || !tl.red.Runs()[0].Done() {
+	if !tl.Poll() || !tl.red.Runs()[0].Done() {
 		t.Fatalf("rest: %+v", tl.red.Runs())
 	}
-	if tl.poll() {
+	if tl.Poll() {
 		t.Error("an unchanged log changed")
 	}
 
@@ -186,14 +197,13 @@ func TestTail(t *testing.T) {
 	if err := os.WriteFile(path, logRun(t, "stop dev", failingStop), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !tl.poll() || len(tl.red.Runs()) != 2 {
+	if !tl.Poll() || len(tl.red.Runs()) != 2 {
 		t.Fatalf("after rotation: %+v", tl.red.Runs())
 	}
 
 	// A new reader finds both, the rotated copy first.
-	fresh := &tail{path: path, red: NewReducer()}
-	fresh.readOld()
-	fresh.poll()
+	fresh := NewTail(path, NewReducer(200))
+	fresh.Poll()
 	if runs := fresh.red.Runs(); len(runs) != 2 || runs[0].Title != "brig stop dev" {
 		t.Errorf("fresh reader: %+v", runs)
 	}
@@ -214,10 +224,17 @@ func appendFile(t *testing.T, path string, data []byte) {
 }
 
 func TestReadLinesSkipsLongLines(t *testing.T) {
-	red := NewReducer()
+	red := NewReducer(200)
 	long := append(bytes.Repeat([]byte("x"), maxLine+10), '\n')
 	n, partial := readLines(bytes.NewReader(append(long, logRun(t, "start dev", startDev)...)), red, nil)
 	if len(red.Runs()) != 1 || len(partial) != 0 || n <= int64(len(long)) {
 		t.Errorf("runs %d, partial %d, read %d", len(red.Runs()), len(partial), n)
+	}
+}
+
+func TestReducerVM(t *testing.T) {
+	runs := reduce(logRunOn(t, "dev", "policy allow dev", func(context.Context) error { return nil }), logRun(t, "list", func(context.Context) error { return nil }))
+	if len(runs) != 2 || runs[1].VM != "dev" || runs[0].VM != "" {
+		t.Errorf("runs: %+v", runs)
 	}
 }

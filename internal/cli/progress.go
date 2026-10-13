@@ -38,12 +38,26 @@ type progressFlags struct{ mode, log string }
 type progressRun struct {
 	run  atomic.Pointer[cliprogress.Run] // atomic for tests that draw by hand
 	span *progress.Span
+	// vm is the VM the command works on, once it named one.
+	vm string
 	// options lets a test change what the display is drawn on.
 	options func(*cliprogress.Options)
 }
 
 // runKey is the context key of the *cliprogress.Run of a command.
 type runKey struct{}
+
+// vmKey is the context key of where a command records the VM it works on.
+type vmKey struct{}
+
+// recordVM records that the command whose context is ctx works on the VM
+// called name. The event log names it as the command's node, which tells
+// brig audit which VM's history the command belongs to.
+func recordVM(ctx context.Context, name string) {
+	if vm, ok := ctx.Value(vmKey{}).(*string); ok {
+		*vm = name
+	}
+}
 
 // progressMode returns the mode of the display that shows the command whose
 // context is ctx, or cliprogress.ModeNone if there is none.
@@ -193,7 +207,7 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 		return err
 	}
 	ctx, span := progress.Start(run.Context(), progress.KindCommand, commandName(cmd, args))
-	cmd.SetContext(context.WithValue(ctx, runKey{}, run))
+	cmd.SetContext(context.WithValue(context.WithValue(ctx, runKey{}, run), vmKey{}, &p.vm))
 	cmd.SetErr(run.Writer(cmd.ErrOrStderr()))
 	// Only a standard output on the terminal can tear the display.
 	if isTerminal(os.Stdout) {
@@ -210,6 +224,10 @@ func (p *progressRun) end(err error) {
 	if run == nil {
 		return
 	}
-	p.span.End(err)
+	var opts []progress.Option
+	if p.vm != "" {
+		opts = append(opts, progress.Node(p.vm))
+	}
+	p.span.End(err, opts...)
 	run.Finish(err != nil)
 }

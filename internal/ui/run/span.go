@@ -13,9 +13,11 @@ import (
 
 // openSpan records an openshell command in the activity log, as brig's own
 // commands record themselves: the OpenShell CLI writes no events, so brig ui
-// writes one span for the whole command under the task's trace. It returns
-// the function that ends the span with the command's outcome. The log is a
-// convenience, so a log that cannot be opened is no reason to fail the task.
+// writes one span for the whole command under the task's trace, with the VM
+// of its gateway as the span's node, as brig records the VM it works on. It
+// returns the function that ends the span with the command's outcome. The
+// log is a convenience, so a log that cannot be opened is no reason to fail
+// the task.
 func openSpan(path, trace, parent string, argv []string) (end func(error)) {
 	tc, ok := progress.ParseTraceContext("00-"+trace+"-"+parent+"-01", "")
 	if path == "" || !ok {
@@ -31,7 +33,11 @@ func openSpan(path, trace, parent string, argv []string) (end func(error)) {
 		Trace:   tc,
 		Program: "openshell",
 	})
-	_, span := progress.Start(progress.WithBus(context.Background(), bus), progress.KindCommand, spanName(argv))
+	var opts []progress.Option
+	if vm := gatewayVM(argv); vm != "" {
+		opts = append(opts, progress.Node(vm))
+	}
+	_, span := progress.Start(progress.WithBus(context.Background(), bus), progress.KindCommand, spanName(argv), opts...)
 	return func(err error) {
 		span.End(err)
 		bus.Close()
@@ -53,4 +59,19 @@ func spanName(argv []string) string {
 		words = append(words, argv[i])
 	}
 	return strings.Join(words, " ")
+}
+
+// gatewayVM returns the VM whose gateway an openshell command's -g names,
+// brig-VM, or "".
+func gatewayVM(argv []string) string {
+	for i := 1; i+1 < len(argv); i++ {
+		if argv[i] == "-g" {
+			vm, _ := strings.CutPrefix(argv[i+1], "brig-")
+			if vm == argv[i+1] {
+				return ""
+			}
+			return vm
+		}
+	}
+	return ""
 }
