@@ -175,6 +175,16 @@ starts with `brig-`.
   them encrypted on the VM's data disk, next to the key that decrypts them,
   so treat a VM's directory as holding its secrets. brig also copies the gateway's
   mTLS client certificate and key into the CLI's configuration.
+- **Audit trail:** while a VM runs, a systemd user unit on the host,
+  `brig-audit-<vm>.service`, records what its sandboxes did into
+  `$XDG_STATE_HOME/brig/audit/<vm>/`, outside the VM: every request that
+  OpenShell's proxy allowed or denied, sandboxes created and deleted, each
+  revision of a sandbox's policy with the rules it changed and who made it,
+  the rules OpenShell drafted and the decisions on them, the brig commands
+  that worked on the VM, and gaps where records may be missing. The files are
+  JSON lines, one per day, compressed once the day is over; they stay after
+  `brig delete`. Changes, but not allowed requests, also go to the user
+  journal (`journalctl --user -u brig-audit-<vm>`).
 
 ## Commands
 
@@ -201,6 +211,8 @@ starts with `brig-`.
 | `policy diff [NAME] SANDBOX` (`-w`) | compare a sandbox's network rules with the policy file it came from; exit status 1 if they differ (`-o json`) |
 | `policy allow [NAME] SANDBOX HOST[:PORT]` (`-w`) | add one rule that lets `--binary PATH` reach HOST, as `openshell policy update` does but with brig's annotations on the revision (`--access`, `--l4`, `--audit`); refuses `*`, `**` and `*.com`, and wants `--broad` for full access or `--l4`; `--draft ID` approves a draft; `--save` also writes the rule into the policy file |
 | `policy save [NAME] SANDBOX` (`-w`) | write the rules a sandbox has and its policy file lacks into that file, keeping its comments (`--rule KEY`, `--dry-run`); on a terminal it shows the change and the hosts it allows and asks first (`-y` skips); a sandbox from the default policy needs `--to FILE` |
+| `audit [NAME] [SANDBOX]` | show the [audit trail](#how-it-works) as a timeline, by default of the last day (`--since`, `--until`, `--denied`, `--host`, `--kind`, `-f` to follow, `-o json`); `--summary` lists each endpoint a sandbox reached |
+| `audit status [NAME]`, `audit prune [NAME]` | show whether each VM's collector runs and the space its history takes; delete history from before a date or age (`--before 90d`), of one sandbox (`--sandbox`) or of deleted VMs (`--deleted-vms`) |
 | `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push [NAME] IMAGE` | copy a container image from the host's Podman into a VM |
@@ -320,6 +332,14 @@ because a provider's credential may not go to its host is allowed only after
 you confirm that it goes out without it. **Reject…** drops a draft that you
 do not want (`openshell rule reject`).
 
+Traffic also reads the [audit trail](#how-it-works): pick 24 hours, 7 days
+or all instead of the last hour, and a sandbox that was deleted, whose
+history stays. A sandbox's History tab lists its policy revisions with who
+made each, its drafts and lifecycle, and the endpoints it reached in the
+last week. Host shows each VM's collector, its gaps and the space its
+history takes by sandbox, and **Prune…** runs `brig audit prune`. A running
+VM whose traffic nothing records shows under Needs you.
+
 Only you can open it. It prints a URL with a token that is new each run and
 swaps it for a cookie, answers only to `127.0.0.1` and `localhost`, refuses
 connections from other users' processes, and loads nothing from the
@@ -358,6 +378,10 @@ network_profiles:
 openshell:
   secret_tool: secret-tool   # looks up provider secrets; a name or an absolute path
   configs: []                # OpenShell config directories of new VMs, e.g. [~/src/agent-openshell]
+
+audit:
+  journal: changes           # mirror to the user journal: changes, all (requests too) or off
+  retention: 0               # delete days of the audit trail older than this, e.g. 90d or 12w; 0 keeps all
 ```
 
 The host is reachable from a VM at the VM's default gateway address; with
