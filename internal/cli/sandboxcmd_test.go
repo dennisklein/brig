@@ -4,12 +4,16 @@
 package cli
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -160,5 +164,51 @@ func TestPlanSandboxMounts(t *testing.T) {
 	}
 	if _, _, added := planSandboxMounts(v, specs[1:2]); added {
 		t.Error("planned a mount for a directory the VM has a sandbox mount of")
+	}
+}
+
+func TestSandboxCreateConnect(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	started := false
+	origStart, origRun := startIfStopped, runCommand
+	startIfStopped = func(context.Context, *app, *vm.VM, io.Writer) error { started = true; return nil }
+	var ran []string
+	runCommand = func(_ context.Context, argv []string) error { ran = argv; return nil }
+	t.Cleanup(func() { startIfStopped, runCommand = origStart, origRun })
+	fakeSandboxes(t, map[string][]store.Sandbox{"dev": {{Workspace: "default", Name: "kit", Phase: "Ready"}}})
+	got := captureExec(t)
+	if out, err := run(t, "sandbox", "create", "dev", "--connect", "--", "--name=kit", "--template", "pi"); err != nil {
+		t.Fatalf("brig sandbox create --connect: %v: %s", err, out)
+	}
+	wantRun := []string{"openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "create", "--no-auto-providers", "--detach", "--name=kit", "--template", "pi"}
+	if !started || !slices.Equal(ran, wantRun) {
+		t.Errorf("started %v, ran %q\nwant %q", started, ran, wantRun)
+	}
+	if want := []string{"openshell", "openshell", "-g", "brig-dev", "--workspace", "default", "sandbox", "connect", "kit"}; !slices.Equal(*got, want) {
+		t.Errorf("exec %q, want %q", *got, want)
+	}
+	if _, err := run(t, "sandbox", "create", "dev", "--connect", "--", "--template", "pi", "--", "--name", "x"); err == nil || !strings.Contains(err.Error(), "needs the sandbox's --name") {
+		t.Errorf("--connect without --name: %v", err)
+	}
+}
+
+func TestWaitSandboxReady(t *testing.T) {
+	defer func(d time.Duration) { sandboxReadyTimeout = d }(sandboxReadyTimeout)
+	sandboxReadyTimeout = 300 * time.Millisecond
+	v := &vm.VM{Name: "dev"}
+	fakeSandboxes(t, map[string][]store.Sandbox{"dev": {
+		{Workspace: "default", Name: "up", Phase: "Ready"},
+		{Workspace: "default", Name: "slow", Phase: "Provisioning"},
+		{Workspace: "default", Name: "bad", Phase: "Error", Problem: "ConfigurationInvalid"},
+	}})
+	if err := waitSandboxReady(t.Context(), v, "default", "up"); err != nil {
+		t.Errorf("ready: %v", err)
+	}
+	if err := waitSandboxReady(t.Context(), v, "default", "slow"); exitStatus(err) != exitNotReady || !strings.Contains(err.Error(), "is provisioning") {
+		t.Errorf("provisioning: %v", err)
+	}
+	if err := waitSandboxReady(t.Context(), v, "default", "bad"); exitStatus(err) != exitNotReady || !strings.Contains(err.Error(), "ConfigurationInvalid") {
+		t.Errorf("in error: %v", err)
 	}
 }
