@@ -211,7 +211,7 @@ func TestCreateLeavesAVMCreatedMeanwhileAlone(t *testing.T) {
 	v := &vm.VM{Name: "dev", Image: old.Image, CPUs: 1, Memory: bytesize.GiB, RootDisk: 20 * bytesize.GiB, DataDisk: bytesize.GiB}
 	cmd := newCreateCmd()
 	cmd.SetOut(io.Discard)
-	err := a.create(t.Context(), cmd, v, false)
+	err := a.create(t.Context(), cmd, v, false, readyBooted)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("create() = %v, want an error saying that the VM exists", err)
 	}

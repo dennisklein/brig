@@ -95,7 +95,7 @@ func TestStartVMProgress(t *testing.T) {
 	fakeGuest(t, "")
 	ctx, w := progresstest.Watch(t.Context(), t)
 	var out bytes.Buffer
-	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, true); err != nil {
+	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, readyGateway); err != nil {
 		t.Fatalf("startVM: %v\n%s", err, &out)
 	}
 	t.Log(w.Tree())
@@ -120,7 +120,7 @@ func TestStartVMBootProgress(t *testing.T) {
 	ctx, w := progresstest.Watch(t.Context(), t)
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
-	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, new(bytes.Buffer), false); err == nil {
+	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, new(bytes.Buffer), readyBooted); err == nil {
 		t.Fatal("startVM succeeded")
 	}
 	t.Log(w.Tree())
@@ -144,7 +144,7 @@ func TestStartVMGatewayProgress(t *testing.T) {
 	ctx, w := progresstest.Watch(t.Context(), t)
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
-	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, new(bytes.Buffer), false); err == nil {
+	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, new(bytes.Buffer), readyBooted); err == nil {
 		t.Fatal("startVM succeeded")
 	}
 	t.Log(w.Tree())
@@ -239,14 +239,14 @@ func TestProvisionProgress(t *testing.T) {
 func TestStartVMGatewayAnswerProgress(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		check   bool
+		ready   readiness
 		want    string
 		wantErr bool
 	}{
 		// brig start goes on with a warning.
-		{"warn", false, "step connect the gateway: ok\n  wait wait for the gateway to answer: skipped", false},
+		{"warn", readyBooted, "step connect the gateway: ok\n  wait wait for the gateway to answer: skipped", false},
 		// brig create and upgrade need the gateway.
-		{"check", true, "step connect the gateway: failed", true},
+		{"check", readyGateway, "step connect the gateway: failed", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func(d time.Duration) { gatewayReadyTimeout = d }(gatewayReadyTimeout)
@@ -256,7 +256,7 @@ func TestStartVMGatewayAnswerProgress(t *testing.T) {
 			fakeOpenShell(t, fakeGuest(t, ""), `{"status":"not_configured"}`)
 			ctx, w := progresstest.Watch(t.Context(), t)
 			var out bytes.Buffer
-			err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, tc.check)
+			err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, tc.ready)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("startVM: %v\n%s", err, &out)
 			}
@@ -265,10 +265,10 @@ func TestStartVMGatewayAnswerProgress(t *testing.T) {
 			if !strings.Contains(got, tc.want) {
 				t.Errorf("progress lacks %q:\n%s", tc.want, got)
 			}
-			if !tc.check && !strings.Contains(out.String(), "does not answer yet") {
+			if tc.ready == readyBooted && !strings.Contains(out.String(), "does not answer yet") {
 				t.Errorf("output = %q", &out)
 			}
-			if tc.check && !strings.Contains(got, "wait wait for the gateway to answer: failed") {
+			if tc.ready >= readyGateway && !strings.Contains(got, "wait wait for the gateway to answer: failed") {
 				t.Errorf("a gateway that must answer did not fail its wait:\n%s", got)
 			}
 		})
@@ -283,7 +283,7 @@ func TestStartVMConfigApplyProgress(t *testing.T) {
 	fakeOpenShell(t, fakeGuest(t, ""), `{"status":"connected","version":"0.1.2"}`)
 	ctx, w := progresstest.Watch(t.Context(), t)
 	var out bytes.Buffer
-	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, true); err != nil {
+	if err := a.startVM(ctx, &fakeDomains{state: libvirt.StateRunning}, v, &out, readyGateway); err != nil {
 		t.Fatalf("startVM: %v\n%s", err, &out)
 	}
 	t.Log(w.Tree())
@@ -298,5 +298,35 @@ func TestStartVMConfigApplyProgress(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Warning: applying the OpenShell config directories failed") {
 		t.Errorf("output = %q", &out)
+	}
+}
+
+func TestStartVMWaitFailsUnlessSynced(t *testing.T) {
+	defer func(d time.Duration) { gatewayReadyTimeout = d }(gatewayReadyTimeout)
+	gatewayReadyTimeout = 200 * time.Millisecond
+	for _, tc := range []struct {
+		name, status string
+		want         int
+	}{
+		{"gateway down", `{"status":"not_configured"}`, exitNotReady},
+		// The config directory is missing, so the sync fails.
+		{"sync fails", `{"status":"connected","version":"0.1.2"}`, exitSyncFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := testApp(t)
+			v := testVM(t, a, "dev")
+			v.OpenShellConfigs = []string{filepath.Join(t.TempDir(), "missing")}
+			fakeOpenShell(t, fakeGuest(t, ""), tc.status)
+			var out bytes.Buffer
+			err := a.startVM(t.Context(), &fakeDomains{state: libvirt.StateRunning}, v, &out, readySynced)
+			if got := exitStatus(err); got != tc.want {
+				t.Errorf("startVM: exit status %d (%v), want %d\n%s", got, err, tc.want, &out)
+			}
+			// Without --wait, the same start only warns.
+			out.Reset()
+			if err := a.startVM(t.Context(), &fakeDomains{state: libvirt.StateRunning}, v, &out, readyBooted); err != nil || !strings.Contains(out.String(), "Warning:") {
+				t.Errorf("startVM without wait: %v\n%s", err, &out)
+			}
+		})
 	}
 }

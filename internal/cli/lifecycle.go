@@ -248,15 +248,29 @@ func (a *app) define(conn domains, v *vm.VM) error {
 	return conn.Define(xml)
 }
 
+// readiness is what starting a VM waits for before it succeeds.
+type readiness int
+
+const (
+	// readyBooted needs the VM to boot; a gateway that does not answer and
+	// a failed sync of the config directories only warn.
+	readyBooted readiness = iota
+	// readyGateway also needs the gateway to answer, as an upgrade's check
+	// boot does.
+	readyGateway
+	// readySynced also needs the config directories to sync, as --wait
+	// asks.
+	readySynced
+)
+
 // start boots a stopped VM and connects its gateway to the host's openshell
 // CLI. A running VM is only reconnected.
 func (a *app) start(ctx context.Context, conn domains, v *vm.VM, w io.Writer) error {
-	return a.startVM(ctx, conn, v, w, false)
+	return a.startVM(ctx, conn, v, w, readyBooted)
 }
 
-// startVM is start; with check, it fails unless the VM's gateway answers,
-// as an upgrade's check boot needs.
-func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, check bool) error {
+// startVM is start, which fails unless the VM is as ready as ready says.
+func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, ready readiness) error {
 	state, err := conn.State(v.DomainName())
 	if err != nil {
 		return err
@@ -302,7 +316,7 @@ func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, 
 	if err := a.boot(ctx, v); err != nil {
 		return err
 	}
-	if err := a.connectGateway(ctx, v, w, check); err != nil {
+	if err := a.connectGateway(ctx, v, w, ready); err != nil {
 		return err
 	}
 	// Steps that only warn above may have been cut short.
@@ -377,9 +391,10 @@ func openshellConfigHome() (string, error) {
 }
 
 // connectGateway copies the gateway's client certificate bundle to the host
-// and registers the gateway with the host's openshell CLI. With check, it
-// fails unless the gateway answers.
-func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check bool) (err error) {
+// and registers the gateway with the host's openshell CLI. It fails unless
+// the VM is as ready as ready says.
+func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, ready readiness) (err error) {
+	check := ready >= readyGateway
 	ctx, step := progress.Start(ctx, progress.KindStep, "connect the gateway")
 	defer func() { step.End(err) }()
 	t := a.sshTarget(v, false)
@@ -402,6 +417,9 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 	}
 	cli, err := openshell.Find()
 	if errors.Is(err, openshell.ErrNotInstalled) {
+		if ready >= readySynced && len(v.OpenShellConfigs) > 0 {
+			return syncFailed(fmt.Errorf("cannot apply the OpenShell config directories of %s: %w", v.Name, err))
+		}
 		fmt.Fprintf(w, "The openshell CLI is not installed, so the gateway is not registered. %s\n", termtext.Escape(err.Error()))
 		if check {
 			// Without the CLI, the gateway's service must at least run.
@@ -440,6 +458,9 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, check b
 			defer cancel()
 			return a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true}, "")
 		})
+		if err != nil && ready >= readySynced {
+			return syncFailed(fmt.Errorf("applying the OpenShell config directories failed; fix it and run `brig sync %s`: %w", v.Name, err))
+		}
 		if err != nil {
 			fmt.Fprintf(w, "Warning: applying the OpenShell config directories failed; fix it and run `brig sync %s`: %s\n", v.Name, termtext.Escape(err.Error()))
 		}

@@ -43,7 +43,7 @@ func newCreateCmd() *cobra.Command {
 		dataDisk         bytesize.Size
 		profile, imageID string
 		mounts, configs  []string
-		noStart          bool
+		noStart, wait    bool
 		noConfigs        bool
 	)
 	cmd := &cobra.Command{
@@ -65,7 +65,10 @@ OpenShell config directories hold provider profiles and providers, which
 brig applies to the VM's gateway at every start, and a default sandbox
 policy, which brig use NAME exports (see brig sync --help).
 Without --openshell-config, the VM gets the directories listed as
-openshell.configs in config.yaml.`,
+openshell.configs in config.yaml.
+
+With --wait, the command fails unless the new VM's gateway answers and its
+config directories sync, as brig start --wait does.`,
 		Example: `  brig create dev
   brig create dev --memory 16GiB --mount ~/src/project:/work/project:rw
   brig create offline --profile isolated`,
@@ -137,7 +140,7 @@ openshell.configs in config.yaml.`,
 			if err := checkHost(cmd.Context(), cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			return a.create(cmd.Context(), cmd, v, !noStart)
+			return a.create(cmd.Context(), cmd, v, !noStart, waitReadiness(wait))
 		},
 	}
 	f := cmd.Flags()
@@ -149,6 +152,8 @@ openshell.configs in config.yaml.`,
 	f.StringVar(&imageID, "image", "", "base image ID (default: newest)")
 	f.StringArrayVar(&mounts, "mount", nil, "share a host directory: SOURCE[:TARGET][:OPTIONS], OPTIONS a comma-separated list of ro (default), rw and sandbox (repeatable)")
 	f.BoolVar(&noStart, "no-start", false, "create the VM without starting it")
+	addWaitFlag(cmd, &wait)
+	cmd.MarkFlagsMutuallyExclusive("no-start", "wait")
 	f.StringArrayVar(&configs, "openshell-config", nil, "OpenShell config directory to apply to the VM's gateway (repeatable; default: openshell.configs from config.yaml)")
 	f.BoolVar(&noConfigs, "no-openshell-config", false, "apply no OpenShell config directories")
 	cmd.MarkFlagsMutuallyExclusive("openshell-config", "no-openshell-config")
@@ -160,7 +165,7 @@ openshell.configs in config.yaml.`,
 	return cmd
 }
 
-func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bool) (err error) {
+func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bool, ready readiness) (err error) {
 	w := cmd.OutOrStdout()
 	if v.Image == "" {
 		img, err := a.images.Newest()
@@ -205,7 +210,7 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 	if !start {
 		return nil
 	}
-	if err := a.start(ctx, conn, v, w); err != nil {
+	if err := a.startVM(ctx, conn, v, w, ready); err != nil {
 		// Keep the VM for inspection; it was created successfully.
 		return fmt.Errorf("VM %s was created but did not start cleanly: %w", v.Name, err)
 	}
@@ -298,23 +303,52 @@ func vmCommand(use, short string, run func(ctx context.Context, cmd *cobra.Comma
 }
 
 func newStartCmd() *cobra.Command {
-	return vmCommand("start [NAME]", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
-		unlock, err := a.lockLoadedVM(v)
-		if err != nil {
-			return err
-		}
-		defer unlock()
-		conn, err := a.connect(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = conn.Close() }()
-		if state, err := conn.State(v.DomainName()); err == nil && state != libvirt.StateRunning {
-			// A forced power off may have left an upgrade's snapshot behind.
-			a.pruneUpgradeSnapshots(ctx, v)
-		}
-		return a.start(ctx, conn, v, cmd.OutOrStdout())
+	var wait bool
+	cmd := vmCommand("start [NAME]", "Start a VM and connect its OpenShell gateway", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+		return a.lockAndStart(ctx, v, cmd.OutOrStdout(), waitReadiness(wait))
 	})
+	cmd.Long = `Start a VM, or reconnect a running one: register its OpenShell gateway with
+the host's openshell CLI and apply its OpenShell config directories.
+
+A gateway that does not answer and a failed sync only warn, so that the VM
+is up for you to look into them. With --wait, they fail the command, with
+exit status 5 and 6 (see brig --help), which scripts that go on to use the
+gateway want.`
+	addWaitFlag(cmd, &wait)
+	return cmd
+}
+
+// addWaitFlag adds --wait, which makes starting a VM fail unless its gateway
+// answers and its config directories sync.
+func addWaitFlag(cmd *cobra.Command, wait *bool) {
+	cmd.Flags().BoolVar(wait, "wait", false, "fail unless the gateway answers and the OpenShell config directories sync")
+}
+
+// waitReadiness is what --wait asks a start to wait for.
+func waitReadiness(wait bool) readiness {
+	if wait {
+		return readySynced
+	}
+	return readyBooted
+}
+
+// lockAndStart starts v, as brig start does.
+func (a *app) lockAndStart(ctx context.Context, v *vm.VM, w io.Writer, ready readiness) error {
+	unlock, err := a.lockLoadedVM(v)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	conn, err := a.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if state, err := conn.State(v.DomainName()); err == nil && state != libvirt.StateRunning {
+		// A forced power off may have left an upgrade's snapshot behind.
+		a.pruneUpgradeSnapshots(ctx, v)
+	}
+	return a.startVM(ctx, conn, v, w, ready)
 }
 
 func newStopCmd() *cobra.Command {
