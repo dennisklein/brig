@@ -648,3 +648,34 @@ func TestSyncRecreatesAfterAFailedCreate(t *testing.T) {
 		t.Errorf("calls %q, state %+v, %v", calls, dflt(st).Providers, err)
 	}
 }
+
+func TestSyncReadsAnEnvSecret(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"),
+		"name: github\ntype: github\ncredentials:\n  GH_TOKEN:\n    env: BRIG_SECRET_GH_TOKEN\n")
+	gw, st := newFakeGateway(), &State{}
+	// A keyring that would answer must not be asked.
+	sec := fakeSecrets{}
+
+	t.Setenv("BRIG_SECRET_GH_TOKEN", "")
+	out, calls, err := syncDir(t, dir, gw, sec, st, Options{})
+	if err == nil || !strings.Contains(err.Error(), "BRIG_SECRET_GH_TOKEN") || slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "create ") }) {
+		t.Fatalf("unset variable: calls %q, report %q, %v", calls, out, err)
+	}
+
+	t.Setenv("BRIG_SECRET_GH_TOKEN", "tok1")
+	_, calls, err = syncDir(t, dir, gw, sec, st, Options{})
+	if err != nil || !slices.Contains(calls, "create github github map[GH_TOKEN:tok1]") {
+		t.Fatalf("calls %q, %v", calls, err)
+	}
+
+	// The fingerprint decides, as for any other source.
+	if _, calls, err = syncDir(t, dir, gw, sec, st, Options{}); err != nil || len(calls) != 0 {
+		t.Errorf("unchanged: calls %q, %v", calls, err)
+	}
+	t.Setenv("BRIG_SECRET_GH_TOKEN", "tok2")
+	if _, calls, _ = syncDir(t, dir, gw, sec, st, Options{}); !slices.Equal(calls, []string{"update github map[GH_TOKEN:tok2] remove []"}) {
+		t.Errorf("rotated: calls %q", calls)
+	}
+}

@@ -126,6 +126,10 @@ func TestLoadRejects(t *testing.T) {
 		"openshell key":   {provider("name: p\ntype: github\ncredentials:\n  openshell_x:\n    secret_tool: {lookup: [a, b]}\n"), "cannot pass"},
 		"revision key":    {provider("name: p\ntype: github\ncredentials:\n  v10_TOKEN:\n    secret_tool: {lookup: [a, b]}\n"), "cannot pass"},
 		"bad key":         {provider("name: p\ntype: github\ncredentials:\n  A-B:\n    secret_tool: {lookup: [a, b]}\n"), "environment variable"},
+		"env and tool":    {provider("name: p\ntype: github\ncredentials:\n  T:\n    env: BRIG_SECRET_T\n    secret_tool: {lookup: [a, b]}\n"), "not both"},
+		"neither":         {provider("name: p\ntype: github\ncredentials:\n  T: {}\n"), "missing secret_tool or env"},
+		"unrelated env":   {provider("name: p\ntype: github\ncredentials:\n  T:\n    env: AWS_SECRET_ACCESS_KEY\n"), "starts with BRIG_SECRET_"},
+		"bare env prefix": {provider("name: p\ntype: github\ncredentials:\n  T:\n    env: BRIG_SECRET_\n"), "starts with BRIG_SECRET_"},
 		"bad name":        {provider("name: ../p\ntype: github\ncredentials:\n  T:\n    secret_tool: {lookup: [a, b]}\n"), "provider name"},
 		"missing type":    {provider("name: p\ncredentials:\n  T:\n    secret_tool: {lookup: [a, b]}\n"), "provider type"},
 		"profile id": {func(dir string) {

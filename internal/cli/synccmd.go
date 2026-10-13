@@ -84,6 +84,10 @@ A config directory may hold:
                              GH_TOKEN:
                                secret_tool:
                                  lookup: [service, github.com, user, alice]
+                         or, where there is no keyring, a credential
+                         read from an environment variable of brig's own:
+                             GH_TOKEN:
+                               env: BRIG_SECRET_GH_TOKEN
   workspaces/WS/profiles/*.yaml, workspaces/WS/providers/*.yaml
                          the same for the workspace WS, which brig
                          creates on the gateway if it is missing
@@ -103,8 +107,9 @@ policies/ is not per workspace.
 Secrets never appear in config directories, on command lines or on the
 host's disk (the gateway keeps them encrypted on the VM's data disk): brig
 runs "secret-tool lookup ATTRIBUTE VALUE..." (or the program set as
-openshell.secret_tool in config.yaml) and hands the value to the openshell
-CLI in its environment. A provider is updated only when one of its
+openshell.secret_tool in config.yaml) or reads the BRIG_SECRET_* variable
+that a credential names, and hands the value to the openshell CLI in its
+environment. A provider is updated only when one of its
 secrets changed. Profiles and providers that brig did not create are
 only touched when a config directory defines them, and never deleted.
 

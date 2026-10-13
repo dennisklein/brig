@@ -202,6 +202,21 @@ For new VMs, list both under `openshell.configs` in
 `openshell.secret_tool` there; config directories cannot set it, so a shared
 one cannot run programs on your host.
 
+A CI job has no keyring. There a credential can name an environment variable
+of brig's own instead of a keyring entry:
+
+```yaml
+credentials:
+  GH_TOKEN:
+    env: BRIG_SECRET_GH_TOKEN     # secret_tool or env, not both
+```
+
+The name must start with `BRIG_SECRET_`, so a shared directory cannot make
+brig read an unrelated variable, such as `AWS_SECRET_ACCESS_KEY`, and send it
+to a profile's endpoints. An unset or empty variable fails the sync of that
+provider like a missing keyring entry; a changed value is picked up like any
+other rotated secret.
+
 The default policy is a complete policy file. Keep it small and without
 network rules, since attached providers add theirs. Once a file has a
 `filesystem_policy`, the workspace is writable only with `include_workdir:

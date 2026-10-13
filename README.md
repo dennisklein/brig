@@ -375,8 +375,9 @@ pushed into the VM.
 
 An OpenShell config directory holds what you would otherwise set up in each
 VM's gateway by hand: provider profiles (`profiles/*.yaml`), providers whose
-secrets brig looks up in your keyring with `secret-tool` (`providers/*.yaml`,
-which cannot hold values), and a default sandbox policy
+secrets brig looks up in your keyring with `secret-tool`, or reads from a
+`BRIG_SECRET_*` environment variable in CI (`providers/*.yaml`, which cannot
+hold values), and a default sandbox policy
 (`policies/default.yaml`). brig applies a VM's directories to its gateway at
 every `brig start` and on `brig sync NAME`.
 
