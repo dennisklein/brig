@@ -6,13 +6,16 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -35,9 +38,10 @@ func newSandboxCreateCmd() *cobra.Command {
 	var (
 		mounts    []string
 		workspace string
+		connect   bool
 	)
 	cmd := &cobra.Command{
-		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [-- OPENSHELL-ARGS...]",
+		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [--connect] [-- OPENSHELL-ARGS...]",
 		Short: "Create an OpenShell sandbox in a VM, with host directories mounted read-only",
 		Long: `Run openshell sandbox create against VM NAME's gateway, with each
 --mount DIR:TARGET showing host directory DIR read-only at TARGET in the
@@ -57,10 +61,16 @@ The sandbox gets the providers that --provider names after --, and no
 others: as brig ui does, brig passes --no-auto-providers, so that a provider
 the gateway lacks is an error rather than one that openshell creates from
 credentials it finds on the host. Give --auto-providers after -- for
-openshell's own behaviour.`,
+openshell's own behaviour.
+
+With --connect, brig starts the VM first if it is stopped, as brig start
+--wait does, creates the sandbox without attaching to it, waits until it is
+ready and then connects this terminal to it, as brig sandbox connect does.
+It needs the sandbox's --name after --.`,
 		Example: `  brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit -- \
     --name kit-dev --from localhost/pi-agent:2026-10-08 --provider llm
-  brig use dev && brig sandbox create -m ~/notes:/usr/local/share/notes`,
+  brig use dev && brig sandbox create -m ~/notes:/usr/local/share/notes
+  brig sandbox create dev --connect -m ~/src/webapp:/sandbox/src -- --name webapp --template pi`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if n := len(vmArgs(cmd, args)); n > 1 {
 				return fmt.Errorf("accepts at most one VM name before --, received %d", n)
@@ -72,6 +82,10 @@ openshell's own behaviour.`,
 			pass := args[len(vmArgs(cmd, args)):]
 			if err := checkSandboxArgs(pass); err != nil {
 				return err
+			}
+			name := sandboxNameArg(pass)
+			if connect && name == "" {
+				return errors.New("--connect needs the sandbox's --name after --")
 			}
 			ws, err := chosenWorkspace(workspace)
 			if err != nil {
@@ -92,6 +106,11 @@ openshell's own behaviour.`,
 			v, err := a.resolveVMArg(cmd, vmArgs(cmd, args))
 			if err != nil {
 				return err
+			}
+			if connect {
+				if err := startIfStopped(cmd.Context(), a, v, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
 			}
 			config, err := a.sandboxMounts(cmd.Context(), v, specs, cmd.ErrOrStderr())
 			if err != nil {
@@ -117,13 +136,105 @@ openshell's own behaviour.`,
 			if !choosesProviders(pass) {
 				argv = append(argv, "--no-auto-providers")
 			}
-			return execve("openshell", append(argv, pass...))
+			if !connect {
+				return execve("openshell", append(argv, pass...))
+			}
+			if !slices.Contains(sandboxOptions(pass), "--detach") {
+				argv = append(argv, "--detach")
+			}
+			if err := runCommand(cmd.Context(), append(argv, pass...)); err != nil {
+				return err
+			}
+			if err := waitSandboxReady(cmd.Context(), v, ws, name); err != nil {
+				return err
+			}
+			t := sandboxTarget{vm: v, workspace: ws}
+			return execve("openshell", t.openshell("sandbox", "connect", name))
 		},
 	}
 	addWorkspaceFlag(cmd, &workspace)
 	cmd.Flags().StringArrayVarP(&mounts, "mount", "m", nil, "show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable)")
 	_ = cmd.RegisterFlagCompletionFunc("mount", completeDirs)
+	cmd.Flags().BoolVar(&connect, "connect", false, "start the VM if needed, wait until the sandbox is ready and connect to it")
 	return cmd
+}
+
+// sandboxOptions returns the openshell options in args, which end at --.
+func sandboxOptions(args []string) []string {
+	if i := slices.Index(args, "--"); i >= 0 {
+		return args[:i]
+	}
+	return args
+}
+
+// sandboxNameArg returns the --name that the openshell options in args give,
+// or "".
+func sandboxNameArg(args []string) string {
+	opts := sandboxOptions(args)
+	for i, arg := range opts {
+		if v, ok := strings.CutPrefix(arg, "--name="); ok {
+			return v
+		}
+		if arg == "--name" && i+1 < len(opts) {
+			return opts[i+1]
+		}
+	}
+	return ""
+}
+
+// startIfStopped starts v, as brig start --wait does, unless it runs; tests
+// replace it.
+var startIfStopped = func(ctx context.Context, a *app, v *vm.VM, w io.Writer) error {
+	conn, err := a.connect(ctx)
+	if err != nil {
+		return err
+	}
+	state, err := conn.State(v.DomainName())
+	_ = conn.Close()
+	if err != nil || state == libvirt.StateRunning {
+		return err
+	}
+	return a.lockAndStart(ctx, v, w, readySynced)
+}
+
+// runCommand runs argv, whose first element names the program, on brig's
+// terminal; tests replace it.
+var runCommand = func(ctx context.Context, argv []string) error {
+	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("%s: %w", strings.Join(argv[:min(len(argv), 8)], " "), err)
+	}
+	return nil
+}
+
+// sandboxReadyTimeout bounds the wait for a new sandbox; OpenShell gives up
+// provisioning one after 300 s.
+var sandboxReadyTimeout = 6 * time.Minute
+
+// waitSandboxReady waits until the sandbox called name in workspace ws of
+// v's gateway is ready, failing early if it is in error.
+func waitSandboxReady(ctx context.Context, v *vm.VM, ws, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, sandboxReadyTimeout)
+	defer cancel()
+	pause := 500 * time.Millisecond
+	for {
+		s, err := findSandbox(ctx, v, ws, name)
+		switch {
+		case err == nil && s.Ready():
+			return nil
+		case err == nil && s.Phase == "Error":
+			return notReadyf("sandbox %s is in error: %s", name, s.Problem)
+		case err == nil:
+			err = notReadyf("sandbox %s is %s", name, strings.ToLower(s.Phase))
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for sandbox %s to be ready: %w", name, err)
+		case <-time.After(pause):
+		}
+		pause = min(2*pause, 5*time.Second)
+	}
 }
 
 // vmArgs returns the arguments before --.

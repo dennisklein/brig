@@ -927,12 +927,13 @@ Keep one VM, and one long-lived sandbox per project.
 ### New and finished projects
 
 ```sh
-openshell sandbox create --name tools --template pi \
+brig sandbox create dev --connect -- --name tools --template pi \
   --provider llm --provider gitlab-work \
   --policy ~/src/agent-openshell/policies/tools.yaml
 ```
 
-Attach only the providers a project needs: a provider's secret is reachable
+`--connect` starts the VM if it is stopped, waits until the sandbox is ready
+and connects to it. Attach only the providers a project needs: a provider's secret is reachable
 only from sandboxes it is attached to. When a project is done, push, copy its
 sessions out, then `brig sandbox delete dev tools`.
 

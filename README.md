@@ -190,7 +190,7 @@ starts with `brig-`.
 | `delete [NAME]` | delete the VM, its disks and its gateway registration; asks first on a terminal (`--yes` skips the question, `--force` deletes a running VM) |
 | `ssh [NAME]`, `console [NAME]` | shell (`--root` for root), serial console |
 | `use [NAME]` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)); without NAME, say which VM the shell points at; `-w WORKSPACE` also exports `BRIG_WORKSPACE` |
-| `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`) and only the providers that `--provider` names, as `brig ui` does, in the workspace of `-w` |
+| `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`) and only the providers that `--provider` names, as `brig ui` does, in the workspace of `-w`; `--connect` starts the VM if needed, waits until the sandbox is ready and connects to it |
 | `sandbox list [NAME]` | list the sandboxes in every workspace of the VM's gateway, or of every running VM with `--all-vms` (`-o json`) |
 | `sandbox connect/exec/logs/start/stop/delete [NAME] SANDBOX` | run the `openshell` command on the VM's gateway, in the workspace of `-w`, once the sandbox is found; `delete` asks first on a terminal (`--yes` skips the question), `exec` exits with the command's status |
 | `sandbox attach/detach [NAME] SANDBOX PROVIDER` | attach or detach a provider and wait until the sandbox applies it |
