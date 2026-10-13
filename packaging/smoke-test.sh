@@ -28,6 +28,9 @@ brig_version=$(rpm -q --qf '%{VERSION}' brig)
 [ "$(brig --version)" = "brig version v$brig_version" ]
 brig print-fedora-deps
 semodule -l | grep -Eq '^brig([[:space:]]|$)'
+# New interactive shells get the brig function that brig use needs.
+[ "$(bash -i -c '. /etc/profile.d/brig.sh; type -t brig' 2>/dev/null)" = function ]
+test -f /usr/share/fish/vendor_conf.d/brig.fish
 
 rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}: %{SIGPGP:pgpsig}\n' \
   brig-release openshell openshell-gateway openshell-prover python3-openshell brig brig-selinux

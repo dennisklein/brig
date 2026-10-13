@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# brig's shell integration for interactive bash and zsh: the brig function
+# that brig use needs (see brig shell-init --help). The spec replaces the
+# line with the output of brig shell-init bash and installs the result as
+# /etc/profile.d/brig.sh.
+if [ -n "${BASH_VERSION-}" ] || [ -n "${ZSH_VERSION-}" ]; then
+  case $- in
+  *i*)
+@SHELL_INIT@
+  ;;
+  esac
+fi
