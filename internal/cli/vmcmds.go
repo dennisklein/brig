@@ -86,6 +86,7 @@ config directories sync, as brig start --wait does.`,
 			if a.vms.Exists(name) {
 				return alreadyExists(fmt.Errorf("VM %s already exists", name))
 			}
+			recordVM(cmd.Context(), name)
 			d := a.cfg.Defaults
 			v := &vm.VM{
 				Name: name, CreatedAt: time.Now().UTC(),

@@ -211,3 +211,17 @@ func TestDefaultActivityLogRotates(t *testing.T) {
 		t.Errorf("new log:\n%.200s", got)
 	}
 }
+
+func TestActivityLogNamesTheVM(t *testing.T) {
+	allowFixture(t, allowBase+pipRule+`}}`)
+	log := stateHome(t)
+	if err := os.Unsetenv(progressLogVar); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := runSplit(t, "policy", "allow", "dev", "webapp", "pypi.org", "--binary", "/usr/bin/pip"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readActivity(t, log); !strings.Contains(got, `"name":"policy allow dev","state":"ended","node":"dev"`) {
+		t.Errorf("activity log lacks the VM:\n%s", got)
+	}
+}

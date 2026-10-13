@@ -48,7 +48,11 @@ func (a *app) resolveVM(cmd *cobra.Command, given string) (*vm.VM, error) {
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "Using VM %s (selected by brig use).\n", termtext.Escape(name))
 	}
-	return a.vms.Load(name)
+	v, err := a.vms.Load(name)
+	if err == nil {
+		recordVM(cmd.Context(), v.Name)
+	}
+	return v, err
 }
 
 // resolveVMArg is resolveVM for a command whose arguments are args, of which
