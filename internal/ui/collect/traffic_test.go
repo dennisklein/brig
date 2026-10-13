@@ -4,19 +4,17 @@
 package collect
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dennisklein/brig/internal/ocwatch"
 	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
@@ -135,7 +133,7 @@ func TestTraffic(t *testing.T) {
 	from := fake.watches[dfltWebapp][0]
 	reads := fake.draftReads[dfltWebapp]
 	fake.mu.Unlock()
-	if from.Cursor != "" || from.Tail != tailLines || now.Sub(from.Since) < 59*time.Minute {
+	if from.Cursor != "" || from.Tail != ocwatch.TailLines || now.Sub(from.Since) < 59*time.Minute {
 		t.Errorf("first watch: %+v", from)
 	}
 	if reads != 1 {
@@ -201,7 +199,7 @@ func TestTraffic(t *testing.T) {
 func TestTrafficNoDrafts(t *testing.T) {
 	c := &noDrafts{fakeClient: fakeClient{&fakeGateway{policyReads: map[sandboxKey]int{}, draftReads: map[sandboxKey]int{}}}}
 	st := store.New()
-	tr := newTraffic(&Gateways{}, st, "dev", c, map[sandboxKey]*position{})
+	tr := newTraffic(&Gateways{}, st, "dev", c, &ocwatch.Watcher{})
 	sandboxes := []store.Sandbox{{Workspace: "default", Name: "webapp"}}
 	tr.readDrafts(context.Background(), sandboxes)
 	tr.readDrafts(context.Background(), sandboxes)
@@ -218,36 +216,6 @@ type noDrafts struct {
 func (c *noDrafts) Drafts(context.Context, string, string) ([]store.Draft, error) {
 	c.calls++
 	return nil, status.Error(codes.Unimplemented, "unknown method GetDraftPolicy")
-}
-
-func TestTrafficLogsWhyItCannotWatch(t *testing.T) {
-	var buf bytes.Buffer
-	c := &watchFails{fakeClient: fakeClient{&fakeGateway{}}}
-	g := &Gateways{Backoff: time.Millisecond, Log: slog.New(slog.NewTextHandler(&buf, nil))}
-	tr := newTraffic(g, store.New(), "dev", c, map[sandboxKey]*position{})
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { tr.watch(ctx, dfltWebapp, &position{}); close(done) }()
-	for c.tries.Load() < 3 {
-		time.Sleep(time.Millisecond)
-	}
-	cancel()
-	<-done
-	// Once, however often it tried.
-	if got := strings.Count(buf.String(), "cannot follow"); got != 1 || !strings.Contains(buf.String(), "sandbox=webapp") || !strings.Contains(buf.String(), "workspace=default") ||
-		!strings.Contains(buf.String(), "permission denied") {
-		t.Errorf("log:\n%s", buf.String())
-	}
-}
-
-type watchFails struct {
-	fakeClient
-	tries atomic.Int32
-}
-
-func (c *watchFails) Watch(context.Context, string, string, osclient.WatchFrom, func(osclient.WatchEvent)) error {
-	c.tries.Add(1)
-	return status.Error(codes.PermissionDenied, "permission denied")
 }
 
 // TestTrafficWorkspaces follows sandboxes of one name in two workspaces: each
