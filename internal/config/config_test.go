@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
 )
@@ -82,6 +83,9 @@ func TestLoadErrors(t *testing.T) {
 		"port zero":         {"network_profiles:\n  x:\n    host_ports: [0]\n", "must not contain 0"},
 		"relative tool":     {"openshell:\n  secret_tool: bin/secret-tool\n", "absolute path"},
 		"relative config":   {"openshell:\n  configs: [team]\n", "not an absolute path"},
+		"journal mode":      {"audit:\n  journal: some\n", "must be changes, all or off"},
+		"bad retention":     {"audit:\n  retention: forever\n", "invalid duration"},
+		"short retention":   {"audit:\n  retention: 1h\n", "at least a day"},
 		"second document":   {"defaults:\n  cpus: 2\n---\nnetwork_profiles:\n  default: {}\n", "more than one YAML document"},
 		"empty document":    {"---\n---\ndefaults:\n  cpus: 2\n", "more than one YAML document"},
 	} {
@@ -91,6 +95,24 @@ func TestLoadErrors(t *testing.T) {
 				t.Fatalf("Load() error = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadAudit(t *testing.T) {
+	if b := Builtin().Audit; b.Journal != "changes" || b.Retention != 0 {
+		t.Errorf("built-in audit section: %+v", b)
+	}
+	cfg, err := Load(write(t, "audit:\n  journal: all\n  retention: 90d\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Audit.Journal != "all" || time.Duration(cfg.Audit.Retention) != 90*24*time.Hour {
+		t.Errorf("audit section = %+v", cfg.Audit)
+	}
+	for in, want := range map[string]time.Duration{"2w": 14 * 24 * time.Hour, "36h": 36 * time.Hour, "0d": 0} {
+		if got, err := ParseDuration(in); err != nil || got != want {
+			t.Errorf("ParseDuration(%q) = %v, %v", in, got, err)
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -28,6 +29,51 @@ type Config struct {
 	Defaults        Defaults                  `yaml:"defaults"`
 	NetworkProfiles map[string]NetworkProfile `yaml:"network_profiles"`
 	OpenShell       OpenShell                 `yaml:"openshell"`
+	Audit           Audit                     `yaml:"audit"`
+}
+
+// Audit configures the audit trail that brig keeps of each VM.
+type Audit struct {
+	// Journal says what the collector mirrors to the user journal:
+	// changes (denials, policy and draft changes, sandboxes and gaps), all
+	// (allowed requests too) or off.
+	Journal string `yaml:"journal"`
+	// Retention deletes the days of history older than it; zero keeps
+	// everything.
+	Retention Duration `yaml:"retention"`
+}
+
+// Duration is a length of time as config.yaml writes it: a number of days
+// (90d) or weeks (12w), or what time.ParseDuration takes (36h).
+type Duration time.Duration
+
+// UnmarshalYAML reads a duration.
+func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
+	v, err := ParseDuration(n.Value)
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
+// ParseDuration reads a duration as Duration writes it.
+func ParseDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	for suffix, unit := range map[string]time.Duration{"d": 24 * time.Hour, "w": 7 * 24 * time.Hour} {
+		if n, ok := strings.CutSuffix(s, suffix); ok {
+			days, err := strconv.Atoi(n)
+			if err != nil || days < 0 {
+				return 0, fmt.Errorf("invalid duration %q", s)
+			}
+			return time.Duration(days) * unit, nil
+		}
+	}
+	v, err := time.ParseDuration(s)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("invalid duration %q (want e.g. 90d, 12w or 36h)", s)
+	}
+	return v, nil
 }
 
 // OpenShell configures how brig applies OpenShell config directories to the
@@ -118,6 +164,7 @@ func Builtin() *Config {
 			"isolated": {},
 		},
 		OpenShell: OpenShell{SecretTool: "secret-tool"},
+		Audit:     Audit{Journal: "changes"},
 	}
 }
 
@@ -193,6 +240,12 @@ func (c *Config) overlay(o *Config) {
 	if o.OpenShell.Configs != nil {
 		c.OpenShell.Configs = o.OpenShell.Configs
 	}
+	if o.Audit.Journal != "" {
+		c.Audit.Journal = o.Audit.Journal
+	}
+	if o.Audit.Retention != 0 {
+		c.Audit.Retention = o.Audit.Retention
+	}
 }
 
 // expandHome replaces a leading "~/" in the paths with the home directory.
@@ -260,6 +313,14 @@ func (c *Config) Validate() error {
 		if !filepath.IsAbs(dir) {
 			return fmt.Errorf("openshell.configs: %q is not an absolute path", dir)
 		}
+	}
+	switch c.Audit.Journal {
+	case "changes", "all", "off":
+	default:
+		return fmt.Errorf("audit.journal must be changes, all or off, not %q", c.Audit.Journal)
+	}
+	if r := time.Duration(c.Audit.Retention); r != 0 && r < 24*time.Hour {
+		return errors.New("audit.retention must be at least a day")
 	}
 	return nil
 }
