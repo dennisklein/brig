@@ -49,3 +49,22 @@ func TestRuleName(t *testing.T) {
 		}
 	}
 }
+
+func TestBroad(t *testing.T) {
+	for _, c := range []struct {
+		protocol, access, binary string
+		n                        int
+	}{
+		{"rest", "read-only", "/usr/bin/node", 0},
+		{"rest", "read-write", "/usr/bin/node", 0},
+		{"rest", "full", "/usr/bin/node", 1},
+		{"", "", "/usr/bin/node", 1},
+		{"", "full", "/usr/bin/node", 1},
+		{"rest", "read-only", "/usr/bin/*", 1},
+		{"", "", "/**", 2},
+	} {
+		if got := Broad(c.protocol, c.access, c.binary); len(got) != c.n {
+			t.Errorf("Broad(%q, %q, %q) = %q, want %d reasons", c.protocol, c.access, c.binary, got, c.n)
+		}
+	}
+}

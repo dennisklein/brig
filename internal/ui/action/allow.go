@@ -116,6 +116,9 @@ func buildAllow(f Form, c Context) (Command, error) {
 	default:
 		return Command{}, fieldErr("Inspect", "choose HTTP requests or the whole connection")
 	}
+	if why := policy.Broad(protocol, access, binary); len(why) > 0 && f.Get("broad") == "" {
+		return Command{}, fieldErr("Broad rule", strings.Join(why, "; ")+". Tick Allow a broad rule to add it anyway")
+	}
 	cmd := openshellCommand(g.VM, s.Workspace, "policy", "update", s.Name,
 		"--rule-name", rule, "--binary", binary, "--add-endpoint", spec, "--wait").
 		Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Other sandboxes do not get it.", spec, rule, s.Name)

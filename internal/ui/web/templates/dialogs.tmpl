@@ -240,6 +240,7 @@
 <div class="field rest-only"><span class="lbl">Mode</span><div class="checks">
   <label><input type="radio" name="enforcement" value="enforce"{{if ne (.Form.Get "enforcement") "audit"}} checked{{end}}> Enforce <small>Allow what the access level allows, deny the rest.</small></label>
   <label><input type="radio" name="enforcement" value="audit"{{if eq (.Form.Get "enforcement") "audit"}} checked{{end}}> Audit <small>Log what it would deny and let it pass, to learn what the agent needs.</small></label></div></div>
+<div class="checks"><label><input type="checkbox" name="broad"{{if .Form.Get "broad"}} checked{{end}}> Allow a broad rule <small>Needed for full access, the whole connection, or a program path with *.</small></label></div>
 </div>
 {{if and $r $r.CredentialMismatch}}<div class="callout warn">The provider's credential is not bound to {{$r.Host}}. A rule lets the request go out without the real credential. To send the credential, add the host to the endpoints of the provider's profile instead (<a href="/gateways/{{.Form.Get "vm"}}?tab=profiles">profiles</a>).</div>
 <div class="checks"><label><input type="checkbox" name="anyway"{{if .Form.Get "anyway"}} checked{{end}}> Allow anyway <small>Without the credential.</small></label></div>{{end}}
