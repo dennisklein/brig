@@ -72,7 +72,7 @@
 
 {{define "vm-card"}}{{$v := .VM}}
 <a class="panel vmcard" href="/vms/{{$v.Name}}">
-  <div class="row1"><span class="name">{{$v.Name}}</span>{{template "pill" $v.State}}<span class="gw">{{$v.GatewayName}}</span></div>
+  <div class="row1"><span class="name">{{$v.Name}}</span>{{template "pill" $v.State}}{{if .AuditOff}}<span class="dot warn" title="Nothing records the traffic of {{$v.Name}}; see Host"></span>{{end}}<span class="gw">{{$v.GatewayName}}</span></div>
   <div class="meters">
     <span>cpu</span>{{template "meter" (stat $v "cpu")}}<span>{{if $v.Running}}{{pct (stat $v "cpu")}}{{else}}–{{end}}</span>
     <span>mem</span>{{template "meter" (stat $v "mem")}}{{if and $v.Running $v.Stats $v.Stats.MemoryFromHost}}<span title="What QEMU holds on the host; the guest has not reported its own use yet">≈{{pct (stat $v "mem")}}</span>{{else}}<span>{{if $v.Running}}{{pct (stat $v "mem")}}{{else}}–{{end}}</span>{{end}}

@@ -97,6 +97,10 @@ var dialogSpecs = map[string]dialogSpec{
 		Defaults: func(d *dialog) { d.def("fedora", fmt.Sprint(d.Snap.Config.Defaults.FedoraRelease)) },
 	},
 	"image-prune": {OK: "Prune", Open: "Prune…", Title: func(*dialog) string { return "Prune base images" }},
+	"audit-prune": {
+		OK: "Delete history", Open: "Prune…", Danger: true, Title: vmTitle("Prune the audit history of %s"),
+		Defaults: pruneDefaults,
+	},
 	"allow": {
 		OK: "Allow", Open: "Allow…", Title: sandboxTitle("Allow a request for %s"), Sub: allowSub,
 		Defaults: allowDefaults,
@@ -119,6 +123,24 @@ var dialogSpecs = map[string]dialogSpec{
 			}
 		},
 	},
+}
+
+// pruneDefaults offers to prune a VM's history before the longest of the
+// ages that deletes anything, else, for a deleted VM, all of it.
+func pruneDefaults(d *dialog) {
+	a, _ := d.Snap.Audit.AuditOf(d.Form.Get("vm"))
+	_, exists := d.Snap.VM(a.VM)
+	for _, age := range slices.Backward(action.PruneAges) {
+		if gone, _, _ := action.PruneGone(a, age); gone.Rows > 0 {
+			d.def("before", age)
+			break
+		}
+	}
+	d.def("before", action.PruneAges[0])
+	if !exists && a.VM != "" {
+		d.def("what", "deleted")
+	}
+	d.def("what", "before")
 }
 
 // sandboxTitle titles a dialog with a sandbox's name and workspace.

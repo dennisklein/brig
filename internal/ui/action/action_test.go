@@ -22,7 +22,7 @@ func demoContext() action.Context {
 	imgs := demo.Images(now)
 	return action.Context{Home: demo.Home, Snap: store.Snapshot{
 		VMs: demo.VMs(now), Images: imgs, NewestImage: &imgs[0],
-		Profiles: demo.Profiles(), Config: demo.Config(), Gateways: demo.Gateways(now),
+		Profiles: demo.Profiles(), Config: demo.Config(), Gateways: demo.Gateways(now), Audit: demo.Audit(now),
 	}}
 }
 
@@ -52,6 +52,12 @@ func TestBuild(t *testing.T) {
 		{"stop shut off", "stop", form("vm", "airgap"), "", "shut off already"},
 		{"delete running", "delete", form("vm", "dev"), "brig delete dev --force", ""},
 		{"delete shut off", "delete", form("vm", "airgap"), "brig delete airgap", ""},
+		{"audit prune", "audit-prune", form("vm", "dev", "before", "14d"), "", "pick an age"},
+		{"audit prune old days", "audit-prune", form("vm", "airgap", "before", "30d"), "brig audit prune airgap --before 30d", ""},
+		{"audit prune nothing so old", "audit-prune", form("vm", "dev", "before", "30d"), "", "no history from before"},
+		{"audit prune deleted VM", "audit-prune", form("vm", "scratch", "what", "deleted"), "brig audit prune scratch --deleted-vms", ""},
+		{"audit prune existing VM", "audit-prune", form("vm", "dev", "what", "deleted"), "", "still exists"},
+		{"audit prune no history", "audit-prune", form("vm", "nope", "before", "30d"), "", "no audit history"},
 		{"upgrade", "upgrade", form("vm", "review"), "", "newest base image already"},
 		{"profile", "profile", form("vm", "dev", "profile", "isolated"), "brig update dev --profile isolated", ""},
 		{"profile same", "profile", form("vm", "dev", "profile", "ollama"), "", "nothing to change"},
@@ -264,7 +270,7 @@ func TestRegistered(t *testing.T) {
 	// The list covers every registered action: a new one must get a
 	// case in TestBuild too.
 	want := []string{
-		"allow", "config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
+		"allow", "audit-prune", "config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
 		"mount-rm", "policy-save", "policy-save-preview", "profile", "reject", "resources", "sandbox-attach", "sandbox-create",
 		"sandbox-delete", "sandbox-detach", "sandbox-start", "sandbox-stop", "start", "stop", "sync", "sync-preview", "upgrade",
 	}
@@ -285,6 +291,9 @@ func TestTyped(t *testing.T) {
 	}
 	if start, _ := action.Lookup("start"); !start.Confirmed(form("vm", "dev")) {
 		t.Error("start wants a confirmation")
+	}
+	if ap, _ := action.Lookup("audit-prune"); ap.Confirmed(form("vm", "dev")) || !ap.Confirmed(form("vm", "dev", "confirm", "dev")) {
+		t.Error("audit prune does not want its VM's name typed")
 	}
 	sd, _ := action.Lookup("sandbox-delete")
 	if sd.Confirmed(form("vm", "dev", "sandbox", "webapp")) || sd.Confirmed(form("vm", "dev", "sandbox", "webapp", "confirm", "dev")) {

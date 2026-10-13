@@ -7,7 +7,13 @@
     <nav class="seg" aria-label="Verdict"><a class="{{if not $q.Denied}}on{{end}}" href="{{($q.With false).URL}}">All</a><a class="{{if $q.Denied}}on{{end}}" href="{{($q.With true).URL}}">Denied</a></nav>
     <nav class="seg" aria-label="Filter by VM"><a class="{{if not $q.VM}}on{{end}}" href="{{($q.OnVM "").URL}}">All VMs</a>{{range .Snap.VMs}}<a class="{{if and (eq .Name $q.VM) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnVM .Name).URL}}">{{.Name}}</a>{{end}}</nav>
     {{with workspaceChoices .Snap $q.VM}}<nav class="seg" aria-label="Filter by workspace"><a class="{{if and (not $q.Workspace) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnWorkspace "").URL}}">All workspaces</a>{{range .}}<a class="{{if and (eq . $q.Workspace) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnWorkspace .).URL}}">{{.}}</a>{{end}}</nav>{{end}}
+    {{with trafficSandboxes .}}<nav class="seg" aria-label="Filter by sandbox"><a class="{{if not $q.Sandbox}}on{{end}}" href="{{($q.OnSandbox $q.Workspace "" false).URL}}">All sandboxes</a>{{range .}}<a class="{{if and (eq .Name $q.Sandbox) (eq .Workspace $q.Workspace)}}on{{end}}" href="{{($q.OnSandbox .Workspace .Name .Deleted).URL}}"{{if .Deleted}} title="Deleted; only its history is left"{{end}}>{{.Name}}{{if and (not $q.Workspace) (multiWorkspace $.Snap $q.VM)}} <span class="faint">{{.Workspace}}</span>{{end}}{{if .Deleted}} <span class="faint">deleted</span>{{end}}</a>{{end}}</nav>{{end}}
+    <nav class="seg" aria-label="Range"><a class="{{if not $q.Range}}on{{end}}" href="{{($q.OnRange "").URL}}" title="Live, from the gateways' log buffers">Last hour</a>{{range trafficRanges}}<a class="{{if eq .Key $q.Range}}on{{end}}" href="{{($q.OnRange .Key).URL}}" title="From the audit trail">{{.Label}}</a>{{end}}</nav>
   </div>
 </div>
-<section class="panel tw" sse-swap="traffic-table">{{template "traffic-table" .}}</section>
+{{with .History}}<section class="panel tw">{{template "traffic-rows" (trafficTable $ .Rows false)}}
+{{with .Err}}<div class="pb"><div class="callout warn">{{.}}</div></div>{{end}}
+<div class="pb note">From the audit trail, as read when this page loaded{{if gt .Total (len .Rows)}}: the newest {{len .Rows}} of {{.Total}} show{{end}}. <code>brig audit</code> shows them all.</div></section>
+{{if and $q.Sandbox (deletedSandbox $)}}<div class="gap-above" hx-get="/sandboxes/{{$q.VM}}/{{$q.Workspace}}/{{$q.Sandbox}}/history" hx-trigger="load"><section class="panel"><div class="pb faint">Reading the history of {{$q.Sandbox}}…</div></section></div>{{end}}
+{{else}}<section class="panel tw" sse-swap="traffic-table">{{template "traffic-table" .}}</section>{{end}}
 {{end}}

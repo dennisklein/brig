@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/ui/run"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
@@ -37,7 +38,9 @@ type Server struct {
 	checking  atomic.Bool
 	starter   run.Starter
 	files     FileLister
-	home      string
+	// history reads the audit trail; nil where there is none.
+	history audit.Reader
+	home    string
 	// ctx ends the live update streams when the server stops.
 	ctx context.Context
 	mux *http.ServeMux
@@ -59,7 +62,9 @@ type serverConfig struct {
 	Starter run.Starter
 	// Files lists directories in sandboxes; nil lists none.
 	Files FileLister
-	Log   *slog.Logger
+	// History reads the audit trail; nil reads none.
+	History audit.Reader
+	Log     *slog.Logger
 }
 
 func newServer(ctx context.Context, c serverConfig) (*Server, error) {
@@ -73,7 +78,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	}
 	s := &Server{
 		st: c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a,
-		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
+		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
 	s.mux.HandleFunc("GET /{$}", s.overview)
@@ -86,6 +91,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("GET /sandboxes", s.sandboxes)
 	s.mux.HandleFunc("GET /sandboxes/{vm}/{workspace}/{name}", s.sandbox)
 	s.mux.HandleFunc("GET /sandboxes/{vm}/{workspace}/{name}/files", s.sandboxFiles)
+	s.mux.HandleFunc("GET /sandboxes/{vm}/{workspace}/{name}/history", s.sandboxHistory)
 	s.mux.HandleFunc("GET /gateway", s.firstGateway)
 	s.mux.HandleFunc("GET /gateways/{vm}", s.gateway)
 	s.mux.HandleFunc("GET /traffic", s.traffic)
@@ -219,7 +225,7 @@ func (s *Server) host(w http.ResponseWriter, r *http.Request) {
 		// The first visit runs the checks; the page shows them when done.
 		s.startCheck()
 	}
-	v.Events = eventsURL([]string{"rail", "host-checks"}, nil)
+	v.Events = eventsURL([]string{"rail", "host-checks", "host-audit"}, nil)
 	s.render(w, http.StatusOK, "host", v)
 }
 

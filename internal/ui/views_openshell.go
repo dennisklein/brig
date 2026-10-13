@@ -23,6 +23,7 @@ var sandboxTabs = []tabDef{
 	{"policy", "Policy"},
 	{"traffic", "Traffic"},
 	{"files", "Files"},
+	{"history", "History"},
 }
 
 // gatewayTabs are the tabs of a gateway's page, in order.

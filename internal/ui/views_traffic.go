@@ -33,6 +33,9 @@ type trafficQuery struct {
 	// Denied shows denied requests only, and the rows brig ui could not
 	// read.
 	Denied bool
+	// Range is one of trafficRanges, read from the audit trail, or empty
+	// for the last hour, live.
+	Range string
 }
 
 // URL is the Traffic page that shows q.
@@ -49,6 +52,9 @@ func (q trafficQuery) URL() string {
 	}
 	if q.Sandbox != "" {
 		v.Set("sandbox", q.Sandbox)
+	}
+	if q.Range != "" {
+		v.Set("range", q.Range)
 	}
 	if len(v) == 0 {
 		return "/traffic"
@@ -71,6 +77,26 @@ func (q trafficQuery) OnVM(vm string) trafficQuery {
 // OnWorkspace returns q for the workspace ws, any sandbox.
 func (q trafficQuery) OnWorkspace(ws string) trafficQuery {
 	q.Workspace, q.Sandbox = ws, ""
+	return q
+}
+
+// OnRange returns q for the range r.
+func (q trafficQuery) OnRange(r string) trafficQuery {
+	q.Range = r
+	return q
+}
+
+// OnSandbox returns q for the sandbox name of workspace ws, or for any
+// sandbox with an empty name. A deleted sandbox has history only, so the
+// live range would show it empty.
+func (q trafficQuery) OnSandbox(ws, name string, deleted bool) trafficQuery {
+	q.Sandbox = name
+	if name != "" {
+		q.Workspace = ws
+	}
+	if deleted && q.Range == "" {
+		q.Range = "all"
+	}
 	return q
 }
 
