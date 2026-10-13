@@ -17,7 +17,7 @@ import (
 
 func init() {
 	register(
-		Action{ID: "allow", Build: buildAllow, Next: "policy-save-preview"},
+		Action{ID: "allow", Build: buildAllow, ShowOutput: true, Next: "policy-save-preview"},
 		Action{ID: "policy-save-preview", Build: buildPolicySavePreview, ShowOutput: true, Next: "policy-save"},
 		Action{ID: "policy-save", Build: buildPolicySave},
 	)
@@ -58,6 +58,13 @@ func buildAllow(f Form, c Context) (Command, error) {
 		return Command{}, fmt.Errorf("%s may not carry the provider's credential, so the request would go out without it. "+
 			"Add the host to the provider profile's endpoints instead, or tick Allow anyway", r.Host)
 	}
+	keep := f.Get("keep") != ""
+	to := ""
+	if keep {
+		if to, err = policyFileArg(f, c); err != nil {
+			return Command{}, err
+		}
+	}
 	switch f.Get("mode") {
 	case AllowDraft:
 		id := f.Get("draft")
@@ -65,15 +72,27 @@ func buildAllow(f Form, c Context) (Command, error) {
 		if !ok {
 			return Command{}, fmt.Errorf("OpenShell has no pending draft %q for %s; it may have been approved or rejected meanwhile", id, s.Name)
 		}
-		cmd := openshellCommand(g.VM, s.Workspace, "rule", "approve", s.Name, "--chunk-id", d.ID).
-			Note("Approves the rule %s as OpenShell drafted it, shown above, into the policy of %s, which loads it at once. Other sandboxes do not get it.", d.Rule, s.Name)
+		var cmd Command
+		if keep {
+			if d.Rule == "" {
+				return Command{}, errors.New("OpenShell's draft names no rule to keep")
+			}
+			argv := []string{"brig", "policy", "allow", g.VM, s.Name, "--workspace", s.Workspace, "--draft", d.ID, "--rule", d.Rule, "--save"}
+			cmd = NewCommand(withTo(argv, to)...).
+				Note("Approves the rule %s as OpenShell drafted it, shown above, into the policy of %s, which loads it at once. Then it writes the rule into the sandbox's policy file, so that sandboxes created from the file get it too.", d.Rule, s.Name).
+				Note(keepNote)
+			cmd.Done = true
+		} else {
+			cmd = openshellCommand(g.VM, s.Workspace, "rule", "approve", s.Name, "--chunk-id", d.ID).
+				Note("Approves the rule %s as OpenShell drafted it, shown above, into the policy of %s, which loads it at once. Other sandboxes do not get it.", d.Rule, s.Name)
+			cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", d.Rule}
+		}
 		if d.Security != "" {
 			cmd = cmd.Note("OpenShell's security notes: %s", d.Security)
 		}
 		if d.Error != "" {
 			cmd = cmd.Note("The gateway could not apply this draft before: %s", d.Error)
 		}
-		cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", d.Rule}
 		return cmd, nil
 	case AllowRule:
 	default:
@@ -115,20 +134,67 @@ func buildAllow(f Form, c Context) (Command, error) {
 		return Command{}, fieldErr("Inspect", "choose HTTP requests or the whole connection")
 	}
 	spec := policy.EndpointSpec(host, port, protocol, access, enforcement)
-	if why := policy.Broad(protocol, access, binary); len(why) > 0 && f.Get("broad") == "" {
-		return Command{}, fieldErr("Broad rule", strings.Join(why, "; ")+". Tick Allow a broad rule to add it anyway")
+	broad := policy.Broad(protocol, access, binary)
+	if len(broad) > 0 && f.Get("broad") == "" {
+		return Command{}, fieldErr("Broad rule", strings.Join(broad, "; ")+". Tick Allow a broad rule to add it anyway")
 	}
-	cmd := openshellCommand(g.VM, s.Workspace, "policy", "update", s.Name,
-		"--rule-name", rule, "--binary", binary, "--add-endpoint", spec, "--wait").
-		Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Other sandboxes do not get it.", spec, rule, s.Name)
+	var cmd Command
+	if keep {
+		argv := []string{"brig", "policy", "allow", g.VM, s.Name, host + ":" + strconv.Itoa(port), "--workspace", s.Workspace, "--binary", binary, "--rule", rule}
+		if protocol == "" {
+			argv = append(argv, "--l4")
+		} else {
+			argv = append(argv, "--access", access)
+			if enforcement == "audit" {
+				argv = append(argv, "--audit")
+			}
+		}
+		if len(broad) > 0 {
+			argv = append(argv, "--broad")
+		}
+		argv = append(argv, "--save")
+		cmd = NewCommand(withTo(argv, to)...).
+			Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Then it writes the rule into the sandbox's policy file, so that sandboxes created from the file get it too.", spec, rule, s.Name).
+			Note(keepNote)
+		cmd.Done = true
+	} else {
+		cmd = openshellCommand(g.VM, s.Workspace, "policy", "update", s.Name,
+			"--rule-name", rule, "--binary", binary, "--add-endpoint", spec, "--wait").
+			Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Other sandboxes do not get it.", spec, rule, s.Name)
+		cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", rule}
+	}
 	if protocol == "" {
 		cmd = cmd.Note("The whole connection is allowed: the proxy does not look at the HTTP requests in it.")
 	}
 	if enforcement == "audit" {
 		cmd = cmd.Note("Audit logs the requests that the access level would deny, and lets them pass.")
 	}
-	cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", rule}
 	return cmd, nil
+}
+
+// keepNote says what keeping a rule does not do.
+const keepNote = "brig neither applies the file to other sandboxes nor commits it. A sandbox created from the default policy needs a File of its own."
+
+// withTo adds --to to the arguments of a brig policy command, if to is set.
+func withTo(argv []string, to string) []string {
+	if to == "" {
+		return argv
+	}
+	return append(argv, "--to", to)
+}
+
+// policyFileArg returns the policy file that the form's field "to" names, or
+// "" for the sandbox's own: a name in the config directories, or a path.
+func policyFileArg(f Form, c Context) (string, error) {
+	to := strings.TrimSpace(f.Get("to"))
+	switch {
+	case to == "":
+	case strings.HasPrefix(to, "/") || strings.HasPrefix(to, "~"):
+		return dirPath(f, "to", "File", c)
+	case !fileNameRE.MatchString(to):
+		return "", fieldErr("File", "write a name such as webapp, or a full path")
+	}
+	return to, nil
 }
 
 // fieldErr says what is wrong with the dialog's field label.
@@ -163,14 +229,11 @@ func policySave(f Form, c Context, dryRun bool) (Command, error) {
 		argv = append(argv, "--rule", rule)
 		next = append(next, "rule", rule)
 	}
-	if to := strings.TrimSpace(f.Get("to")); to != "" {
-		if strings.HasPrefix(to, "/") || strings.HasPrefix(to, "~") {
-			if to, err = dirPath(f, "to", "File", c); err != nil {
-				return Command{}, err
-			}
-		} else if !fileNameRE.MatchString(to) {
-			return Command{}, fieldErr("File", "write a name such as webapp, or a full path")
-		}
+	to, err := policyFileArg(f, c)
+	if err != nil {
+		return Command{}, err
+	}
+	if to != "" {
 		argv = append(argv, "--to", to)
 		next = append(next, "to", to)
 	}

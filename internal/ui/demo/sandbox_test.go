@@ -5,6 +5,7 @@ package demo
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,5 +121,30 @@ func TestTitle(t *testing.T) {
 		if got := title(want); got != argv {
 			t.Errorf("title(%q) = %q, want %q", want, got, argv)
 		}
+	}
+}
+
+func TestPlayPolicyAllow(t *testing.T) {
+	h := New(store.New())
+	allow := []string{"brig", "policy", "allow", "dev", "webapp", "registry.npmjs.org:443", "--workspace", "default", "--binary", "/usr/bin/node", "--rule", "npm", "--access", "read-only"}
+
+	p, err := h.plan(allow)
+	if err != nil || p.fail != "" || p.after == nil || !strings.Contains(p.output, "keeps it for new sandboxes") {
+		t.Errorf("without --save: %+v, %v", p, err)
+	}
+
+	// The demo's sandboxes come from the default policy, which --save
+	// refuses before it adds the rule.
+	p, err = h.plan(append(slices.Clone(allow), "--save"))
+	if err != nil || !strings.Contains(p.fail, "--to webapp") || p.after != nil {
+		t.Errorf("--save without --to: %+v, %v", p, err)
+	}
+
+	p, err = h.plan(append(slices.Clone(allow), "--save", "--to", "webapp"))
+	if err != nil || p.fail != "" || p.after == nil || !strings.Contains(p.output, "Rule npm updated on sandbox webapp") || !strings.Contains(p.output, "Created ") {
+		t.Errorf("--save --to: %+v, %v", p, err)
+	}
+	if len(p.steps) < 4 {
+		t.Errorf("steps %v lack the save", p.steps)
 	}
 }

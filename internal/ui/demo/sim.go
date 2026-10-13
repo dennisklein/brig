@@ -201,6 +201,7 @@ func parseFlags(argv []string) flags {
 		"--cpus": true, "--memory": true, "--root-disk": true, "--data-disk": true, "--profile": true, "--add-mount": true,
 		"--remove-mount": true, "--add-openshell-config": true, "--remove-openshell-config": true, "--fedora": true, "--openshell": true,
 		"--rule-name": true, "--binary": true, "--add-endpoint": true, "--chunk-id": true, "--rule": true, "--to": true, "--workspace": true,
+		"--draft": true, "--access": true,
 	}
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
@@ -227,6 +228,9 @@ func (h *Host) plan(argv []string) (plan, error) {
 	}
 	if argv[1] == "policy" && len(argv) >= 5 && argv[2] == "save" {
 		return policySavePlan(argv[3], argv[4], argv[5:]), nil
+	}
+	if argv[1] == "policy" && len(argv) >= 5 && argv[2] == "allow" {
+		return h.policyAllowPlan(argv[3:])
 	}
 	cmd, rest, sub := argv[1], argv[2:], ""
 	if cmd == "image" {

@@ -244,7 +244,9 @@
 </div>
 {{if and $r $r.CredentialMismatch}}<div class="callout warn">The provider's credential is not bound to {{$r.Host}}. A rule lets the request go out without the real credential. To send the credential, add the host to the endpoints of the provider's profile instead (<a href="/gateways/{{.Form.Get "vm"}}?tab=profiles">profiles</a>).</div>
 <div class="checks"><label><input type="checkbox" name="anyway"{{if .Form.Get "anyway"}} checked{{end}}> Allow anyway <small>Without the credential.</small></label></div>{{end}}
-<p class="note">Applies to {{$sb}} in workspace {{.Form.Get "workspace"}} only, at once. To keep the rule for new sandboxes, save it to the policy file next.</p>
+<div class="checks"><label><input type="checkbox" name="keep"{{if .Form.Get "keep"}} checked{{end}}> Keep for new sandboxes <small>Also writes the rule into the sandbox's policy file, so that sandboxes created from it get it.</small></label></div>
+<div class="field keep-only"><label for="a-to">File</label><input type="text" id="a-to" name="to" value="{{.Form.Get "to"}}" placeholder="the sandbox's policy file" autocapitalize="off" spellcheck="false"><span class="hint">A name such as {{.Form.Get "sandbox"}} creates policies/{{.Form.Get "sandbox"}}.yaml; or a path. Needed when the sandbox came from policies/default.yaml.</span></div>
+<p class="note">Applies to {{$sb}} in workspace {{.Form.Get "workspace"}} at once. Other sandboxes get the rule only if you keep it{{if not (.Form.Get "keep")}}; Save to file… keeps it later{{end}}.</p>
 {{end}}
 
 {{/* Save to file…: brig policy save, previewed first. */}}
