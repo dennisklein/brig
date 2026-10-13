@@ -104,6 +104,7 @@ func TestStartVMProgress(t *testing.T) {
 step connect the gateway: ok
   wait wait for the gateway to run: ok
   wait wait for the gateway's certificates: ok
+step start the audit collector: ok
 `
 	if got := w.Finish(); got != want {
 		t.Errorf("progress\n%s\nwant\n%s", got, want)

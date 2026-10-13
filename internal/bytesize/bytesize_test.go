@@ -58,3 +58,13 @@ func TestTextRoundTrip(t *testing.T) {
 		t.Fatalf("MarshalText() = %q, %v", b, err)
 	}
 }
+
+func TestApprox(t *testing.T) {
+	for in, want := range map[Size]string{
+		0: "0B", 512: "512B", KiB: "1.0KiB", 4194280: "4.0MiB", 63 * MiB: "63.0MiB", 3*GiB + 512*MiB: "3.5GiB",
+	} {
+		if got := in.Approx(); got != want {
+			t.Errorf("%d.Approx() = %q; want %q", uint64(in), got, want)
+		}
+	}
+}

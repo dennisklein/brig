@@ -115,7 +115,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newUpCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
-		newSandboxCmd(), newPolicyCmd(), newSecretCmd(), newAgentCmd(),
+		newSandboxCmd(), newPolicyCmd(), newSecretCmd(), newAgentCmd(), newAuditCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)

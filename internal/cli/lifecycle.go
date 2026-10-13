@@ -16,6 +16,7 @@ import (
 	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 
+	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/guest"
@@ -35,6 +36,13 @@ const (
 
 // startNetwork starts a VM's network; tests replace it, as they have no pasta.
 var startNetwork = vmnet.Start
+
+// startAudit and stopAudit run a VM's audit collector; tests replace them,
+// as they have no systemd.
+var (
+	startAudit = audit.StartUnit
+	stopAudit  = audit.StopUnit
+)
 
 // gatewayReadyTimeout bounds the waits for the gateway; tests shorten it.
 var gatewayReadyTimeout = 3 * time.Minute
@@ -319,6 +327,12 @@ func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, 
 	if err := a.connectGateway(ctx, v, w, ready); err != nil {
 		return err
 	}
+	err = inOptionalSpan(ctx, progress.KindStep, "start the audit collector", func(ctx context.Context) error {
+		return startAudit(ctx, v.Name)
+	})
+	if err != nil && ctx.Err() == nil {
+		fmt.Fprintf(w, "Warning: nothing records the traffic of %s: %s\n", v.Name, termtext.Escape(err.Error()))
+	}
 	// Steps that only warn above may have been cut short.
 	return ctx.Err()
 }
@@ -536,6 +550,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 	}
 	switch {
 	case state == libvirt.StateMissing || state == libvirt.StateShutoff:
+		stopAudit(ctx, v.Name)
 		vmnet.Stop(ctx, v.Name)
 		a.pruneUpgradeSnapshots(ctx, v)
 		return nil
@@ -556,6 +571,8 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 		})
 	}
 	if err == nil {
+		// The collector reads the last lines of the logs before it ends.
+		stopAudit(ctx, v.Name)
 		vmnet.Stop(ctx, v.Name)
 		a.pruneUpgradeSnapshots(ctx, v)
 	}
