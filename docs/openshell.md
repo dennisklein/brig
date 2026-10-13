@@ -902,9 +902,12 @@ Keep one VM, and one long-lived sandbox per project.
   ...` for a rule or two, `openshell policy set webapp --policy FILE --wait`
   for a reviewed file. If the grant should last, put it in the project's
   policy file: `brig policy save dev webapp` writes the rules the sandbox has
-  and the file lacks, keeping the file's comments; `--dry-run` shows the change
-  first. A sandbox created from `policies/default.yaml` gets a file of its own
-  with `--to webapp`, so the shared default stays without network rules.
+  and the file lacks, keeping the file's comments; on a terminal it shows the
+  change and the hosts it allows and asks first, and `--dry-run` only shows
+  it. `brig policy allow dev webapp HOST --binary PATH --save` adds one rule
+  and saves it in one step. A sandbox created from `policies/default.yaml`
+  gets a file of its own with `--to webapp`, so the shared default stays
+  without network rules.
 - Review on the host: `git fetch` the agent's branch and read the diff before
   anything merges.
 - Rotated a token? `secret-tool store` it again under the same attributes and
@@ -1002,10 +1005,10 @@ Podman refuses to remove an image a container still uses.
 | Attach a provider later | `openshell sandbox provider attach N P`, then start the agent from a new `sandbox exec` shell |
 | See denials | `openshell logs N --since 10m --source sandbox`, or `openshell term` |
 | Base vs effective policy | `openshell policy get N --base`, `--full` |
-| Add one network rule | `openshell policy update N --rule-name R --binary PATH --add-endpoint HOST:443:read-only:rest:enforce --wait` |
+| Add one network rule | `openshell policy update N --rule-name R --binary PATH --add-endpoint HOST:443:read-only:rest:enforce --wait`, or `brig policy allow dev N HOST --binary PATH` |
 | Replace the policy | `openshell policy set N --policy FILE --wait` |
 | Rules added to a sandbox but not in its policy file, and the reverse | `brig policy diff dev N` |
-| Keep the rules added to a sandbox | `brig policy save dev N`, or `--to N` for a sandbox from the default |
+| Keep the rules added to a sandbox | `brig policy save dev N`, or `--to N` for a sandbox from the default; `brig policy allow dev N HOST --binary PATH --save` adds and keeps one rule |
 | Copy files out, in | `openshell sandbox download N PATH DEST`; `openshell sandbox upload N SRC DEST` |
 | Push an image into the VM | `brig image push dev localhost/IMAGE:TAG` |
 | Upgrade VM, keep data | `brig image build && brig upgrade dev` |
