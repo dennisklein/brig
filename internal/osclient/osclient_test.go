@@ -139,7 +139,7 @@ func (g *gateway) ListSandboxes(_ context.Context, r *pb.ListSandboxesRequest) (
 		case "default":
 			all = append(all,
 				&pb.Sandbox{
-					Metadata: &dm.ObjectMeta{Name: "webapp", CreatedTime: timestamppb.New(created)},
+					Metadata: &dm.ObjectMeta{Name: "webapp", CreatedTime: timestamppb.New(created), Labels: map[string]string{"brig.dev/run": "r1"}},
 					Spec: &pb.SandboxSpec{
 						Template:    &pb.SandboxTemplate{Image: "localhost/pi-agent:2026-10-08"},
 						Providers:   []string{"llm", "github"},
@@ -441,7 +441,7 @@ func TestReads(t *testing.T) {
 		{Workspace: "default", Name: "odd", Phase: "Unknown"},
 		{
 			Workspace: "default", Name: "webapp", Phase: "Ready", Image: "localhost/pi-agent:2026-10-08", Template: "pi",
-			Providers: []string{"github", "llm"}, Created: created, PolicyVersion: 3,
+			Providers: []string{"github", "llm"}, Labels: map[string]string{"brig.dev/run": "r1"}, Created: created, PolicyVersion: 3,
 		},
 		{Workspace: "team", Name: "ci", Phase: "Ready", Labels: map[string]string{"brig.dev/run": "r1"}, PolicyVersion: 1},
 		{

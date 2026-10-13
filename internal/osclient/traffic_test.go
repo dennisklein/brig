@@ -55,7 +55,7 @@ func (g *gateway) GetDraftPolicy(_ context.Context, r *pb.GetDraftPolicyRequest)
 	if err := checkScope(r.GetWorkspaceScope()); err != nil {
 		return nil, err
 	}
-	if r.GetStatusFilter() != "pending" || r.GetSandbox() != "webapp" {
+	if (r.GetStatusFilter() != "pending" && r.GetStatusFilter() != "") || r.GetSandbox() != "webapp" {
 		return nil, status.Error(codes.InvalidArgument, "unexpected request")
 	}
 	if r.GetWorkspaceScope().GetWorkspace() == "team" {
@@ -77,7 +77,7 @@ func (g *gateway) GetDraftPolicy(_ context.Context, r *pb.GetDraftPolicyRequest)
 			},
 		},
 		// The gateway may send decided chunks too.
-		{Id: "ch-0", Status: "approved", RuleName: "old"},
+		{Id: "ch-0", Status: "approved", RuleName: "old", DecidedTime: timestamppb.New(logTime.Add(time.Minute))},
 	}}, nil
 }
 
@@ -150,9 +150,13 @@ func TestDrafts(t *testing.T) {
   binaries:
     - path: /usr/bin/node
 `,
-		Rationale: "node was denied 4 times", Validation: "no new findings", Hits: 4, LastSeen: logTime,
+		Rationale: "node was denied 4 times", Validation: "no new findings", Hits: 4, LastSeen: logTime, Status: "pending",
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Drafts:\ngot  %+v\nwant %+v", got, want)
+	}
+	all, err := c.AllDrafts(context.Background(), "default", "webapp")
+	if err != nil || len(all) != 2 || all[1].ID != "ch-0" || all[1].Status != "approved" || !all[1].Decided.Equal(logTime.Add(time.Minute)) {
+		t.Errorf("AllDrafts = %+v, %v", all, err)
 	}
 }

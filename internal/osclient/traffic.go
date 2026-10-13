@@ -102,15 +102,27 @@ func watchErr(err error) error {
 // Drafts lists the network rules that OpenShell drafted from a sandbox's
 // denied requests and that wait for approval.
 func (c *Client) Drafts(ctx context.Context, workspace, sandbox string) ([]store.Draft, error) {
+	return c.drafts(ctx, workspace, sandbox, "pending")
+}
+
+// AllDrafts lists every network rule that OpenShell drafted for a sandbox:
+// those that wait, and those approved or rejected.
+func (c *Client) AllDrafts(ctx context.Context, workspace, sandbox string) ([]store.Draft, error) {
+	return c.drafts(ctx, workspace, sandbox, "")
+}
+
+// drafts lists a sandbox's drafted rules of the status, or of every status
+// for "".
+func (c *Client) drafts(ctx context.Context, workspace, sandbox, status string) ([]store.Draft, error) {
 	r, err := call(ctx, func(ctx context.Context) (*pb.GetDraftPolicyResponse, error) {
-		return c.api.GetDraftPolicy(ctx, &pb.GetDraftPolicyRequest{WorkspaceScope: scope(workspace), Sandbox: sandbox, StatusFilter: "pending"})
+		return c.api.GetDraftPolicy(ctx, &pb.GetDraftPolicyRequest{WorkspaceScope: scope(workspace), Sandbox: sandbox, StatusFilter: status})
 	})
 	if err != nil {
 		return nil, err
 	}
 	var out []store.Draft
 	for _, ch := range r.GetChunks() {
-		if ch.GetStatus() != "pending" {
+		if status != "" && ch.GetStatus() != status {
 			continue
 		}
 		out = append(out, draft(workspace, sandbox, ch))
@@ -122,10 +134,13 @@ func draft(workspace, sandbox string, ch *pb.PolicyChunk) store.Draft {
 	d := store.Draft{
 		Workspace: workspace, Sandbox: sandbox, ID: ch.GetId(), Rule: ch.GetRuleName(), Binary: ch.GetBinary(),
 		Rationale: ch.GetRationale(), Validation: ch.GetValidationResult(), Security: ch.GetSecurityNotes(),
-		Error: ch.GetApplicationError(), Hits: int(ch.GetHitCount()),
+		Error: ch.GetApplicationError(), Hits: int(ch.GetHitCount()), Status: ch.GetStatus(),
 	}
 	if t := ch.GetLastSeenTime(); t != nil {
 		d.LastSeen = t.AsTime()
+	}
+	if t := ch.GetDecidedTime(); t != nil {
+		d.Decided = t.AsTime()
 	}
 	rule := ch.GetProposedRule()
 	for _, e := range rule.GetEndpoints() {
