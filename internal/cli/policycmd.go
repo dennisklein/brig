@@ -40,7 +40,7 @@ func newPolicyCmd() *cobra.Command {
 		Use:   "policy",
 		Short: "Compare sandbox policies with the policy files in the config directories, and save rules to them",
 	}
-	cmd.AddCommand(newPolicyDiffCmd(), newPolicySaveCmd())
+	cmd.AddCommand(newPolicyDiffCmd(), newPolicyAllowCmd(), newPolicySaveCmd())
 	return cmd
 }
 

@@ -101,7 +101,6 @@ func buildAllow(f Form, c Context) (Command, error) {
 	case strings.HasPrefix(rule, "_provider_"):
 		return Command{}, fieldErr("Rule name", "names starting with _provider_ belong to the rules of providers")
 	}
-	spec := host + ":" + strconv.Itoa(port)
 	protocol, access, enforcement := f.Get("protocol"), f.Get("access"), f.Get("enforcement")
 	switch protocol {
 	case "rest":
@@ -111,11 +110,11 @@ func buildAllow(f Form, c Context) (Command, error) {
 		if enforcement != "enforce" && enforcement != "audit" {
 			return Command{}, fieldErr("Mode", "choose enforce or audit")
 		}
-		spec += ":" + access + ":rest:" + enforcement
 	case "":
 	default:
 		return Command{}, fieldErr("Inspect", "choose HTTP requests or the whole connection")
 	}
+	spec := policy.EndpointSpec(host, port, protocol, access, enforcement)
 	if why := policy.Broad(protocol, access, binary); len(why) > 0 && f.Get("broad") == "" {
 		return Command{}, fieldErr("Broad rule", strings.Join(why, "; ")+". Tick Allow a broad rule to add it anyway")
 	}

@@ -1,0 +1,264 @@
+// SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+// SPDX-License-Identifier: Apache-2.0
+
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"path"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/GSI-HPC/go-clikit/termtext"
+	"github.com/spf13/cobra"
+
+	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/policy"
+	"github.com/dennisklein/brig/internal/vm"
+)
+
+// allowRequest is what brig policy allow is asked to do.
+type allowRequest struct {
+	workspace, sandbox string
+	// draft is the chunk ID of OpenShell's draft to approve. Otherwise the
+	// rule is described by host, port, binary, protocol, access and
+	// enforcement.
+	draft       string
+	host        string
+	port        int
+	binary      string
+	protocol    string // "rest", or "" for the whole connection
+	access      string
+	enforcement string
+	rule        string // the rule's key; a draft's with save
+	save        bool
+	to          string
+}
+
+func newPolicyAllowCmd() *cobra.Command {
+	var (
+		req    allowRequest
+		l4     bool
+		audit  bool
+		broad  bool
+		access string
+	)
+	cmd := &cobra.Command{
+		Use:   "allow [VM] SANDBOX HOST[:PORT] --binary PATH [--access LEVEL] [--save [--to FILE]]\n  brig policy allow [VM] SANDBOX --draft CHUNK-ID [--rule KEY] [--save [--to FILE]]",
+		Short: "Let a sandbox's program reach a host, and keep the rule for new sandboxes",
+		Long: `Add one network rule to the policy of SANDBOX, as openshell policy update
+does, and wait until the sandbox loads it. The rule lets the program --binary
+reach HOST on PORT (443 if not given) and no other sandbox gets it.
+
+By default the rule inspects HTTP requests and allows the methods that
+--access names: read-only (GET, HEAD, OPTIONS), read-write (also POST, PUT,
+PATCH) or full. --l4 allows the whole connection instead, without looking at
+the requests, and --audit only logs what the access level would deny. The rule
+is named allow_HOST_PORT, or --rule says how.
+
+brig refuses a wildcard that stands directly above a top-level domain, such
+as *.com, and * or **. It asks for --broad before it adds a rule with full
+access, with --l4, or for a program path with a wildcard.
+
+With --draft, brig approves the rule that OpenShell drafted from the denials
+of the sandbox (brig ui shows them) as it is, with
+openshell rule approve. The draft's rule is then the one that --save saves,
+so --rule names it.
+
+--save then writes the rule into the sandbox's policy file, so that sandboxes
+created from it get the rule too, as brig policy save does: it shows the
+change to the file first and does not ask. brig checks that it can save
+before it changes the sandbox. A sandbox created from the default policy
+needs --to NAME, which creates policies/NAME.yaml.
+
+Without VM, the one that brig use selected is used.`,
+		Example: `  brig policy allow dev webapp registry.npmjs.org --binary /usr/bin/node
+  brig policy allow dev webapp api.example.com:8443 --binary /usr/bin/curl --access read-write --save --to webapp
+  brig policy allow dev webapp --draft ch-17 --rule allow_registry_npmjs_org_443 --save --to webapp`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("draft") {
+				return cobra.RangeArgs(1, 2)(cmd, args)
+			}
+			return cobra.RangeArgs(2, 3)(cmd, args)
+		},
+		ValidArgsFunction: completeVMs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fl := cmd.Flags()
+			if req.draft != "" {
+				for _, f := range []string{"binary", "access", "l4", "audit", "broad"} {
+					if fl.Changed(f) {
+						return fmt.Errorf("--%s describes a rule of your own, and --draft approves the draft as OpenShell wrote it", f)
+					}
+				}
+				req.sandbox = args[len(args)-1]
+				args = args[:len(args)-1]
+				if req.save && req.rule == "" {
+					return errors.New("--save with --draft needs --rule, the key of the rule that the draft adds to")
+				}
+			} else {
+				req.sandbox = args[len(args)-2]
+				host, err := parseHostPort(args[len(args)-1])
+				if err != nil {
+					return err
+				}
+				req.host, req.port = host.name, host.port
+				args = args[:len(args)-2]
+				if err := checkAllowFlags(&req, fl.Changed("access"), access, l4, audit, broad); err != nil {
+					return err
+				}
+			}
+			if req.to != "" && !req.save {
+				return errors.New("--to needs --save")
+			}
+			if err := openshell.CheckWorkspace(req.workspace); err != nil {
+				return err
+			}
+			vmName, err := sandboxVM(args)
+			if err != nil {
+				return err
+			}
+			a, err := newApp()
+			if err != nil {
+				return err
+			}
+			v, err := a.vms.Load(vmName)
+			if err != nil {
+				return err
+			}
+			return a.policyAllow(cmd.Context(), v, req, cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&req.draft, "draft", "", "approve OpenShell's draft with this chunk ID, as it is")
+	f.StringVar(&req.binary, "binary", "", "the full path of the program that may connect")
+	f.StringVar(&access, "access", "read-only", "the HTTP methods to allow: read-only, read-write or full")
+	f.BoolVar(&l4, "l4", false, "allow the whole connection, without inspecting HTTP requests")
+	f.BoolVar(&audit, "audit", false, "only log what the access level would deny, and let it pass")
+	f.BoolVar(&broad, "broad", false, "confirm a rule with full access, with --l4, or for a program path with a wildcard")
+	f.StringVar(&req.rule, "rule", "", "the key of the rule (default allow_HOST_PORT); with --draft, the draft's rule")
+	f.BoolVar(&req.save, "save", false, "write the rule into the sandbox's policy file, as brig policy save does")
+	f.StringVar(&req.to, "to", "", "with --save: save into this policy file, or create policies/NAME.yaml from the sandbox's policy file")
+	addWorkspaceFlag(cmd, &req.workspace)
+	return cmd
+}
+
+type hostPort struct {
+	name string
+	port int
+}
+
+// parseHostPort parses HOST or HOST:PORT; the port is 443 if not given.
+func parseHostPort(s string) (hostPort, error) {
+	host, port := strings.ToLower(s), 443
+	if h, p, ok := strings.Cut(host, ":"); ok {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 || n > 65535 {
+			return hostPort{}, fmt.Errorf("port %q: write a number from 1 to 65535", p)
+		}
+		host, port = h, n
+	}
+	if err := policy.CheckHost(host); err != nil {
+		return hostPort{}, fmt.Errorf("host %q: %w", host, err)
+	}
+	return hostPort{host, port}, nil
+}
+
+// checkAllowFlags fills the rule of req from the flags of a rule of the
+// user's own, and refuses the ones that do not fit.
+func checkAllowFlags(req *allowRequest, accessGiven bool, access string, l4, audit, broad bool) error {
+	switch {
+	case req.binary == "":
+		return errors.New("say which program may connect with --binary, by its full path")
+	case !path.IsAbs(req.binary) || strings.ContainsFunc(req.binary, func(r rune) bool { return r < ' ' || r == 0x7f }):
+		return errors.New("--binary: write the program's full path, such as /usr/bin/node")
+	}
+	if req.rule == "" {
+		req.rule = policy.RuleName(req.host, req.port)
+	}
+	if !ruleKeyRE.MatchString(req.rule) {
+		return errors.New("--rule: use letters, digits, _, . and - only")
+	}
+	if strings.HasPrefix(req.rule, "_provider_") {
+		return errors.New("--rule: names starting with _provider_ belong to the rules of providers")
+	}
+	switch {
+	case l4:
+		if accessGiven || audit {
+			return errors.New("--l4 allows the whole connection; --access and --audit apply to HTTP requests")
+		}
+		req.protocol = ""
+	default:
+		req.protocol = "rest"
+		switch access {
+		case "read-only", "read-write", "full":
+		default:
+			return fmt.Errorf("--access: choose read-only, read-write or full, not %q", access)
+		}
+		req.access, req.enforcement = access, "enforce"
+		if audit {
+			req.enforcement = "audit"
+		}
+	}
+	if why := policy.Broad(req.protocol, req.access, req.binary); len(why) > 0 && !broad {
+		return fmt.Errorf("this rule is broad: %s; add --broad to add it anyway", strings.Join(why, "; "))
+	}
+	return nil
+}
+
+// ruleKeyRE matches a rule's key under network_policies.
+var ruleKeyRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
+
+// policyAllow adds the rule to the sandbox and, with req.save, saves it.
+func (a *app) policyAllow(ctx context.Context, v *vm.VM, req allowRequest, out, warn io.Writer) error {
+	cli, err := openshell.Find()
+	if err != nil {
+		return err
+	}
+	// Refuse a save that cannot be made before the sandbox changes.
+	if req.save {
+		if _, err := a.findSaveTarget(ctx, v, req.workspace, req.sandbox, req.to, warn); err != nil {
+			return err
+		}
+	}
+	var args []string
+	if req.draft != "" {
+		args = []string{"rule", "approve", req.sandbox, "--chunk-id", req.draft}
+	} else {
+		spec := policy.EndpointSpec(req.host, req.port, req.protocol, req.access, req.enforcement)
+		args = []string{"policy", "update", req.sandbox, "--rule-name", req.rule, "--binary", req.binary, "--add-endpoint", spec, "--wait"}
+	}
+	text, err := cli.InSandbox(ctx, v.GatewayName(), req.workspace, req.sandbox, args...)
+	if err != nil {
+		return err
+	}
+	if len(text) > 0 {
+		_, _ = io.WriteString(out, termtext.EscapeLines(string(text)))
+	}
+	if req.protocol == "" && req.draft == "" {
+		fmt.Fprintln(out, "The whole connection is allowed: the proxy does not look at the HTTP requests in it.")
+	}
+	if !req.save {
+		keep := "brig policy save " + v.Name + " " + req.sandbox
+		if req.rule != "" {
+			keep += " --rule " + req.rule
+		}
+		fmt.Fprintf(out, "Only %s has the rule. %s keeps it for new sandboxes.\n", termtext.Escape(req.sandbox), termtext.Escape(keep))
+		return nil
+	}
+	err = a.policySave(ctx, v, saveRequest{
+		workspace: req.workspace, sandbox: req.sandbox, keys: []string{req.rule}, to: req.to, show: true,
+	}, out, warn)
+	var same ruleUnchangedError
+	switch {
+	case errors.As(err, &same):
+		fmt.Fprintf(out, "Nothing to save: %s has rule %s already.\n", termtext.Escape(same.file), termtext.Escape(req.rule))
+		return nil
+	case err != nil:
+		return fmt.Errorf("sandbox %s has the rule now, but saving it failed (brig policy save %s %s --rule %s retries): %w", req.sandbox, v.Name, req.sandbox, req.rule, err)
+	}
+	return nil
+}

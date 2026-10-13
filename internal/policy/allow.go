@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -110,4 +111,16 @@ func Endpoints(rule map[string]any) []string {
 		}
 	}
 	return out
+}
+
+// EndpointSpec spells an endpoint as openshell policy update takes it in
+// --add-endpoint: HOST:PORT for the whole connection, or
+// HOST:PORT:ACCESS:rest:ENFORCEMENT for HTTP requests, where protocol is
+// "rest".
+func EndpointSpec(host string, port int, protocol, access, enforcement string) string {
+	spec := host + ":" + strconv.Itoa(port)
+	if protocol == "rest" {
+		spec += ":" + access + ":rest:" + enforcement
+	}
+	return spec
 }

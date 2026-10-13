@@ -425,3 +425,19 @@ func (c *CLI) BasePolicy(ctx context.Context, gateway, workspace, sandbox string
 	}
 	return doc.Policy, nil
 }
+
+// InSandbox runs the CLI with args after the global options for gateway and
+// workspace, the first of which is a command on sandbox, and returns its
+// standard output.
+func (c *CLI) InSandbox(ctx context.Context, gateway, workspace, sandbox string, args ...string) ([]byte, error) {
+	if err := CheckWorkspace(workspace); err != nil {
+		return nil, err
+	}
+	if !nameRE.MatchString(sandbox) {
+		return nil, fmt.Errorf("invalid sandbox name %q", sandbox)
+	}
+	if _, err := gatewayDir(c.ConfigHome, gateway); err != nil {
+		return nil, err
+	}
+	return c.run(ctx, append(WorkspaceArgs(gateway, workspace), args...)...)
+}
