@@ -54,7 +54,7 @@ func TestTrafficPages(t *testing.T) {
 		"/traffic?vm=review": {"uploads.github.com", `class="on" href="/traffic?vm=review"`},
 		"/traffic?verdict=deny&vm=dev&workspace=default&sandbox=webapp": {"registry.npmjs.org:443", "Traffic <span class=\"muted\">· webapp (default)</span>"},
 		"/sandboxes/dev/default/webapp?tab=traffic": {
-			"Rules OpenShell drafted", "no new findings", "Approve…", `<span class="n alert"`,
+			"Rules OpenShell drafted", "no new findings", "Approve…", `hx-get="/a/reject?draft=ch-npm&amp;sandbox=webapp&amp;vm=dev&amp;workspace=default"`, `<span class="n alert"`,
 			"openshell -g brig-dev --workspace default logs webapp --tail --source sandbox",
 		},
 		"/sandboxes/dev/default/webapp?tab=policy": {"Save to file…", `hx-get="/a/policy-save-preview?sandbox=webapp&amp;vm=dev&amp;workspace=default"`},
@@ -168,6 +168,32 @@ func TestAllowDialog(t *testing.T) {
 		"host", "uploads.github.com", "port", "443", "binary", "/usr/bin/gh", "protocol", "rest", "access", "read-write", "enforcement", "enforce"))
 	if !strings.Contains(w.Body.String(), "tick Allow anyway") || !strings.Contains(w.Body.String(), "disabled") {
 		t.Errorf("a credential's denial is allowed without asking:\n%s", w.Body)
+	}
+}
+
+func TestRejectDialog(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	addTraffic(ts)
+
+	body := ts.get("/a/reject?vm=dev&workspace=default&sandbox=webapp&draft=ch-npm").Body.String()
+	for _, want := range []string{"Reject the draft rule for webapp (default)", `name="draft" value="ch-npm"`, "allow_registry_npmjs_org_443:\n  name:", `name="reason"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reject dialog lacks %q", want)
+		}
+	}
+	if body = ts.get("/a/reject?vm=dev&workspace=default&sandbox=webapp&draft=gone").Body.String(); !strings.Contains(body, "no such draft any more") {
+		t.Errorf("a draft that is gone:\n%s", body)
+	}
+
+	form := values("vm", "dev", "workspace", "default", "sandbox", "webapp", "draft", "ch-npm", "reason", "not ours")
+	form.Set("shown", ts.shownBy("reject", form))
+	if w := ts.post("/a/reject/run", form); w.Code != http.StatusOK {
+		t.Fatalf("run: %d\n%s", w.Code, w.Body)
+	}
+	s := ts.starts.started()[0]
+	if s.Command.Display != "openshell -g brig-dev --workspace default rule reject webapp --chunk-id ch-npm --reason 'not ours'" || s.VM != "" || s.Next != "" {
+		t.Errorf("spec: %+v", s)
 	}
 }
 

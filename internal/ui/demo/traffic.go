@@ -206,6 +206,17 @@ func (t *traffic) allow(vm, ws, sandbox, endpoint, program, rule string) {
 	t.st.SetDrafts(vm, ws, sandbox, drafts)
 }
 
+// reject drops the pending draft with the ID id, which the sandbox's
+// requests may draft again.
+func (t *traffic) reject(vm, ws, sandbox, id string) {
+	key := vm + "/" + ws + "/" + sandbox
+	t.mu.Lock()
+	drafts := slices.DeleteFunc(slices.Clone(t.drafts[key]), func(d store.Draft) bool { return d.ID == id })
+	t.drafts[key] = drafts
+	t.mu.Unlock()
+	t.st.SetDrafts(vm, ws, sandbox, drafts)
+}
+
 // draft returns the pending draft of the sandbox with the ID id.
 func (t *traffic) draft(vm, ws, sandbox, id string) (store.Draft, bool) {
 	t.mu.Lock()

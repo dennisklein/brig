@@ -57,6 +57,17 @@ func (h *Host) rulePlan(vm, ws string, args []string) (plan, error) {
 				}
 			},
 		}, nil
+	case "rule reject":
+		id := first(f.values["--chunk-id"])
+		d, ok := h.traffic.draft(vm, ws, sandbox, id)
+		if !ok {
+			return plan{steps: []step{{name: "Reject draft " + id}}, fail: "no pending draft " + id + " for sandbox " + sandbox}, nil
+		}
+		return plan{
+			steps:  []step{{name: "Reject draft " + id}},
+			output: fmt.Sprintf("✓ Rejected draft %s (%s) for sandbox %s\n", id, d.Rule, sandbox),
+			after:  func() { h.traffic.reject(vm, ws, sandbox, id) },
+		}, nil
 	}
 	return plan{}, fmt.Errorf("the demo cannot play openshell %s %s", args[0], args[1])
 }

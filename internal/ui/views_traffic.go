@@ -355,6 +355,9 @@ func trafficFuncs() template.FuncMap {
 		"draftAct": func(v *view, d store.Draft) actButton {
 			return act(v, "allow", "Approve…", "sm", "vm", v.Gateway.VM, "workspace", d.Workspace, "sandbox", d.Sandbox, "draft", d.ID)
 		},
+		"rejectAct": func(v *view, d store.Draft) actButton {
+			return act(v, "reject", "Reject…", "sm", "vm", v.Gateway.VM, "workspace", d.Workspace, "sandbox", d.Sandbox, "draft", d.ID)
+		},
 		"saveAct": func(v *view) actButton {
 			return act(v, "policy-save-preview", "", "sm", "vm", v.Gateway.VM, "workspace", v.Sandbox.Workspace, "sandbox", v.Sandbox.Name)
 		},
