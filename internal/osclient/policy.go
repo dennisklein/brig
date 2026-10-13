@@ -24,7 +24,7 @@ const providerRulePrefix = "_provider_"
 // policy is a sandbox policy in the shape of a policy file, the shape that
 // openshell policy get prints: enums as the words policy files use, a
 // single port as port, filesystem as filesystem_policy, unset fields left
-// out (openshell-policy's from_proto at OpenShell v0.1.3).
+// out (openshell-policy's from_proto at OpenShell v0.1.4).
 type policy map[string]any
 
 // policyDoc converts a policy from its protobuf form.

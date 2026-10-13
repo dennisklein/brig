@@ -14,7 +14,7 @@ func TestParseRequest(t *testing.T) {
 		line string
 		want store.Request
 	}{
-		// Lines from OpenShell's own tests at v0.1.3: openshell-ocsf's
+		// Lines from OpenShell's own tests at v0.1.4: openshell-ocsf's
 		// format/shorthand.rs, openshell-cli's run.rs and
 		// openshell-supervisor-network's policy_local.rs.
 		{
@@ -119,6 +119,7 @@ func TestParseRequestNotTraffic(t *testing.T) {
 		`FINDING:BLOCKED [HIGH] "NSSH1 Nonce Replay Attack" [type:nssh1-replay-abc confidence:high]`,
 		"LIFECYCLE:START [INFO] openshell-sandbox success",
 		"CONFIG:LOADED [INFO] policy reloaded [version:v3 hash:sha256:abc123def456]",
+		`CONFIG:REJECTED [INFO] gateway rejected draft chunk chunk-1 [chunk_id:chunk-1 rejection_reason:too\u{20}broad\]\u{20}\[x actor:user:reviewer]`,
 		"EVENT [INFO] Network namespace created [ns:openshell-sandbox-abc123]",
 		"API:INFERENCE [INFO] success gpt-4 via openai 120ms [chat]",
 	} {

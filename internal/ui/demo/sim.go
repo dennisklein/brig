@@ -491,7 +491,7 @@ func imagePlan(sub string, f flags, st store.VMState) plan {
 		if v := f.values["--fedora"]; len(v) > 0 {
 			fedora, _ = strconv.Atoi(v[0])
 		}
-		osv := "0.1.3"
+		osv := "0.1.4"
 		if v := f.values["--openshell"]; len(v) > 0 {
 			osv = v[0]
 		}

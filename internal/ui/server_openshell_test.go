@@ -199,7 +199,7 @@ func TestGatewayNeeds(t *testing.T) {
 	}
 	want := []string{
 		"bad brig ui cannot reach brig-dev | brig-dev does not answer",
-		"warn brig-review runs OpenShell 0.2.0 | brig ui reads gateways as OpenShell 0.1.3 does; some details may be missing.",
+		"warn brig-review runs OpenShell 0.2.0 | brig ui reads gateways as OpenShell 0.1.4 does; some details may be missing.",
 		"bad Sandbox pr-review on review failed | image pull failed",
 	}
 	if !slices.Equal(got, want) {

@@ -3,7 +3,7 @@
 #
 # OpenShell gateway configuration of brig VMs, selected by
 # OPENSHELL_GATEWAY_CONFIG. The settings are those of OpenShell's RPM default,
-# deploy/rpm/gateway.toml.default (v0.1.3): rootless Podman, primary listener
+# deploy/rpm/gateway.toml.default (v0.1.4): rootless Podman, primary listener
 # on the built-in default 127.0.0.1:17670.
 
 [openshell]
