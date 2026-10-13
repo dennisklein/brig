@@ -181,6 +181,7 @@ starts with `brig-`.
 | Command | Purpose |
 |---|---|
 | `create NAME` | create and start a VM; stops first if a [`brig doctor`](#install) check fails |
+| `up [NAME]` | start the VM, or create it with `--create` (and `brig create` flags after `--`), wait until its gateway answers and its config directories sync, then list its sandboxes and the drafted rules that wait for review (`-o json`); safe to repeat |
 | `list`, `show [NAME]` | list VMs (queried in parallel), show one (`-o json`, which adds cumulative CPU time and memory use of running VMs as `stats`) |
 | `start [NAME]`, `stop [NAME]` | boot and re-register the gateway, shut down; `start --wait` (also on `create`) fails unless the gateway answers and the config directories sync |
 | `update [NAME]` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
