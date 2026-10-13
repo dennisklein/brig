@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -26,7 +27,10 @@ func Execute() int {
 	defer stop()
 
 	var p progressRun
-	err := newRootCmd(&p).ExecuteContext(ctx)
+	root := newRootCmd(&p)
+	stdout := &countingWriter{w: os.Stdout}
+	root.SetOut(stdout)
+	cmd, err := root.ExecuteContextC(ctx)
 	// An exit status with no message is an outcome, not a failure.
 	var exit exitError
 	if errors.As(err, &exit) {
@@ -35,12 +39,51 @@ func Execute() int {
 	}
 	// End the display before the error line, which it would tear.
 	p.end(err)
-	if err != nil {
-		// An error can carry text from a guest, an image or libvirt.
-		fmt.Fprintln(os.Stderr, "Error:", termtext.Escape(err.Error()))
-		return 1
+	return report(cmd, err, stdout.n > 0, os.Stdout, os.Stderr)
+}
+
+// report reports err, the error that cmd failed with, if any, and returns
+// the exit status. A command run with -o json that printed nothing on
+// standard output yet also gets the error there, as JSON.
+func report(cmd *cobra.Command, err error, printed bool, stdout, stderr io.Writer) int {
+	if err == nil {
+		return 0
 	}
-	return 0
+	code := exitStatus(err)
+	if wantsJSON(cmd) && !printed {
+		_ = writeJSON(stdout, jsonError{Error: err.Error(), Reason: exitReasons[code], ExitCode: code})
+	}
+	// An error can carry text from a guest, an image or libvirt.
+	fmt.Fprintln(stderr, "Error:", termtext.Escape(err.Error()))
+	return code
+}
+
+// jsonError is a failure as commands print it with -o json.
+type jsonError struct {
+	Error    string `json:"error"`
+	Reason   string `json:"reason"`
+	ExitCode int    `json:"exit_code"`
+}
+
+// wantsJSON reports whether cmd was run with -o json.
+func wantsJSON(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	f := cmd.Flags().Lookup("output")
+	return f != nil && f.Value.String() == "json"
+}
+
+// countingWriter counts what is written through it.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 func newRootCmd(p *progressRun) *cobra.Command {
@@ -54,7 +97,10 @@ to OpenShell's own sandboxing.
 Each VM's gateway is registered with the host's openshell CLI as brig-<name>.
 A command that takes a VM NAME works on the VM that brig use selected when you
 leave NAME out, and says so on standard error.
-Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.`,
+Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml.
+
+Exit status: 0 success, 3 not found, 4 exists already, 5 not ready (VM,
+gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
 		Version:       version.Version(),
 		SilenceUsage:  true,
 		SilenceErrors: true,

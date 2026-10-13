@@ -251,7 +251,7 @@ func (a *app) sandboxMounts(ctx context.Context, v *vm.VM, specs []sandboxMount,
 		return "", err
 	}
 	if state != libvirt.StateRunning {
-		return "", fmt.Errorf("VM %s is %s; start it with brig start %[1]s", v.Name, state)
+		return "", notReadyf("VM %s is %s; start it with brig start %[1]s", v.Name, state)
 	}
 	if err := a.vms.Save(v); err != nil {
 		return "", err

@@ -228,6 +228,25 @@ On a terminal, `NO_COLOR` turns colours off. Text from guests, images and
 libvirt is escaped before it is shown, so it cannot inject terminal control
 sequences.
 
+## Scripting
+
+brig's exit status says why a command failed:
+
+| Status | Meaning |
+|---|---|
+| 0 | success |
+| 1 | any other failure, including wrong arguments |
+| 3 | not found: no such VM, image, sandbox or workspace |
+| 4 | exists already, such as the VM that `brig create` would create |
+| 5 | not ready: the VM does not run or boot, its gateway does not answer, or the sandbox is not ready |
+| 6 | applying the VM's OpenShell config directories failed (`brig sync`, `--wait`) |
+
+`brig policy diff` uses 1 and 2 for its outcomes (see its `--help`).
+With `-o json`, a command that fails before it printed anything prints the
+error on standard output as well, as `{"error": "...", "reason": "not_ready",
+"exit_code": 5}`; the reasons are `failed`, `not_found`, `exists`,
+`not_ready` and `sync_failed`.
+
 ## Web UI
 
 `brig ui` serves a web UI on 127.0.0.1 and opens it in your browser: your
