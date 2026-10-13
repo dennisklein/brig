@@ -292,6 +292,52 @@ removes all endpoints (so sandbox policies decide) for a credential the gateway
 already holds; only an explicit `brig sync` applies it, and it names the new
 endpoints.
 
+## The first agent in one command
+
+`brig agent init` writes everything the next three sections describe: the
+image definition, the provider profile and provider, and a default policy.
+`brig agent build` builds the image and keeps the VM's template pointing at the
+newest one.
+
+```sh
+brig agent init claude --dir ~/src/agent-openshell --vm dev
+brig agent init pi --dir ~/src/agent-openshell --vm dev \
+  --endpoint https://llm.example.com/v1 --model your-model-id
+brig agent init opencode --dir ~/src/agent-openshell --vm dev --anthropic
+```
+
+Without `--vm` it only writes files and prints the commands to run, so you can
+review the files first, which matters when the directory is a shared git
+repository. With `--vm` it runs them and names each as it goes: it attaches
+the directories to the VM, asks for each missing secret (on a terminal; for
+Claude Code, run `claude setup-token` first), syncs, builds the image, and
+prints the command that starts a sandbox.
+
+| | Claude Code | Pi | opencode |
+| --- | --- | --- | --- |
+| Model access | subscription token | `--endpoint` and `--model`, provider `llm` | the same, or `--anthropic` with an API key |
+| Written | `agents/NAME/`, `profiles/claude-code.yaml` | `agents/NAME/`, `profiles/llm.yaml` | `agents/NAME/`, `profiles/llm.yaml` or `anthropic.yaml` |
+
+`NAME` defaults to the kind. `--github LOGIN` also writes a `github`
+provider. Provider files go to `~/.config/brig/openshell/providers/`, or
+wherever `--secrets-dir` says, and hold no secrets. brig never overwrites a
+file: one with the same content is skipped, one with other content stops the
+command with a list, unless `--force`. A profile, provider or default policy
+that another directory of the VM defines already is left out. The
+Containerfiles pin the agent versions, which move with brig releases.
+
+`agents/NAME/agent.yaml` says what belongs together:
+
+```yaml
+image: localhost/claude-agent     # brig agent build adds a date tag
+template: claude                  # kept pointing at the newest build
+providers: [claude-code, github]  # what a new sandbox of this agent attaches
+command: claude-sandbox           # shown by Connect; informational
+```
+
+The sections below show the files and explain the choices behind them; edit
+them freely and run `brig agent build dev NAME` after each change.
+
 ## Your first agent sandbox: Pi
 
 [Pi](https://pi.dev) has no official image, so you build one. Everything you
@@ -1205,16 +1251,18 @@ fixes. The version pins cover only the packages the Containerfile names. Pi
 `@earendil-works/pi-ai`, `pi-agent-core` and others, from `^1.1.0` ranges on
 every build. With `--pull`, a new base image also reruns the npm install, so a
 rebuild without edits can install newer Pi core packages. Change versions on
-purpose: bump `PI_VERSION` or `CLAUDE_VERSION` in the Containerfile, and read
+purpose: bump `PI_VERSION`, `CLAUDE_VERSION` or `OPENCODE_VERSION` in the Containerfile, and read
 Pi's changelog before you move sandboxes to the new image.
 
 ```sh
-tag=$(date +%F)
-podman build --pull -t localhost/pi-agent:$tag pi-image/
-brig image push dev localhost/pi-agent:$tag
-openshell sandbox template delete pi
-openshell sandbox template create pi --image localhost/pi-agent:$tag
+brig agent build dev pi
 ```
+
+It runs `podman build --pull -t localhost/pi-agent:DATE agents/pi/` (the date
+gets `-2` and so on if that tag exists), copies the image into the VM unless it
+has it already, and deletes and creates the template `pi` for the new tag:
+OpenShell can only create and delete templates. `--no-pull` keeps the base
+image, `--tag` sets the tag.
 
 New sandboxes get the new image. Move an existing one when you are at a good
 point, following the [habits above](#habits-that-make-deletes-safe); nothing
@@ -1230,6 +1278,7 @@ Podman refuses to remove an image a container still uses.
 | --- | --- |
 | Point the CLI at a VM | `brig use dev`, or `eval "$(brig env dev)"` without the [shell integration](../README.md#shell-integration) |
 | Apply config directories | `brig sync dev --dry-run`, then `brig sync dev` |
+| First agent, rebuild its image | `brig agent init claude --dir DIR --vm dev`; `brig agent build dev claude` |
 | Store or rotate a secret | `brig secret set dev PROVIDER`; `brig secret list dev` shows which are stored |
 | List profiles, providers | `openshell profile list`, `openshell provider list` |
 | New sandbox | `openshell sandbox create --name N --template pi --provider P ...` |
