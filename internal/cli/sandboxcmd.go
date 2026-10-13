@@ -36,14 +36,15 @@ func newSandboxCreateCmd() *cobra.Command {
 		workspace string
 	)
 	cmd := &cobra.Command{
-		Use:   "create [NAME] [--workspace W] [--mount DIR:TARGET]... [-- OPENSHELL-ARGS...]",
+		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [-- OPENSHELL-ARGS...]",
 		Short: "Create an OpenShell sandbox in a VM, with host directories mounted read-only",
 		Long: `Run openshell sandbox create against VM NAME's gateway, with each
 --mount DIR:TARGET showing host directory DIR read-only at TARGET in the
 sandbox. Arguments after -- go to openshell sandbox create as they are.
 Without NAME, the VM is the one that brig use selected.
 
-The sandbox is created in --workspace W of the gateway, default if not given.
+The sandbox is created in workspace W of the gateway (-w), by default the one
+that $BRIG_WORKSPACE names, else default.
 
 A sandbox sees DIR through a read-only sandbox mount of the VM (see brig
 create --help). brig uses the VM's sandbox mount of DIR, or adds one to the
@@ -65,7 +66,8 @@ default sandbox policy, if it has one.`,
 			if err := checkSandboxArgs(pass); err != nil {
 				return err
 			}
-			if err := openshell.CheckWorkspace(workspace); err != nil {
+			ws, err := chosenWorkspace(workspace)
+			if err != nil {
 				return err
 			}
 			var specs []sandboxMount
@@ -100,7 +102,7 @@ default sandbox policy, if it has one.`,
 			if err != nil {
 				return err
 			}
-			argv := append([]string{"openshell"}, openshell.WorkspaceArgs(v.GatewayName(), workspace)...)
+			argv := append([]string{"openshell"}, openshell.WorkspaceArgs(v.GatewayName(), ws)...)
 			argv = append(argv, "sandbox", "create")
 			if config != "" {
 				argv = append(argv, "--driver-config-json", config)
@@ -108,7 +110,7 @@ default sandbox policy, if it has one.`,
 			return execve("openshell", append(argv, pass...))
 		},
 	}
-	cmd.Flags().StringVar(&workspace, "workspace", openshell.DefaultWorkspace, "create the sandbox in this workspace of the gateway")
+	addWorkspaceFlag(cmd, &workspace)
 	cmd.Flags().StringArrayVarP(&mounts, "mount", "m", nil, "show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable)")
 	return cmd
 }

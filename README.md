@@ -115,6 +115,13 @@ It defines a `brig` shell function that runs `brig use NAME` and applies what
 it prints, as `eval "$(brig env NAME)"` would; `brig use --unset` points the
 CLI at no VM. Every other command runs brig as before.
 
+A gateway has workspaces, and `-w WORKSPACE` picks one on every command that
+works in one: `sync` (repeatable, default every workspace), `sandbox create`,
+`policy diff` and `policy save` (default `default`). `brig use dev -w team`
+also exports `BRIG_WORKSPACE=team`, which is the default of `-w` in that
+shell; `brig use dev` clears it, and `brig use -w team` changes the workspace
+and keeps the VM.
+
 In zsh it also defines a [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
 segment named `brig`, which shows the VM the shell points at, such as `▥
 dev`. Add `brig` to `POWERLEVEL9K_LEFT_PROMPT_ELEMENTS` or
@@ -166,15 +173,15 @@ starts with `brig-`.
 | `list`, `show [NAME]` | list VMs (queried in parallel), show one (`-o json`, which adds cumulative CPU time and memory use of running VMs as `stats`) |
 | `start [NAME]`, `stop [NAME]` | boot and re-register the gateway, shut down |
 | `update [NAME]` | change CPUs, memory, disks and network profile (at the next boot), mounts (at once) and OpenShell config directories |
-| `sync [NAME]` | apply the VM's OpenShell config directories to its gateway |
+| `sync [NAME]` (`-w`) | apply the VM's OpenShell config directories to its gateway |
 | `upgrade [NAME]` | move onto the newest base image, keeping the data disk and rolling back on failure |
 | `delete [NAME]` | delete the VM, its disks and its gateway registration |
 | `ssh [NAME]`, `console [NAME]` | shell (`--root` for root), serial console |
-| `use [NAME]` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)); without NAME, say which VM the shell points at |
-| `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`); NAME defaults to the VM that `brig use` selected |
-| `policy diff [NAME] SANDBOX` | compare a sandbox's network rules with the policy file it came from; exit status 1 if they differ (`-o json`) |
-| `policy allow [NAME] SANDBOX HOST[:PORT]` | add one rule that lets `--binary PATH` reach HOST, as `openshell policy update` does (`--access`, `--l4`, `--audit`); refuses `*`, `**` and `*.com`, and wants `--broad` for full access or `--l4`; `--draft ID` approves a draft; `--save` also writes the rule into the policy file |
-| `policy save [NAME] SANDBOX` | write the rules a sandbox has and its policy file lacks into that file, keeping its comments (`--rule KEY`, `--dry-run`); on a terminal it shows the change and the hosts it allows and asks first (`-y` skips); a sandbox from the default policy needs `--to FILE` |
+| `use [NAME]` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)); without NAME, say which VM the shell points at; `-w WORKSPACE` also exports `BRIG_WORKSPACE` |
+| `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`), in the workspace of `-w` |
+| `policy diff [NAME] SANDBOX` (`-w`) | compare a sandbox's network rules with the policy file it came from; exit status 1 if they differ (`-o json`) |
+| `policy allow [NAME] SANDBOX HOST[:PORT]` (`-w`) | add one rule that lets `--binary PATH` reach HOST, as `openshell policy update` does (`--access`, `--l4`, `--audit`); refuses `*`, `**` and `*.com`, and wants `--broad` for full access or `--l4`; `--draft ID` approves a draft; `--save` also writes the rule into the policy file |
+| `policy save [NAME] SANDBOX` (`-w`) | write the rules a sandbox has and its policy file lacks into that file, keeping its comments (`--rule KEY`, `--dry-run`); on a terminal it shows the change and the hosts it allows and asks first (`-y` skips); a sandbox from the default policy needs `--to FILE` |
 | `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push [NAME] IMAGE` | copy a container image from the host's Podman into a VM |

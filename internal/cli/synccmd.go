@@ -49,6 +49,15 @@ func newSyncCmd() *cobra.Command {
 		if _, err := cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
 			return fmt.Errorf("the gateway of VM %s does not answer; is the VM running (brig start %[1]s)? %w", v.Name, err)
 		}
+		if len(opts.Workspaces) == 0 {
+			ws, err := envWorkspace()
+			if err != nil {
+				return err
+			}
+			if ws != "" {
+				opts.Workspaces = []string{ws}
+			}
+		}
 		opts.Out, opts.Verbose = cmd.OutOrStdout(), true
 		return a.syncOpenShell(ctx, cli, v, opts, secretTool)
 	})
@@ -77,7 +86,8 @@ Every workspace is synced on its own: the default workspace first, then
 the others by name, with a "workspace WS:" heading each when there is more
 than one. The same profile ID or provider name may appear in several
 workspaces; they are separate objects. --workspace WS (repeatable) syncs
-only the named workspaces. --prune deletes only what brig created in the
+only the named workspaces, by default the one that $BRIG_WORKSPACE names
+if it is set. --prune deletes only what brig created in the
 workspace it is synced for, and brig never deletes a workspace itself.
 policies/ is not per workspace.
 
@@ -100,7 +110,8 @@ so. Check shared profiles with --dry-run first.`
 	f.BoolVar(&opts.DryRun, "dry-run", false, "show what would change, without changing it")
 	f.BoolVar(&opts.Prune, "prune", false, "delete profiles and providers that brig created but no config directory defines any more")
 	f.BoolVar(&opts.RefreshSecrets, "refresh-secrets", false, "update every provider's credentials, whether or not they changed")
-	f.StringArrayVarP(&opts.Workspaces, "workspace", "w", nil, "sync only this workspace (repeatable; default: every workspace the config directories define)")
+	f.StringArrayVarP(&opts.Workspaces, "workspace", "w", nil, "sync only this workspace (repeatable; default: $"+workspaceEnv+", else every workspace the config directories define)")
+	_ = cmd.RegisterFlagCompletionFunc("workspace", completeWorkspaces)
 	f.StringVar(&secretTool, "secret-tool", "", "program to look secrets up with (default: openshell.secret_tool from config.yaml)")
 	return cmd
 }

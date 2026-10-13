@@ -114,18 +114,15 @@ Without VM, the one that brig use selected is used.`,
 			if req.to != "" && !req.save {
 				return errors.New("--to needs --save")
 			}
-			if err := openshell.CheckWorkspace(req.workspace); err != nil {
-				return err
-			}
-			vmName, err := sandboxVM(args)
-			if err != nil {
+			var err error
+			if req.workspace, err = chosenWorkspace(req.workspace); err != nil {
 				return err
 			}
 			a, err := newApp()
 			if err != nil {
 				return err
 			}
-			v, err := a.vms.Load(vmName)
+			v, err := a.resolveVMArg(cmd, args)
 			if err != nil {
 				return err
 			}
