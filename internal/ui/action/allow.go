@@ -84,7 +84,7 @@ func buildAllow(f Form, c Context) (Command, error) {
 				Note(keepNote)
 			cmd.Done = true
 		} else {
-			cmd = openshellCommand(g.VM, s.Workspace, "rule", "approve", s.Name, "--chunk-id", d.ID).
+			cmd = NewCommand("brig", "policy", "allow", g.VM, s.Name, "--workspace", s.Workspace, "--draft", d.ID).
 				Note("Approves the rule %s as OpenShell drafted it, shown above, into the policy of %s, which loads it at once. Other sandboxes do not get it.", d.Rule, s.Name)
 			cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", d.Rule}
 		}
@@ -139,31 +139,30 @@ func buildAllow(f Form, c Context) (Command, error) {
 	if len(broad) > 0 && f.Get("broad") == "" {
 		return Command{}, fieldErr("Broad rule", strings.Join(broad, "; ")+". Tick Allow a broad rule to add it anyway")
 	}
+	argv := []string{"brig", "policy", "allow", g.VM, s.Name, host + ":" + strconv.Itoa(port), "--workspace", s.Workspace, "--binary", binary, "--rule", rule}
+	if protocol == "" {
+		argv = append(argv, "--l4")
+	} else {
+		argv = append(argv, "--access", access)
+		if enforcement == "audit" {
+			argv = append(argv, "--audit")
+		}
+	}
+	if len(broad) > 0 {
+		argv = append(argv, "--broad")
+	}
 	var cmd Command
 	if keep {
-		argv := []string{"brig", "policy", "allow", g.VM, s.Name, host + ":" + strconv.Itoa(port), "--workspace", s.Workspace, "--binary", binary, "--rule", rule}
-		if protocol == "" {
-			argv = append(argv, "--l4")
-		} else {
-			argv = append(argv, "--access", access)
-			if enforcement == "audit" {
-				argv = append(argv, "--audit")
-			}
-		}
-		if len(broad) > 0 {
-			argv = append(argv, "--broad")
-		}
-		argv = append(argv, "--save")
-		cmd = NewCommand(withTo(argv, to)...).
+		cmd = NewCommand(withTo(append(argv, "--save"), to)...).
 			Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Then it writes the rule into the sandbox's policy file, so that sandboxes created from the file get it too.", spec, rule, s.Name).
 			Note(keepNote)
 		cmd.Done = true
 	} else {
-		cmd = openshellCommand(g.VM, s.Workspace, "policy", "update", s.Name,
-			"--rule-name", rule, "--binary", binary, "--add-endpoint", spec, "--wait").
+		cmd = NewCommand(argv...).
 			Note("Adds %s to the rule %s of %s, or creates the rule, and waits until the sandbox loads it. Other sandboxes do not get it.", spec, rule, s.Name)
 		cmd.NextForm = []string{"vm", g.VM, "workspace", s.Workspace, "sandbox", s.Name, "rule", rule}
 	}
+	cmd = cmd.Note("The policy revision records that brig policy allow made it, which brig audit shows.")
 	if protocol == "" {
 		cmd = cmd.Note("The whole connection is allowed: the proxy does not look at the HTTP requests in it.")
 	}

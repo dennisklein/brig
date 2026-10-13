@@ -183,17 +183,17 @@ func TestWorkspaceAllowDialog(t *testing.T) {
 	}
 	form := values("vm", "dev", "workspace", "team", "sandbox", "webapp", "mode", "rule", "host", "team.example", "port", "443", "binary", "/usr/bin/node", "protocol", "rest", "access", "read-only", "enforcement", "enforce")
 	w := ts.post("/a/allow/preview", form)
-	if !strings.Contains(w.Body.String(), "openshell -g brig-dev --workspace team policy update webapp") {
+	if !strings.Contains(w.Body.String(), "brig policy allow dev webapp team.example:443 --workspace team ") {
 		t.Errorf("preview:\n%s", w.Body)
 	}
 	// The same form for the other workspace names the other one, and
 	// without a workspace there is no command.
 	form.Set("workspace", "default")
-	if w := ts.post("/a/allow/preview", form); !strings.Contains(w.Body.String(), "--workspace default policy update webapp") {
+	if w := ts.post("/a/allow/preview", form); !strings.Contains(w.Body.String(), "team.example:443 --workspace default ") {
 		t.Errorf("preview for default:\n%s", w.Body)
 	}
 	form.Del("workspace")
-	if w := ts.post("/a/allow/preview", form); strings.Contains(w.Body.String(), "policy update") {
+	if w := ts.post("/a/allow/preview", form); strings.Contains(w.Body.String(), "policy allow") {
 		t.Errorf("a command without a workspace:\n%s", w.Body)
 	}
 	// Save to file… passes the workspace to brig policy save.

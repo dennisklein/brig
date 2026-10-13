@@ -10,8 +10,9 @@ import (
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
-// rulePlan plays an openshell command on the gateway of the VM named vm
-// that adds or approves a rule, as Allow… does. h.mu is held.
+// rulePlan plays a change to a rule on the gateway of the VM named vm, as
+// an openshell command spells it: brig policy allow adds or approves a rule,
+// and Reject… rejects a draft. h.mu is held.
 func (h *Host) rulePlan(vm, ws string, args []string) (plan, error) {
 	if len(args) < 3 {
 		return plan{}, fmt.Errorf("the demo cannot play openshell %q", args)
@@ -35,7 +36,7 @@ func (h *Host) rulePlan(vm, ws string, args []string) (plan, error) {
 		yaml += "  binaries:\n    - path: " + binary + "\n"
 		return plan{
 			steps:  []step{{name: "Validate the rule"}, {name: "Merge it into the policy of " + sandbox}, {name: "Wait for " + sandbox + " to load it"}},
-			output: fmt.Sprintf("✓ Rule %s updated on sandbox %s\n✓ Policy loaded by the sandbox\n", rule, sandbox),
+			output: fmt.Sprintf("Sandbox %s loaded policy version 4 with rule %s.\n", sandbox, rule),
 			after: func() {
 				addRule(h.st, vm, ws, sandbox, yaml)
 				h.traffic.allow(vm, ws, sandbox, parts[0]+":"+parts[1], binary, rule)
