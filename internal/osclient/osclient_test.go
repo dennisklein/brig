@@ -399,7 +399,7 @@ func pki(t *testing.T) (string, *tls.Config) {
 
 // serve runs the fake gateway on 127.0.0.1 with mTLS and returns a client
 // of it.
-func serve(t *testing.T, g *gateway) *Client {
+func serve(t *testing.T, g pb.OpenShellServer) *Client {
 	t.Helper()
 	dir, cfg := pki(t)
 	l, err := net.Listen("tcp4", "127.0.0.1:0")
