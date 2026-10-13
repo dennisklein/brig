@@ -884,11 +884,13 @@ Keep one VM, and one long-lived sandbox per project.
 
 ### Start of day
 
-1. `brig start dev` boots the VM, re-registers the gateway and syncs your
-   config directories; the keyring may ask to be unlocked.
+1. `brig up dev` boots the VM, re-registers the gateway, syncs your config
+   directories and lists the sandboxes, with the drafted rules that wait for
+   your review; the keyring may ask to be unlocked. It fails if the gateway
+   does not answer or the sync fails, where `brig start dev` only warns.
 2. `brig use dev` in each terminal that runs `openshell`.
-3. `brig sandbox list dev`; start any that are `Stopped` or `Completed` with
-   `brig sandbox start dev webapp`.
+3. Start the sandboxes that are `Stopped` or `Completed` with `brig sandbox
+   start dev webapp`.
 4. `brig sandbox connect dev webapp`, then in the sandbox `cd webapp && git
    pull` and `pi-sandbox --continue` to resume the last conversation for that
    directory.

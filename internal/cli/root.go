@@ -113,7 +113,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
 		&cobra.Group{ID: "host", Title: "Host commands:"},
 	)
 	for _, c := range []*cobra.Command{
-		newCreateCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
+		newCreateCmd(), newUpCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
 		newSandboxCmd(), newPolicyCmd(),
 	} {
