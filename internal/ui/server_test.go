@@ -44,6 +44,7 @@ func newTestServer(t *testing.T) *testServer {
 	st.SetHost(store.Host{Name: "zeta", BrigVersion: "v0.6.0", OpenShellCLI: "0.1.2", Addr: "127.0.0.1:7878"})
 	st.SetVMs(store.VMState{VMs: demo.VMs(now), Images: demo.Images(now), Profiles: demo.Profiles(), Config: demo.Config()})
 	st.SetActivity(demo.Activity(now))
+	st.SetAudit(demo.Audit(now))
 	for _, g := range demo.Gateways(now) {
 		st.UpdateGateway(g.VM, func(gw *store.Gateway) bool { *gw = g; return true })
 	}
@@ -53,6 +54,7 @@ func newTestServer(t *testing.T) *testServer {
 		CheckHost: func(context.Context, *store.Store) { ts.checks.Add(1) },
 		Starter:   ts.starts,
 		Files:     ts.files,
+		History:   demo.History(now),
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {

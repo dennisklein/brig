@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/ui/collect"
@@ -119,11 +120,13 @@ func Run(ctx context.Context, o Options) error {
 	checkHost := collect.Doctor
 	var starter run.Starter
 	var files FileLister
+	var history audit.Reader
 	if o.Demo {
 		home = demo.Home
 		checkHost = demo.CheckHost
 		host := demo.New(st)
 		starter, files = host, host
+		history = demo.History(time.Now())
 		goRun(func() { host.Run(ctx, addr) })
 	} else {
 		brig := o.Brig
@@ -142,6 +145,9 @@ func Run(ctx context.Context, o Options) error {
 		st.SetHost(store.Host{Addr: addr})
 		goRun(func() { st.SetHost(collect.Host(ctx, addr)) })
 		goRun(func() { collector.Run(ctx, st) })
+		trail := audit.NewStore(o.Dirs)
+		history = trail
+		goRun(func() { collect.Audit(ctx, st, trail) })
 		if home, err := openshell.ConfigHome(); err != nil {
 			log.Warn("brig ui cannot read OpenShell gateways", "err", err)
 		} else {
@@ -166,7 +172,7 @@ func Run(ctx context.Context, o Options) error {
 
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: token, Port: port, Demo: o.Demo, Home: home,
-		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, Log: log,
+		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, History: history, Log: log,
 	})
 	if err != nil {
 		return err

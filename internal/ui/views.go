@@ -31,13 +31,14 @@ var fragments = map[string][]store.Topic{
 	"tasks":           {store.TopicTasks, store.TopicOutput, store.TopicActivity},
 	"rail":            {store.TopicVMs, store.TopicGateways, store.TopicTraffic},
 	"overview-sub":    {store.TopicVMs, store.TopicActivity},
-	"vm-cards":        {store.TopicVMs, store.TopicGateways},
-	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways, store.TopicTraffic},
+	"vm-cards":        {store.TopicVMs, store.TopicGateways, store.TopicAudit},
+	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways, store.TopicTraffic, store.TopicAudit},
 	"recent-activity": {store.TopicActivity},
 	"vm-table":        {store.TopicVMs, store.TopicTasks, store.TopicActivity},
 	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity, store.TopicGateways},
 	"images":          {store.TopicVMs},
 	"host-checks":     {store.TopicHost},
+	"host-audit":      {store.TopicAudit},
 	"activity-list":   {store.TopicActivity},
 	"sandbox-table":   {store.TopicGateways},
 	"sandbox":         {store.TopicGateways},
@@ -70,7 +71,7 @@ type templates struct {
 
 func newTemplates(fsys fs.FS, funcs template.FuncMap, dev bool) (*templates, error) {
 	t := &templates{dev: dev, load: func() (*template.Template, map[string]*template.Template, error) {
-		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl", "templates/trafficparts.tmpl")
+		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl", "templates/trafficparts.tmpl", "templates/auditparts.tmpl")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -149,8 +150,10 @@ type view struct {
 	// whose sandboxes the list shows, empty for all.
 	Filter   string
 	WSFilter string
-	// TrafficQ picks the rows of the Traffic page.
+	// TrafficQ picks the rows of the Traffic page, and History holds them
+	// when they come from the audit trail.
 	TrafficQ trafficQuery
+	History  *trafficHistory
 	// Sel is the selected node of the topology.
 	Sel string
 	// Query is the jump box's query, for the palette.
@@ -220,6 +223,7 @@ func needs(sn store.Snapshot) []need {
 	}
 	out = append(out, gatewayNeeds(sn)...)
 	out = append(out, trafficNeeds(sn)...)
+	out = append(out, auditNeeds(sn)...)
 	order := map[string]int{"bad": 0, "warn": 1, "info": 2}
 	slices.SortStableFunc(out, func(a, b need) int { return order[a.Sev] - order[b.Sev] })
 	return out
@@ -274,7 +278,8 @@ func funcs(home string) template.FuncMap {
 		"runClass": runClass,
 		"cardOf": func(v *view, vm store.VM) card {
 			g, _ := v.Snap.Gateway(vm.Name)
-			return card{VM: vm, SyncErr: vm.LastSync != nil && vm.LastSync.Error != "", Older: olderImage(v.Snap, vm), Sandboxes: g.Sandboxes}
+			a, _ := v.Snap.Audit.AuditOf(vm.Name)
+			return card{VM: vm, SyncErr: vm.LastSync != nil && vm.LastSync.Error != "", Older: olderImage(v.Snap, vm), Sandboxes: g.Sandboxes, AuditOff: a.Problem}
 		},
 		"cmd": func(label, text string) command { return command{label, text} },
 		"netrow": func(on bool, label, detail string) netRow {
@@ -334,6 +339,9 @@ func funcs(home string) template.FuncMap {
 	for name, fn := range openshellFuncs() {
 		m[name] = fn
 	}
+	for name, fn := range auditFuncs() {
+		m[name] = fn
+	}
 	for name, fn := range trafficFuncs() {
 		m[name] = fn
 	}
@@ -349,6 +357,8 @@ type card struct {
 	SyncErr   bool
 	Older     bool
 	Sandboxes []store.Sandbox
+	// AuditOff says that nothing records the VM's traffic.
+	AuditOff bool
 }
 
 // command is a command block: a label, and the command to copy.

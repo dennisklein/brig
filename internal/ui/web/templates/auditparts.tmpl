@@ -1,0 +1,63 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{/* The audit trail: the history that brig keeps of each VM's traffic,
+     policy changes and commands. */}}
+
+{{define "sharemeter"}}<svg class="meter" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="6" rx="3"/>{{with .}}<rect class="fill" width="{{.}}" height="6" rx="3"/>{{end}}</svg>{{end}}
+
+{{/* The Host page's Audit trail card: each VM's collector, and the space
+     its history takes. */}}
+
+{{define "host-audit"}}{{$a := .Snap.Audit}}
+<section class="panel"><div class="ph"><h2>Audit trail</h2><span class="faint small">Each VM's requests, policy changes and commands{{with $a.Dir}}, kept in <span class="mono">{{tilde .}}</span>{{end}}</span></div>
+{{if not $a.Read}}<div class="pb faint">Reading the audit trail…</div>
+{{else if not $a.VMs}}<div class="empty">No VM has an audit history yet. brig start runs a collector for each VM it starts.</div>
+{{else}}<div class="tw"><table><thead><tr><th>VM</th><th>Collector</th><th>Last event</th><th class="num" title="Times in the last 24 hours that requests may have gone unrecorded">Gaps 24h</th><th class="num">Records</th><th class="num">Size</th><th>Oldest</th><th></th></tr></thead><tbody>
+{{range $a.VMs}}<tr><td>{{if hasVM $.Snap .VM}}<a href="/vms/{{.VM}}">{{.VM}}</a>{{else}}{{.VM}}{{end}}</td>
+  <td>{{if .Problem}}<span class="pill bad"><span class="dot"></span>{{auditCollector .}}</span>{{else if eq .Collector "running"}}<span class="pill ok"><span class="dot"></span>running</span>{{else}}<span class="muted">{{auditCollector .}}</span>{{end}}</td>
+  <td class="small">{{if .LastEvent.IsZero}}<span class="faint">–</span>{{else}}<span title="{{stamp .LastEvent}}">{{rel .LastEvent}}</span>{{end}}</td>
+  <td class="num">{{if .Gaps24h}}<span class="pill warn">{{.Gaps24h}}</span>{{else}}<span class="faint">0</span>{{end}}</td>
+  <td class="num mono">{{.Rows}}</td><td class="num mono">{{disk .Disk}}</td>
+  <td class="small">{{if .Oldest.IsZero}}<span class="faint">–</span>{{else}}<span title="{{stamp .Oldest}}">{{rel .Oldest}}</span>{{end}}</td>
+  <td class="act">{{if .Days}}{{template "act" (pruneAct $ .VM)}}{{end}}</td></tr>
+{{if or .Error .Problem}}<tr><td></td><td colspan="7" class="small">{{with .Error}}<span class="mono">{{.}}</span>{{else}}Nothing records the traffic of {{.VM}}.{{end}} <code>brig start {{.VM}}</code> starts its collector again; <code>brig audit status</code> says more.</td></tr>{{end}}
+{{end}}</tbody></table></div>
+<div class="pb">
+<div class="tw"><table><thead><tr><th>Sandbox</th><th class="meterc">Share of its VM's history</th><th class="num">Size</th><th class="num">Records</th></tr></thead><tbody>
+{{range $a.VMs}}{{$vm := .}}{{if .Sandboxes}}<tr class="grouprow"><th colspan="4">{{.VM}}</th></tr>
+{{range .Sandboxes}}<tr><td>{{if .Name}}{{.Sandbox}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{if not .Deleted.IsZero}} <span class="faint">deleted {{rel .Deleted}}</span>{{end}}{{else}}<span class="muted">the VM itself</span>{{end}}</td><td class="meterc">{{template "sharemeter" (share .Disk $vm.Disk)}}</td><td class="num mono">{{disk .Disk}}</td><td class="num mono">{{.Rows}}</td></tr>
+{{end}}{{end}}{{end}}</tbody></table></div>
+<p class="note">{{disk $a.Disk}} in all{{if gt $a.Free 0}}, {{disk $a.Free}} free on its file system{{end}}{{if not $a.Oldest.IsZero}}, since {{stamp $a.Oldest}}{{end}}. brig keeps history for audit.retention in config.yaml and deletes older days itself.</p>
+</div>
+{{end}}
+</section>
+{{end}}
+
+{{/* A sandbox's History tab: its policy, draft and lifecycle records, and
+     what it reached. */}}
+
+{{define "sandbox-history"}}
+{{with .Err}}<div class="callout warn">{{.}}</div>{{end}}
+<section class="panel"><div class="ph"><h2>Changes</h2><span class="faint small">Policy revisions, drafts and lifecycle of {{.Name}}, newest first</span></div>
+<div class="tw"><table><thead><tr><th>Time</th><th>Kind</th><th>What</th></tr></thead><tbody>
+{{range .Records}}<tr><td class="mono small"><span title="{{stamp .T}}">{{stamp .T}}</span></td><td><span class="chip">{{.Kind}}</span></td><td class="small">{{describe .}}</td></tr>
+{{else}}<tr><td colspan="3" class="empty">The audit trail holds no changes of {{.Name}}.</td></tr>{{end}}
+</tbody></table></div></section>
+<section class="panel gap-above"><div class="ph"><h2>Reached</h2><span class="faint small">Endpoints in the last {{.ReachDays}} days</span></div>
+<div class="tw"><table><thead><tr><th>Endpoint</th><th class="num">Allowed</th><th class="num">Denied</th><th>Programs</th><th>Rules</th><th>Last</th></tr></thead><tbody>
+{{range .Reach}}<tr><td class="mono small">{{.Endpoint}}</td><td class="num">{{.Allowed}}</td><td class="num">{{if .Denied}}<span class="verdict deny">{{.Denied}}</span>{{else}}0{{end}}</td><td class="mono small">{{range $i, $b := .Binaries}}{{if $i}}, {{end}}{{$b}}{{end}}</td><td class="mono small">{{range $i, $r := .Rules}}{{if $i}}, {{end}}{{$r}}{{end}}</td><td class="small"><span title="{{stamp .Last}}">{{rel .Last}}</span></td></tr>
+{{else}}<tr><td colspan="6" class="empty">No requests of {{.Name}} in the last {{.ReachDays}} days.</td></tr>{{end}}
+</tbody></table></div></section>
+<div class="stack gap-above">{{template "cmd" (cmd "The whole history from your terminal" (printf "brig audit %s %s -w %s --since all" .VMName .Name .Workspace))}}</div>
+{{end}}
+
+{{/* The dialog that prunes a VM's history. */}}
+
+{{define "dlg-audit-prune"}}{{template "vmfield" .}}{{$a := auditOf .Snap (.Form.Get "vm")}}
+<p class="muted">The history of {{$a.VM}} holds {{$a.Rows}} records in {{disk $a.Disk}}{{if not $a.Oldest.IsZero}}, since {{stamp $a.Oldest}}{{end}}. brig deletes days older than audit.retention by itself; this deletes them sooner.</p>
+<div class="field"><span class="lbl">Delete</span><div class="checks">
+  <label><input type="radio" name="what" value="before"{{if ne (.Form.Get "what") "deleted"}} checked{{end}}> Records older than <select name="before" aria-label="Age">{{range pruneAges}}<option value="{{.}}"{{if eq . ($.Form.Get "before")}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  {{if not (hasVM .Snap (.Form.Get "vm"))}}<label><input type="radio" name="what" value="deleted"{{if eq (.Form.Get "what") "deleted"}} checked{{end}}> All of it <small>{{$a.VM}} was deleted; nothing adds to its history.</small></label>{{end}}
+</div></div>
+{{end}}

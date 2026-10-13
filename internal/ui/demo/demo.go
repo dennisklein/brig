@@ -63,6 +63,7 @@ func (h *Host) Run(ctx context.Context, addr string) {
 	h.publish()
 	h.mu.Unlock()
 	h.st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
+	h.st.SetAudit(Audit(now))
 	h.traffic.backfill(now, VMs(now))
 	tick := time.NewTicker(tickEvery)
 	defer tick.Stop()

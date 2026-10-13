@@ -335,3 +335,4 @@ td.act { text-align: right; white-space: nowrap; }
   .hostchip { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.meterc { width: 40%; min-width: 80px; }

@@ -29,6 +29,9 @@ func trafficQueryOf(q url.Values) trafficQuery {
 	if sb := q.Get("sandbox"); t.VM != "" && t.Workspace != "" && action.ValidSandboxName(sb) {
 		t.Sandbox = sb
 	}
+	if r := q.Get("range"); validRange(r) {
+		t.Range = r
+	}
 	return t
 }
 
@@ -36,6 +39,23 @@ func trafficQueryOf(q url.Values) trafficQuery {
 func (s *Server) traffic(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "traffic", "Traffic")
 	v.TrafficQ = trafficQueryOf(r.URL.Query())
+	if v.TrafficQ.Range != "" {
+		// History does not update live; the page shows it as read.
+		v.History = &trafficHistory{}
+		if s.history == nil {
+			v.History.Err = "brig ui reads no audit trail here."
+		} else {
+			var err error
+			v.History.Rows, v.History.Total, err = historyRows(s.history, v.TrafficQ, v.Now, trafficShown)
+			if err != nil {
+				s.log.Warn("reading the audit trail", "err", err)
+				v.History.Err = "brig ui could not read the audit trail: " + err.Error()
+			}
+		}
+		v.Events = eventsURL([]string{"rail"}, nil)
+		s.render(w, http.StatusOK, "traffic", v)
+		return
+	}
 	params := url.Values{"vm": {v.TrafficQ.VM}, "workspace": {v.TrafficQ.Workspace}, "sandbox": {v.TrafficQ.Sandbox}}
 	if v.TrafficQ.Denied {
 		params.Set("verdict", "deny")

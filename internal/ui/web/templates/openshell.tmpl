@@ -55,7 +55,8 @@
 {{if eq .Tab "overview"}}{{template "sandbox-overview" .}}
 {{else if eq .Tab "policy"}}{{template "sandbox-policy" .}}
 {{else if eq .Tab "traffic"}}<div sse-swap="sandbox-traffic">{{template "sandbox-traffic" .}}</div>
-{{else if eq .Tab "files"}}{{template "sandbox-files" .}}{{end}}
+{{else if eq .Tab "files"}}{{template "sandbox-files" .}}
+{{else if eq .Tab "history"}}<div hx-get="{{sandboxURL $g.VM $s.Workspace $s.Name}}/history" hx-trigger="load" hx-swap="innerHTML"><section class="panel"><div class="pb faint">Reading the history of {{$s.Name}}…</div></section></div>{{end}}
 {{end}}{{end}}
 
 {{define "sandbox-overview"}}{{$g := .Gateway}}{{$s := .Sandbox}}

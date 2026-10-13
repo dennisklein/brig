@@ -62,6 +62,8 @@ type Snapshot struct {
 	Gateways []Gateway
 	// Traffic is what the gateways' sandboxes requested, by VM name.
 	Traffic []Traffic
+	// Audit is the state of the audit trail.
+	Audit Audit
 }
 
 // Config is the part of config.yaml that the dialogs prefill.
