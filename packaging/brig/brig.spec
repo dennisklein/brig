@@ -19,6 +19,7 @@
 %{!?bash_completions_dir:%global bash_completions_dir %{_datadir}/bash-completion/completions}
 %{!?zsh_completions_dir:%global zsh_completions_dir %{_datadir}/zsh/site-functions}
 %{!?fish_completions_dir:%global fish_completions_dir %{_datadir}/fish/vendor_completions.d}
+%{!?fish_vendor_conf_dir:%global fish_vendor_conf_dir %{_datadir}/fish/vendor_conf.d}
 
 %global selinuxtype targeted
 
@@ -117,6 +118,11 @@ for shell in bash zsh fish; do
     ./brig completion "$shell" > "brig.$shell"
 done
 
+# The shell integration of brig use, for new bash, zsh and fish sessions.
+./brig shell-init bash > shell-init.bash
+sed -e '/^@SHELL_INIT@$/{' -e 'r shell-init.bash' -e 'd' -e '}' packaging/brig/profile.sh.in > brig.sh
+./brig shell-init fish > brig.fish.conf
+
 find vendor -type f \( -iname 'LICENSE*' -o -iname 'NOTICE*' \) | LC_ALL=C sort |
 while read -r f; do
     printf '==== %s ====\n\n' "$f"
@@ -129,6 +135,8 @@ install -Dpm 0755 brig %{buildroot}%{_bindir}/brig
 install -Dpm 0644 brig.bash %{buildroot}%{bash_completions_dir}/brig
 install -Dpm 0644 brig.zsh %{buildroot}%{zsh_completions_dir}/_brig
 install -Dpm 0644 brig.fish %{buildroot}%{fish_completions_dir}/brig.fish
+install -Dpm 0644 brig.sh %{buildroot}%{_sysconfdir}/profile.d/brig.sh
+install -Dpm 0644 brig.fish.conf %{buildroot}%{fish_vendor_conf_dir}/brig.fish
 install -Dpm 0644 %{SOURCE2} \
     %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/brig.cil
 
@@ -137,6 +145,9 @@ install -Dpm 0644 %{SOURCE2} \
 # brig's own CI.
 test "$(./brig --version)" = "brig version v%{version}"
 ./brig print-fedora-deps > /dev/null
+# The shell integration defines the function in interactive bash only.
+test "$(bash -i -c '. ./brig.sh; type -t brig' 2>/dev/null)" = function
+test -z "$(bash -c '. ./brig.sh; type -t brig' 2>/dev/null)"
 
 # The module only allows a rule, it labels no files, so there is nothing to
 # relabel.
@@ -155,6 +166,8 @@ fi
 %{bash_completions_dir}/brig
 %{zsh_completions_dir}/_brig
 %{fish_completions_dir}/brig.fish
+%config(noreplace) %{_sysconfdir}/profile.d/brig.sh
+%{fish_vendor_conf_dir}/brig.fish
 
 %files selinux
 %license LICENSE NOTICE
