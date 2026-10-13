@@ -1227,8 +1227,9 @@ The command's output and exit status are brig's, 124 after `--timeout`;
 brig's own failures exit with the statuses that `brig --help` lists.
 `run.json` records the sandbox, the exit status, the transfers and the
 requests that the policy denied, by host and binary. `--keep failed` keeps the
-sandbox of a failed run to look into. `--dry-run` prints the `openshell`
-commands that a run amounts to.
+sandbox of a failed run to look into; `brig sandbox clean dev --runs` deletes
+the kept and left-over sandboxes of runs once they expire. `--dry-run` prints
+the `openshell` commands that a run amounts to.
 
 ## Keeping images up to date
 
@@ -1303,7 +1304,7 @@ Podman refuses to remove an image a container still uses.
 | List, start, stop, delete sandboxes | `brig sandbox list dev`, `brig sandbox start dev N`, `stop`, `delete` |
 | Reattach, detach | `brig sandbox connect dev N`; `Ctrl-P`, `Ctrl-Q` |
 | Second shell | `brig sandbox exec dev N --tty -- bash -l` |
-| Run one task in a fresh sandbox | `brig sandbox run dev --template pi --upload ./task -- make -C task` |
+| Run one task in a fresh sandbox | `brig sandbox run dev --template pi --upload ./task -- make -C task`; `brig sandbox clean dev --runs` for what runs left |
 | Attach a provider later | `brig sandbox attach dev N P`, then start the agent from a new `sandbox exec` shell |
 | See denials | `brig sandbox logs dev N --since 10m --source sandbox`, or `openshell term` |
 | Base vs effective policy | `openshell policy get N --base`, `--full` |
