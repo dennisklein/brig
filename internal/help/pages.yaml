@@ -1,0 +1,79 @@
+# Help for each page of brig ui, by the name of its template: what the page
+# is for, the concepts it uses (those of the current tab first) and tasks.
+overview:
+  title: Overview
+  summary: Your VMs at a glance, what needs you, and what brig did and denied lately.
+  concepts: [vm, needs-you, fence-1, activity]
+  tasks: [first-vm, start-of-day, unblock]
+vms:
+  title: VMs
+  summary: Every VM on this host. Each runs one OpenShell gateway, registered here as brig-NAME.
+  concepts: [vm, gateway, fence-2, base-image]
+  tasks: [first-vm, start-of-day, upgrade-vm]
+vm:
+  title: VM
+  summary: One VM, its disks, host directories, sandboxes, OpenShell config and network.
+  concepts: [vm, gateway, data-disk, root-disk, base-image]
+  tasks: [share-dir, terminal, upgrade-vm, blocked-outside]
+  tabs:
+    summary: [data-disk, root-disk, base-image, gateway]
+    mounts: [mount, sandbox-volume]
+    sandboxes: [sandboxes, gateway]
+    openshell: [config-dir, config-sync, provider]
+    network: [fence-2, fence-1]
+    shell: [brig-use]
+images:
+  title: Images
+  summary: The base images that VMs are made from. Sandbox images live in each VM.
+  concepts: [base-image, sandbox-image, root-disk]
+  tasks: [upgrade-vm]
+host:
+  title: Host
+  summary: brig doctor on this host, which checks what brig needs and says how to fix what fails, and the audit trail that brig keeps of each VM.
+  concepts: [audit-trail]
+  tasks: [first-vm, look-back]
+activity:
+  title: Activity
+  summary: What brig did, from brig ui or a terminal, newest first. Open an entry for its steps.
+  concepts: [activity]
+  tasks: []
+sandboxes:
+  title: Sandboxes
+  summary: Every sandbox on every VM's gateway. Each keeps its files at /sandbox across stop and start.
+  concepts: [sandboxes, workspace, provider, policies]
+  tasks: [new-sandbox, set-up-agent, share-dir, one-shot]
+sandbox:
+  title: Sandbox
+  summary: One sandbox, its providers and setup, its policy, its traffic, its files and its history.
+  concepts: [sandboxes, provider, placeholder, policies, workspace, audit-trail]
+  tasks: [unblock, keep-rules, rotate-token, look-back]
+  tabs:
+    policy: [base-policy, effective-policy, policy-file, policies]
+    traffic: [verdict, draft, fence-1, audit-mode]
+    files: [sandboxes]
+    history: [audit-trail, policies, draft]
+gateway:
+  title: Gateway
+  summary: What a VM's gateway holds, read live from it. Change it with sync and your config directories.
+  concepts: [gateway, workspace, provider, provider-profile, template]
+  tasks: [rotate-token, set-up-agent]
+  tabs:
+    providers: [provider, config-sync, config-dir]
+    profiles: [provider-profile, placeholder]
+    policies: [policies, policy-file]
+    templates: [template, sandbox-image]
+traffic:
+  title: Traffic
+  summary: Every request of every sandbox, as OpenShell's proxy decided it, live for the last hour and from the audit trail before.
+  concepts: [verdict, fence-1, draft, fence-2, audit-trail]
+  tasks: [unblock, blocked-outside, look-back]
+topology:
+  title: Topology
+  summary: Every path from this host to the endpoints sandboxes reach, and those they tried and could not.
+  concepts: [gateway, provider, fence-1]
+  tasks: [unblock]
+notfound:
+  title: Not found
+  summary: This page does not exist. The jump box finds pages, VMs, sandboxes and help.
+  concepts: []
+  tasks: []

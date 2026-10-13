@@ -1,0 +1,148 @@
+# Help for each action of brig ui, by the ID of its dialog: what it does, the
+# command it runs, and what undoes it or that nothing does.
+start:
+  title: Start
+  summary: Boots the VM, registers its gateway with your openshell CLI and syncs its config directories.
+  command: brig start VM
+  undo: Stop
+stop:
+  title: Stop
+  summary: Shuts the VM down. Its sandboxes stop with it; their workspaces stay.
+  command: brig stop VM
+  undo: Start
+delete:
+  title: Delete VM
+  summary: Deletes the VM with its disks and gateway registration, and every sandbox and secret on it.
+  command: brig delete VM
+  danger: Cannot be undone. You type the name to confirm.
+  concepts: [data-disk]
+upgrade:
+  title: Upgrade
+  summary: Moves the VM onto the newest base image. The data disk stays; a failure rolls back.
+  command: brig upgrade VM
+  concepts: [base-image, data-disk, root-disk]
+mount-add:
+  title: Add mount
+  summary: Shares a host directory with the VM, at once if it runs, read-only unless you pick read-write.
+  command: brig update VM --add-mount SOURCE:TARGET:ro
+  undo: Remove
+  concepts: [mount, sandbox-volume]
+mount-rm:
+  title: Remove mount
+  summary: Stops sharing the directory with the VM. The directory on the host stays.
+  command: brig update VM --remove-mount TARGET
+  undo: Add mount
+  concepts: [mount]
+profile:
+  title: Change network profile
+  summary: Picks what the whole VM may reach. Applies when the VM next starts.
+  command: brig update VM --profile PROFILE
+  concepts: [fence-2]
+resources:
+  title: Change resources
+  summary: CPUs, memory and disk sizes. They apply when the VM next starts; disks can only grow.
+  command: brig update VM --cpus N --memory SIZE
+  concepts: [data-disk, root-disk]
+config-add:
+  title: Add config directory
+  summary: Adds a directory whose profiles, providers and default policy sync applies to this VM's gateway.
+  command: brig update VM --add-openshell-config DIR
+  undo: Remove
+  concepts: [config-dir, config-sync]
+config-rm:
+  title: Remove config directory
+  summary: Stops applying the directory to the VM. The directory itself stays.
+  command: brig update VM --remove-openshell-config DIR
+  undo: Add directory
+  concepts: [config-dir]
+create:
+  title: New VM
+  summary: Creates and starts a VM with its own gateway, building a base image first if there is none.
+  command: brig create NAME
+  undo: Delete
+  concepts: [vm, base-image]
+sync-preview:
+  title: Preview sync
+  summary: Lists what a sync would change on the gateway, and where each secret may be sent. Changes nothing.
+  command: brig sync VM --dry-run
+  concepts: [config-sync]
+sync:
+  title: Sync
+  summary: Applies the config directories to the gateway. Secrets go from your keyring to the gateway, never through brig ui.
+  command: brig sync VM
+  concepts: [config-sync, config-dir, provider]
+image-build:
+  title: Build base image
+  summary: Builds Fedora with OpenShell using mkosi, without root. It takes a few minutes.
+  command: brig image build
+  concepts: [base-image]
+image-prune:
+  title: Prune
+  summary: Removes base images that no VM uses, except the newest, and mkosi's package cache.
+  command: brig image prune
+  danger: Removed images are not restored; brig image build makes a new one.
+  concepts: [base-image]
+audit-prune:
+  title: Prune history
+  summary: Deletes a VM's audit trail from before an age, or all of a deleted VM's, to free space.
+  command: brig audit prune VM --before AGE
+  danger: Deleted history cannot be restored. audit.retention in config.yaml does this by itself.
+  concepts: [audit-trail]
+image-push:
+  title: Push an image
+  summary: Copies a container image from your Podman into a VM, for sandboxes to run.
+  command: brig image push VM IMAGE
+  concepts: [sandbox-image]
+allow:
+  title: Allow
+  summary: Turns a denied request into one rule for this sandbox only, or approves the rule OpenShell drafted for it.
+  command: brig policy allow VM SANDBOX HOST:PORT --binary PATH
+  concepts: [fence-1, draft, audit-mode, policy-file]
+reject:
+  title: Reject draft
+  summary: Drops the rule OpenShell drafted. The sandbox's policy stays as it is.
+  command: openshell rule reject SANDBOX --chunk-id ID
+  concepts: [draft]
+policy-save-preview:
+  title: Save to file
+  summary: Shows how saving the rules added to the sandbox would change its policy file. Changes nothing.
+  command: brig policy save VM SANDBOX --dry-run
+  concepts: [policy-file, base-policy]
+policy-save:
+  title: Save rules to the policy file
+  summary: Writes the rules the sandbox has and its policy file lacks into that file, keeping its comments.
+  command: brig policy save VM SANDBOX
+  concepts: [policy-file]
+sandbox-create:
+  title: New sandbox
+  summary: Creates a sandbox for an agent, with the providers and host directories you pick.
+  command: brig sandbox create VM -- --name NAME
+  undo: Delete
+  concepts: [sandboxes, provider, sandbox-volume, template]
+sandbox-start:
+  title: Start sandbox
+  summary: Starts the sandbox again with the /sandbox it had. Programs that ran in it are not restarted.
+  command: openshell sandbox start SANDBOX
+  undo: Stop
+sandbox-stop:
+  title: Stop sandbox
+  summary: Stops every program in the sandbox. /sandbox, its providers and policy stay.
+  command: openshell sandbox stop SANDBOX
+  undo: Start
+sandbox-delete:
+  title: Delete sandbox
+  summary: Deletes the sandbox and its /sandbox directory.
+  command: openshell sandbox delete SANDBOX
+  danger: Cannot be undone. You type the name to confirm.
+sandbox-attach:
+  title: Attach provider
+  summary: Gives the sandbox a credential as a placeholder, and opens the provider's endpoints for its programs.
+  command: openshell sandbox provider attach SANDBOX PROVIDER
+  undo: Detach
+  concepts: [provider, placeholder, effective-policy]
+sandbox-detach:
+  title: Detach provider
+  summary: Takes the credential and the endpoints it opened away from the sandbox.
+  command: openshell sandbox provider detach SANDBOX PROVIDER
+  undo: Attach provider
+  concepts: [provider]
