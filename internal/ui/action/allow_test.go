@@ -90,6 +90,14 @@ func TestBuildAllow(t *testing.T) {
 		{"unknown sandbox", form("vm", "dev", "workspace", "default", "sandbox", "nope", "mode", "draft"), "", "brig-dev has no sandbox nope", ""},
 		{"option as sandbox", form("vm", "dev", "workspace", "default", "sandbox", "--help", "mode", "draft"), "", "no sandbox", ""},
 		{"bad host", rule("host", "a:b"), "", "Host", ""},
+		{"any host", rule("host", "**"), "", "Host: a wildcard needs a domain", ""},
+		{"every host", rule("host", "*"), "", "Host: a wildcard needs a domain", ""},
+		{"a whole top-level domain", rule("host", "*.com", "port", "1", "binary", "/bin/sh", "protocol", ""), "", "Host: a wildcard needs a domain", ""},
+		{
+			"a wildcard below a domain", rule("host", "*.npmjs.org"),
+			"openshell -g brig-dev --workspace default policy update webapp --rule-name allow_wildcard_npmjs_org_443 --binary /usr/bin/node --add-endpoint '*.npmjs.org:443:read-only:rest:enforce' --wait",
+			"", "vm dev workspace default sandbox webapp rule allow_wildcard_npmjs_org_443",
+		},
 		{"host with a path", rule("host", "a.example/x"), "", "Host", ""},
 		{"bad port", rule("port", "0"), "", "Port", ""},
 		{"no binary", rule("binary", ""), "", "Binary", ""},
@@ -166,18 +174,5 @@ func TestBuildAllowNotes(t *testing.T) {
 	cmd, err = save.Build(form("vm", "dev", "workspace", "default", "sandbox", "webapp", "rule", "npm"), trafficContext())
 	if err != nil || cmd.Display != "brig policy save dev webapp --workspace default --rule npm" || cmd.NextForm != nil {
 		t.Errorf("save: %q %q, %v", cmd.Display, cmd.NextForm, err)
-	}
-}
-
-func TestDefaultRuleName(t *testing.T) {
-	for host, want := range map[string]string{
-		"registry.npmjs.org": "allow_registry_npmjs_org_443",
-		"my-host.example":    "allow_my_host_example_443",
-		"*.example.com":      "allow__example_com_443",
-		"10.0.2.2":           "allow_10_0_2_2_443",
-	} {
-		if got := action.DefaultRuleName(host, 443); got != want {
-			t.Errorf("DefaultRuleName(%q) = %q, want %q", host, got, want)
-		}
 	}
 }
