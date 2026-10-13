@@ -16,7 +16,6 @@ import (
 
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
-	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -203,15 +202,8 @@ func fishQuote(s string) string {
 // completeConfigDirs completes the OpenShell config directories of the VM
 // named by the first argument.
 func completeConfigDirs(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-	if len(args) == 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	dirs, err := paths.Default()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveError
-	}
-	v, err := vm.NewStore(dirs).Load(args[0])
-	if err != nil {
+	v := completionVM(args)
+	if v == nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return v.OpenShellConfigs, cobra.ShellCompDirectiveNoFileComp

@@ -62,7 +62,7 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
   brig policy save webapp --to webapp
   brig policy save dev webapp --yes`,
 		Args:              cobra.RangeArgs(1, 2),
-		ValidArgsFunction: completeVMs,
+		ValidArgsFunction: completeVMAndSandbox,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp()
 			if err != nil {
@@ -88,6 +88,8 @@ remembers the file of --to as the sandbox's policy file, as brig policy diff
 	addWorkspaceFlag(cmd, &workspace)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the change to the file and write nothing")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "write without asking, also on a terminal")
+	_ = cmd.RegisterFlagCompletionFunc("rule", completeRules)
+	_ = cmd.RegisterFlagCompletionFunc("to", completePolicyFiles)
 	return cmd
 }
 
