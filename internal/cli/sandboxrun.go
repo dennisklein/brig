@@ -372,8 +372,8 @@ standard input, up to 960 KiB; otherwise it gets none.
 
 --keep failed keeps the sandbox when the command or brig fails, --keep always
 keeps it anyway. A kept sandbox carries the labels brig.dev/run and
-brig.dev/expires: a day after the run started, or with --timeout, an hour
-past the timeout.
+brig.dev/expires, and brig sandbox clean --runs deletes it once it expires:
+a day after the run started, or with --timeout, an hour past the timeout.
 
 --result FILE writes a JSON record of the run: its sandbox, exit status,
 transfers and the requests that the policy denied, by host and binary.
