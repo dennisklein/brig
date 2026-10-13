@@ -16,6 +16,11 @@ import (
 // when they are not given one with -w. brig use VM -w W sets it.
 const workspaceEnv = "BRIG_WORKSPACE"
 
+// openshellWorkspaceEnv names the variable through which the openshell CLI
+// picks its workspace; brig use -w sets it too, so that plain openshell
+// commands work in the workspace that brig commands do.
+const openshellWorkspaceEnv = "OPENSHELL_WORKSPACE"
+
 // workspaceUsage is the help of -w, which says where its default comes from.
 const workspaceUsage = "the workspace of the gateway to work in (default: $" + workspaceEnv + ", else " + openshell.DefaultWorkspace + ")"
 

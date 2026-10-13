@@ -119,10 +119,10 @@ func TestEnvForFish(t *testing.T) {
 		}
 		outs = append(outs, out)
 	}
-	if want := "set -gx OPENSHELL_GATEWAY brig-dev\nset -gx OPENSHELL_SANDBOX_POLICY " + fishQuote(policy) + "\nset -e BRIG_WORKSPACE\n"; outs[0] != want {
+	if want := "set -gx OPENSHELL_GATEWAY brig-dev\nset -gx OPENSHELL_SANDBOX_POLICY " + fishQuote(policy) + "\nset -e BRIG_WORKSPACE OPENSHELL_WORKSPACE\n"; outs[0] != want {
 		t.Errorf("env dev = %q, want %q", outs[0], want)
 	}
-	if want := "set -gx OPENSHELL_GATEWAY brig-plain\nset -e OPENSHELL_SANDBOX_POLICY\nset -e BRIG_WORKSPACE\n"; outs[1] != want {
+	if want := "set -gx OPENSHELL_GATEWAY brig-plain\nset -e OPENSHELL_SANDBOX_POLICY\nset -e BRIG_WORKSPACE OPENSHELL_WORKSPACE\n"; outs[1] != want {
 		t.Errorf("env plain = %q, want %q", outs[1], want)
 	}
 	if out, err := run(t, "env", "dev", "--shell", "sh"); err != nil || !strings.HasPrefix(out, "export ") {

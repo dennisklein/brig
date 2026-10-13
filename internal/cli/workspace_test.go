@@ -60,20 +60,20 @@ func TestUseExportsTheWorkspace(t *testing.T) {
 	testVM(t, a, "dev")
 	t.Setenv(shellIntegrationEnv, "sh")
 	out, err := run(t, "use", "dev", "-w", "team")
-	if want := "export OPENSHELL_GATEWAY=brig-dev\nunset OPENSHELL_SANDBOX_POLICY\nexport BRIG_WORKSPACE=team\n"; err != nil || out != want {
+	if want := "export OPENSHELL_GATEWAY=brig-dev\nunset OPENSHELL_SANDBOX_POLICY\nexport BRIG_WORKSPACE=team\nexport OPENSHELL_WORKSPACE=team\n"; err != nil || out != want {
 		t.Errorf("use dev -w team = %q, %v; want %q", out, err, want)
 	}
 	// Another VM has other workspaces, so a switch drops the variable.
 	out, err = run(t, "use", "dev")
-	if err != nil || !strings.HasSuffix(out, "unset BRIG_WORKSPACE\n") {
+	if err != nil || !strings.HasSuffix(out, "unset BRIG_WORKSPACE OPENSHELL_WORKSPACE\n") {
 		t.Errorf("use dev = %q, %v", out, err)
 	}
 	out, err = run(t, "use", "--unset")
-	if want := "unset OPENSHELL_GATEWAY OPENSHELL_SANDBOX_POLICY BRIG_WORKSPACE\n"; err != nil || out != want {
+	if want := "unset OPENSHELL_GATEWAY OPENSHELL_SANDBOX_POLICY BRIG_WORKSPACE OPENSHELL_WORKSPACE\n"; err != nil || out != want {
 		t.Errorf("use --unset = %q, %v; want %q", out, err, want)
 	}
 	t.Setenv(shellIntegrationEnv, "fish")
-	if out, err := run(t, "env", "dev", "-w", "team", "--shell", "fish"); err != nil || !strings.HasSuffix(out, "set -gx BRIG_WORKSPACE team\n") {
+	if out, err := run(t, "env", "dev", "-w", "team", "--shell", "fish"); err != nil || !strings.HasSuffix(out, "set -gx OPENSHELL_WORKSPACE team\n") {
 		t.Errorf("env dev -w team = %q, %v", out, err)
 	}
 	for _, args := range [][]string{{"dev", "-w", "Not_Valid"}, {"--unset", "-w", "team"}} {
@@ -89,7 +89,7 @@ func TestUseWorkspaceAloneKeepsTheVM(t *testing.T) {
 	t.Setenv(shellIntegrationEnv, "sh")
 	t.Setenv(gatewayEnv, "brig-dev")
 	out, err := run(t, "use", "-w", "team")
-	if err != nil || !strings.HasPrefix(out, "export OPENSHELL_GATEWAY=brig-dev\n") || !strings.HasSuffix(out, "export BRIG_WORKSPACE=team\n") {
+	if err != nil || !strings.HasPrefix(out, "export OPENSHELL_GATEWAY=brig-dev\n") || !strings.HasSuffix(out, "export OPENSHELL_WORKSPACE=team\n") {
 		t.Errorf("use -w team = %q, %v", out, err)
 	}
 	t.Setenv(gatewayEnv, "")
