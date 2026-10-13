@@ -104,11 +104,12 @@ func TestUseWorkspaceAloneKeepsTheVM(t *testing.T) {
 	}
 }
 
-func TestCompleteWorkspaces(t *testing.T) {
+func TestCompleteWorkspacesAndPolicyFiles(t *testing.T) {
 	a := testApp(t)
 	v := testVM(t, a, "dev")
 	dir := configDir(t)
 	writeTestFile(t, filepath.Join(dir, "workspaces", "team", "providers", "gl.yaml"), "name: gl\ntype: github\ncredentials:\n  T:\n    secret_tool:\n      lookup: [service, gitlab]\n", 0o600)
+	writeTestFile(t, filepath.Join(dir, "policies", "webapp.yaml"), "version: 1\n", 0o600)
 	v.OpenShellConfigs = []string{dir}
 	if err := a.vms.Save(v); err != nil {
 		t.Fatal(err)
@@ -121,6 +122,8 @@ func TestCompleteWorkspaces(t *testing.T) {
 		{[]string{"sync", "dev", "--workspace", ""}, "default\nteam\n:4\n"},
 		{[]string{"sandbox", "create", "dev", "-w", ""}, "default\nteam\n:4\n"},
 		{[]string{"policy", "diff", "dev", "web", "-w", ""}, "default\nteam\n:4\n"},
+		{[]string{"policy", "diff", "dev", "web", "--source", ""}, "default\nwebapp\n:4\n"},
+		{[]string{"policy", "save", "dev", "web", "--to", ""}, "default\nwebapp\n:4\n"},
 	} {
 		out, err := run(t, append([]string{"__complete"}, tc.args...)...)
 		if err != nil || !strings.HasPrefix(out, tc.want) {
@@ -132,5 +135,9 @@ func TestCompleteWorkspaces(t *testing.T) {
 	out, err := run(t, "__complete", "sync", "-w", "")
 	if err != nil || !strings.HasPrefix(out, "default\nteam\n:4\n") {
 		t.Errorf("complete -w for the selected VM = %q, %v", out, err)
+	}
+	out, err = run(t, "__complete", "policy", "diff", "--source", "")
+	if err != nil || !strings.HasPrefix(out, "default\nwebapp\n:4\n") {
+		t.Errorf("complete --source for the selected VM = %q, %v", out, err)
 	}
 }

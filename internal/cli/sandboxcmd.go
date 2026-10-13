@@ -112,6 +112,7 @@ default sandbox policy, if it has one.`,
 	}
 	addWorkspaceFlag(cmd, &workspace)
 	cmd.Flags().StringArrayVarP(&mounts, "mount", "m", nil, "show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable)")
+	_ = cmd.RegisterFlagCompletionFunc("mount", completeDirs)
 	return cmd
 }
 

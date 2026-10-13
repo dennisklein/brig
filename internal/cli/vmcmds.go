@@ -150,6 +150,7 @@ openshell.configs in config.yaml.`,
 	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
 	_ = cmd.RegisterFlagCompletionFunc("image", completeImages)
 	_ = cmd.RegisterFlagCompletionFunc("openshell-config", completeDirs)
+	_ = cmd.RegisterFlagCompletionFunc("mount", completeDirs)
 	return cmd
 }
 
@@ -777,6 +778,7 @@ volume.`
 	f.StringArrayVar(&rmConfigs, "remove-openshell-config", nil, "remove an OpenShell config directory (repeatable)")
 	hideDefaults(cmd, "memory", "root-disk", "data-disk")
 	_ = cmd.RegisterFlagCompletionFunc("profile", completeProfiles)
+	_ = cmd.RegisterFlagCompletionFunc("add-mount", completeDirs)
 	_ = cmd.RegisterFlagCompletionFunc("remove-mount", completeMountTargets)
 	_ = cmd.RegisterFlagCompletionFunc("add-openshell-config", completeDirs)
 	_ = cmd.RegisterFlagCompletionFunc("remove-openshell-config", completeConfigDirs)
@@ -795,17 +797,10 @@ func mountIndex(mounts []vm.Mount, target string) int {
 }
 
 // completeMountTargets completes the mount targets of the VM named by the
-// first argument.
+// first argument, or else selected by brig use.
 func completeMountTargets(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-	if len(args) == 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	dirs, err := paths.Default()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveError
-	}
-	v, err := vm.NewStore(dirs).Load(args[0])
-	if err != nil {
+	v := completionVM(args)
+	if v == nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	targets := make([]string, len(v.Mounts))

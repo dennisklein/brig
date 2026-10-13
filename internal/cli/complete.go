@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"slices"
 	"time"
 
@@ -81,4 +82,89 @@ func completeWorkspaces(_ *cobra.Command, args []string, _ string) ([]string, co
 	}
 	slices.Sort(names)
 	return slices.Compact(names), cobra.ShellCompDirectiveNoFileComp
+}
+
+// sandboxNames returns the names of the sandboxes in workspace on v's
+// gateway, or nil if it does not answer in time.
+func sandboxNames(v *vm.VM, workspace string) []string {
+	c, err := gatewayClient(v)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = c.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), completionTimeout)
+	defer cancel()
+	sandboxes, err := c.Sandboxes(ctx)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, s := range sandboxes {
+		if s.Workspace == workspace {
+			names = append(names, s.Name)
+		}
+	}
+	return names
+}
+
+// completeVMAndSandbox completes the arguments [VM] SANDBOX: the VM, which
+// may be left out, and the sandbox of the VM in the workspace of -w.
+func completeVMAndSandbox(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	const noFiles = cobra.ShellCompDirectiveNoFileComp
+	switch len(args) {
+	case 0:
+		words, _ := completeVMs(cmd, args, toComplete)
+		if v := completionVM(nil); v != nil {
+			words = append(words, sandboxNames(v, completionWorkspace(cmd))...)
+		}
+		return words, noFiles
+	case 1:
+		if v := completionVM(args); v != nil && v.Name == args[0] {
+			return sandboxNames(v, completionWorkspace(cmd)), noFiles
+		}
+	}
+	return nil, noFiles
+}
+
+// completePolicyFiles completes the names of the policy files in the
+// OpenShell config directories of the VM that args name.
+func completePolicyFiles(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	var names []string
+	if v := completionVM(args); v != nil {
+		if set, err := ocsync.Load(v.OpenShellConfigs); err == nil {
+			for _, p := range set.Policies {
+				names = append(names, p.Name)
+			}
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeRules completes the keys of the network rules in which the sandbox
+// that args name differs from its policy file.
+func completeRules(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	const noFiles = cobra.ShellCompDirectiveNoFileComp
+	if len(args) == 0 {
+		return nil, noFiles
+	}
+	v := completionVM(args[:len(args)-1])
+	if v == nil {
+		return nil, noFiles
+	}
+	a, err := newApp()
+	if err != nil {
+		return nil, noFiles
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), completionTimeout)
+	defer cancel()
+	rep, err := a.policyDiff(ctx, v, completionWorkspace(cmd), args[len(args)-1], "", false, io.Discard)
+	if err != nil {
+		return nil, noFiles
+	}
+	var keys []string
+	for _, r := range rep.Rules {
+		keys = append(keys, r.Key)
+	}
+	return keys, noFiles
 }

@@ -104,7 +104,7 @@ brig cannot tell which file to compare with.`,
   brig policy diff webapp -o json
   brig policy diff dev webapp --source policies/webapp.yaml --remember`,
 		Args:              cobra.RangeArgs(1, 2),
-		ValidArgsFunction: completeVMs,
+		ValidArgsFunction: completeVMAndSandbox,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp()
 			if err != nil {
@@ -141,6 +141,7 @@ brig cannot tell which file to compare with.`,
 	cmd.Flags().StringVar(&source, "source", "", "compare with this policy file, or the policy file of the config directories with this name")
 	cmd.Flags().BoolVar(&remember, "remember", false, "keep the --source for this sandbox")
 	addWorkspaceFlag(cmd, &workspace)
+	_ = cmd.RegisterFlagCompletionFunc("source", completePolicyFiles)
 	return cmd
 }
 

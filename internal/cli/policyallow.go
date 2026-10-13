@@ -85,7 +85,7 @@ Without VM, the one that brig use selected is used.`,
 			}
 			return cobra.RangeArgs(2, 3)(cmd, args)
 		},
-		ValidArgsFunction: completeVMs,
+		ValidArgsFunction: completeVMAndSandbox,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fl := cmd.Flags()
 			if req.draft != "" {
@@ -140,6 +140,7 @@ Without VM, the one that brig use selected is used.`,
 	f.BoolVar(&req.save, "save", false, "write the rule into the sandbox's policy file, as brig policy save does")
 	f.StringVar(&req.to, "to", "", "with --save: save into this policy file, or create policies/NAME.yaml from the sandbox's policy file")
 	addWorkspaceFlag(cmd, &req.workspace)
+	_ = cmd.RegisterFlagCompletionFunc("to", completePolicyFiles)
 	return cmd
 }
 
