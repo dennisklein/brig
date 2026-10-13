@@ -470,3 +470,38 @@ func TestEnviron(t *testing.T) {
 		t.Error("Environ accepted a relative config home")
 	}
 }
+
+func TestReplaceTemplate(t *testing.T) {
+	c, log := fakeCLI(t, "")
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "team", "pi", "localhost/pi-agent:2026-10-13"); err != nil {
+		t.Fatal(err)
+	}
+	want := "-g brig-dev --workspace team sandbox template delete pi\n" +
+		"-g brig-dev --workspace team sandbox template create pi --image localhost/pi-agent:2026-10-13\n"
+	if got := readFile(t, log); got != want {
+		t.Errorf("calls:\n%s\nwant:\n%s", got, want)
+	}
+
+	// A template that is not there is not an error; any other failure is.
+	c, log = fakeCLI(t, `case "$*" in *delete*) echo "template 'pi' not found" >&2; exit 1 ;; esac`)
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "img"); err != nil {
+		t.Errorf("missing template: %v", err)
+	}
+	if got := readFile(t, log); strings.Count(got, "\n") != 2 {
+		t.Errorf("calls:\n%s", got)
+	}
+	c, log = fakeCLI(t, `case "$*" in *delete*) echo "permission denied" >&2; exit 1 ;; esac`)
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "img"); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("delete failure: %v", err)
+	}
+	if got := readFile(t, log); strings.Contains(got, "create") {
+		t.Errorf("created after a failed delete:\n%s", got)
+	}
+
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "Bad_WS", "pi", "img"); err == nil {
+		t.Error("invalid workspace accepted")
+	}
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "../x", "img"); err == nil {
+		t.Error("invalid template name accepted")
+	}
+}
