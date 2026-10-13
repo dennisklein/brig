@@ -246,6 +246,10 @@ brig's exit status says why a command failed:
 | 6 | applying the VM's OpenShell config directories failed (`brig sync`, `--wait`) |
 
 `brig policy diff` uses 1 and 2 for its outcomes (see its `--help`).
+
+Standard output carries only a command's result: a table, JSON, or one
+line such as `Created VM dev from image …`. Notes, hints and warnings go to
+standard error, as progress does.
 With `-o json`, a command that fails before it printed anything prints the
 error on standard output as well, as `{"error": "...", "reason": "not_ready",
 "exit_code": 5}`; the reasons are `failed`, `not_found`, `exists`,
