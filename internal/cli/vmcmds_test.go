@@ -493,3 +493,28 @@ func TestMemoryUsed(t *testing.T) {
 		}
 	}
 }
+
+func TestUpgradeAllowsAMinorChangeOnlyWithAllowMinor(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	testImage(t, a, v.Image)
+	newer := "f44-openshell0.2.0-20261008T120000Z"
+	dir := filepath.Dir(a.images.Path(newer))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := `{"id":"` + newer + `","fedora_release":44,"openshell_version":"0.2.0","created_at":"2026-10-08T12:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(dir, "image.json"), []byte(rec), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "upgrade", "dev"); err == nil || !strings.Contains(err.Error(), "--allow-minor") {
+		t.Errorf("upgrade across a minor version: %v, want a pointer to --allow-minor", err)
+	}
+	// With the flag, or its old name, the upgrade goes on to the next step,
+	// which needs libvirt and so fails here for another reason.
+	for _, flag := range []string{"--allow-minor", "--force"} {
+		if _, err := run(t, "upgrade", "dev", flag); err != nil && strings.Contains(err.Error(), "minor") {
+			t.Errorf("upgrade %s: %v", flag, err)
+		}
+	}
+}
