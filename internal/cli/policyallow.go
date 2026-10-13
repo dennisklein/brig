@@ -12,11 +12,16 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/policy"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -53,6 +58,11 @@ func newPolicyAllowCmd() *cobra.Command {
 		Long: `Add one network rule to the policy of SANDBOX, as openshell policy update
 does, and wait until the sandbox loads it. The rule lets the program --binary
 reach HOST on PORT (443 if not given) and no other sandbox gets it.
+
+brig sends the rule to the gateway itself, with annotations that OpenShell
+keeps with the policy revision: brig.dev/by=policy-allow, the rule, its host,
+port and program, and brig.dev/trace, the run's trace in the activity log.
+brig audit shows them as who made the change.
 
 By default the rule inspects HTTP requests and allows the methods that
 --access names: read-only (GET, HEAD, OPTIONS), read-write (also POST, PUT,
@@ -207,34 +217,97 @@ func checkAllowFlags(req *allowRequest, accessGiven bool, access string, l4, aud
 	return nil
 }
 
+// policyLoadTimeout bounds the wait for a sandbox to load a new policy
+// revision, as openshell policy update --wait waits.
+const policyLoadTimeout = time.Minute
+
+// addRule adds a network rule to a sandbox through the gateway's gRPC API,
+// with the annotations, and waits until the sandbox loads it, saying so on
+// out; tests replace it.
+var addRule = func(ctx context.Context, v *vm.VM, workspace, sandbox string, rule osclient.NetworkRule, annotations map[string]string, out io.Writer) error {
+	c, err := dialGateway(ctx, v)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	ch, err := c.AddRule(ctx, workspace, sandbox, rule, annotations)
+	if err != nil {
+		return fmt.Errorf("adding rule %s to sandbox %s: %s", rule.Key, sandbox, callMessage(err))
+	}
+	if ch.Unchanged {
+		fmt.Fprintf(out, "Sandbox %s has the rule already; its policy stays at version %d.\n", termtext.Escape(sandbox), ch.Version)
+		return nil
+	}
+	wctx, cancel := context.WithTimeout(ctx, policyLoadTimeout)
+	defer cancel()
+	how, active, err := c.WaitLoaded(wctx, workspace, sandbox, ch.Version)
+	if err != nil {
+		return fmt.Errorf("policy version %d of sandbox %s: %s", ch.Version, sandbox, callMessage(err))
+	}
+	if how == osclient.PolicySuperseded {
+		fmt.Fprintf(out, "Policy version %d of %s was superseded by a newer change; the sandbox enforces version %d.\n", ch.Version, termtext.Escape(sandbox), active)
+		return nil
+	}
+	fmt.Fprintf(out, "Sandbox %s loaded policy version %d with rule %s.\n", termtext.Escape(sandbox), ch.Version, termtext.Escape(rule.Key))
+	return nil
+}
+
+// callMessage is what a gateway call's error says, without gRPC's framing.
+func callMessage(err error) string {
+	if s, ok := status.FromError(err); ok && s.Code() != codes.OK {
+		return s.Message()
+	}
+	return err.Error()
+}
+
+// allowAnnotations are the annotations of the revision that brig policy
+// allow makes: they name the command, the rule and the run's trace in the
+// activity log, so that the audit trail can tell who allowed what.
+func allowAnnotations(ctx context.Context, req allowRequest) map[string]string {
+	a := map[string]string{
+		policy.AnnotationBy:     policy.ByPolicyAllow,
+		policy.AnnotationRule:   req.rule,
+		policy.AnnotationHost:   req.host,
+		policy.AnnotationPort:   strconv.Itoa(req.port),
+		policy.AnnotationBinary: req.binary,
+	}
+	if b := progress.BusFrom(ctx); b != nil {
+		a[policy.AnnotationTrace] = b.Trace().String()
+	}
+	return a
+}
+
 // ruleKeyRE matches a rule's key under network_policies.
 var ruleKeyRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 
 // policyAllow adds the rule to the sandbox and, with req.save, saves it.
 func (a *app) policyAllow(ctx context.Context, v *vm.VM, req allowRequest, out, warn io.Writer) error {
-	cli, err := openshell.Find()
-	if err != nil {
-		return err
-	}
 	// Refuse a save that cannot be made before the sandbox changes.
 	if req.save {
 		if _, err := a.findSaveTarget(ctx, v, req.workspace, req.sandbox, req.to, warn); err != nil {
 			return err
 		}
 	}
-	var args []string
 	if req.draft != "" {
-		args = []string{"rule", "approve", req.sandbox, "--chunk-id", req.draft}
+		cli, err := openshell.Find()
+		if err != nil {
+			return err
+		}
+		text, err := cli.InSandbox(ctx, v.GatewayName(), req.workspace, req.sandbox, "rule", "approve", req.sandbox, "--chunk-id", req.draft)
+		if err != nil {
+			return err
+		}
+		if len(text) > 0 {
+			_, _ = io.WriteString(out, termtext.EscapeLines(string(text)))
+		}
 	} else {
-		spec := policy.EndpointSpec(req.host, req.port, req.protocol, req.access, req.enforcement)
-		args = []string{"policy", "update", req.sandbox, "--rule-name", req.rule, "--binary", req.binary, "--add-endpoint", spec, "--wait"}
-	}
-	text, err := cli.InSandbox(ctx, v.GatewayName(), req.workspace, req.sandbox, args...)
-	if err != nil {
-		return err
-	}
-	if len(text) > 0 {
-		_, _ = io.WriteString(out, termtext.EscapeLines(string(text)))
+		rule := osclient.NetworkRule{
+			Key: req.rule, Host: req.host, Port: req.port, Protocol: req.protocol,
+			Access: req.access, Enforcement: req.enforcement, Binaries: []string{req.binary},
+		}
+		if err := addRule(ctx, v, req.workspace, req.sandbox, rule, allowAnnotations(ctx, req), out); err != nil {
+			return err
+		}
 	}
 	if req.protocol == "" && req.draft == "" {
 		fmt.Fprintln(out, "The whole connection is allowed: the proxy does not look at the HTTP requests in it.")
@@ -247,7 +320,7 @@ func (a *app) policyAllow(ctx context.Context, v *vm.VM, req allowRequest, out, 
 		fmt.Fprintf(out, "Only %s has the rule. %s keeps it for new sandboxes.\n", termtext.Escape(req.sandbox), termtext.Escape(keep))
 		return nil
 	}
-	err = a.policySave(ctx, v, saveRequest{
+	err := a.policySave(ctx, v, saveRequest{
 		workspace: req.workspace, sandbox: req.sandbox, keys: []string{req.rule}, to: req.to, show: true,
 	}, out, warn)
 	var same ruleUnchangedError

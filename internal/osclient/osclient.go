@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
 // SPDX-License-Identifier: Apache-2.0
 
-// Package osclient reads an OpenShell gateway over gRPC, with the mTLS
+// Package osclient talks to an OpenShell gateway over gRPC, with the mTLS
 // client bundle that brig start keeps in the openshell CLI's configuration
-// directory. It only reads, except for what brig sandbox run needs: running
-// a command in a sandbox and deleting one. Every other change goes through a
+// directory. It reads, and makes the changes that need gRPC: AddRule, which
+// carries brig's annotations, and what brig sandbox run needs, running a
+// command in a sandbox and deleting one. Every other change goes through a
 // command.
 //
 // It uses the stubs that OpenShell generates for Go, pinned in go.mod to the

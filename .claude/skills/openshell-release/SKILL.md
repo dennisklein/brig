@@ -135,9 +135,11 @@ configuration and the docs against what brig relies on:
   crates/openshell-ocsf/src/format/shorthand.rs` against
   `internal/osclient/shorthand.go`, and copy new shorthand test lines
   into `shorthand_test.go`. Allow… runs `openshell rule approve` and
-  `openshell policy update --add-endpoint`: check their flags and the
-  endpoint spec in `crates/openshell-cli/src/policy_update.rs` against
-  `internal/ui/action/allow.go`. Drafts are polled because the gateway does
+  `brig policy allow`, whose `AddRule` in `internal/osclient/update.go`
+  builds the `UpdateConfig` request as `openshell policy update
+  --add-endpoint` does: check the rule and endpoint it builds against
+  `crates/openshell-cli/src/policy_update.rs`, and the flags and endpoint
+  spec against `internal/ui/action/allow.go`. Drafts are polled because the gateway does
   not stream them; see whether `WatchSandbox` sends `DraftPolicyUpdate` now.
 - **Version compatibility**: `openshell.CompatibleVersions` treats a new
   minor version as incompatible, so `brig upgrade` needs `--force` across
