@@ -173,7 +173,8 @@ starts with `brig-`.
 | `use NAME` | point the shell's `openshell` CLI at the VM's gateway and default sandbox policy; `--unset` at none (needs the [shell integration](#shell-integration)) |
 | `sandbox create [NAME]` | run `openshell sandbox create` on the VM's gateway, with host directories mounted read-only (`--mount DIR:TARGET`); NAME defaults to the VM that `brig use` selected |
 | `policy diff [NAME] SANDBOX` | compare a sandbox's network rules with the policy file it came from; exit status 1 if they differ (`-o json`) |
-| `policy save [NAME] SANDBOX` | write the rules a sandbox has and its policy file lacks into that file, keeping its comments (`--rule KEY`, `--dry-run`); a sandbox from the default policy needs `--to FILE` |
+| `policy allow [NAME] SANDBOX HOST[:PORT]` | add one rule that lets `--binary PATH` reach HOST, as `openshell policy update` does (`--access`, `--l4`, `--audit`); refuses `*`, `**` and `*.com`, and wants `--broad` for full access or `--l4`; `--draft ID` approves a draft; `--save` also writes the rule into the policy file |
+| `policy save [NAME] SANDBOX` | write the rules a sandbox has and its policy file lacks into that file, keeping its comments (`--rule KEY`, `--dry-run`); on a terminal it shows the change and the hosts it allows and asks first (`-y` skips); a sandbox from the default policy needs `--to FILE` |
 | `env NAME` | print `export OPENSHELL_GATEWAY=brig-NAME` and the path of the default sandbox policy as `OPENSHELL_SANDBOX_POLICY` (fish syntax when `$SHELL` is fish); use as `eval "$(brig env NAME)"` |
 | `image build/list/rm/prune` | manage base images |
 | `image push NAME IMAGE` | copy a container image from the host's Podman into a VM |
@@ -250,10 +251,15 @@ shows and takes no secrets.
 **Allow…** on a denied request offers the rule that OpenShell drafted from
 it, which names the program's full path (`openshell rule approve`), or a
 rule of your own with its access level and enforce or audit (`openshell
-policy update`). Either applies to that sandbox at once; **Save to file…**
-then previews and runs `brig policy save`, so that new sandboxes get the
-rule too. A request denied because a provider's credential may not go to
-its host is allowed only after you confirm that it goes out without it.
+policy update`). Either applies to that sandbox at once. Tick **Keep for
+new sandboxes** to write the rule into the sandbox's policy file in the same
+step (`brig policy allow --save`); otherwise **Save to file…** previews and
+runs `brig policy save` next. Allow refuses `*`, `**` and wildcards such as
+`*.com`, and asks for a tick before it adds a rule with full access, for the
+whole connection or for a program path with a wildcard. A request denied
+because a provider's credential may not go to its host is allowed only after
+you confirm that it goes out without it. **Reject…** drops a draft that you
+do not want (`openshell rule reject`).
 
 Only you can open it. It prints a URL with a token that is new each run and
 swaps it for a cookie, answers only to `127.0.0.1` and `localhost`, refuses
