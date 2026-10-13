@@ -441,3 +441,31 @@ func (c *CLI) InSandbox(ctx context.Context, gateway, workspace, sandbox string,
 	}
 	return c.run(ctx, append(WorkspaceArgs(gateway, workspace), args...)...)
 }
+
+// ReplaceTemplate makes the sandbox template called name in workspace of
+// gateway use image. The CLI can create and delete templates but not change
+// them, so it deletes the template, if there is one, and creates it again.
+// That is safe for existing sandboxes, which copy their template when they
+// are created.
+func (c *CLI) ReplaceTemplate(ctx context.Context, gateway, workspace, name, image string) error {
+	if err := CheckWorkspace(workspace); err != nil {
+		return err
+	}
+	if !nameRE.MatchString(name) {
+		return fmt.Errorf("invalid template name %q", name)
+	}
+	base := append(WorkspaceArgs(gateway, workspace), "sandbox", "template")
+	if _, err := c.run(ctx, append(slices.Clone(base), "delete", name)...); err != nil && !templateGone(err) {
+		return err
+	}
+	_, err := c.run(ctx, append(slices.Clone(base), "create", name, "--image", image)...)
+	return err
+}
+
+// templateGone reports whether err says that the template to delete does
+// not exist, which is what ReplaceTemplate wants. The CLI's wording is
+// assumed, not read from a release.
+func templateGone(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "not exist") || strings.Contains(msg, "no such")
+}
