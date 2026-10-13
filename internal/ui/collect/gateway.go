@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dennisklein/brig/internal/ocsync"
+	"github.com/dennisklein/brig/internal/ocwatch"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
@@ -197,13 +198,13 @@ func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
 		return true
 	})
 	backoff := g.backoff()
-	// positions are where the traffic feed is in each sandbox's log.
-	positions := map[sandboxKey]*position{}
+	// watcher keeps where the traffic feed is in each sandbox's log.
+	watcher := g.newWatcher(v.Name)
 	for {
 		c, err := g.Dial(v)
 		if err == nil {
 			var answered bool
-			answered, err = g.serve(ctx, st, v.Name, c, positions)
+			answered, err = g.serve(ctx, st, v.Name, c, watcher)
 			_ = c.Close()
 			if answered {
 				backoff = g.backoff()
@@ -238,13 +239,13 @@ func (g *Gateways) work(ctx context.Context, st *store.Store, v store.VM) {
 
 // serve reads the gateway through c until an error or ctx ends. It reports
 // whether the gateway answered.
-func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient, positions map[sandboxKey]*position) (bool, error) {
+func (g *Gateways) serve(ctx context.Context, st *store.Store, vm string, c GatewayClient, watcher *ocwatch.Watcher) (bool, error) {
 	version, err := c.Version(ctx)
 	if err != nil {
 		return false, err
 	}
 	tctx, stopTraffic := context.WithCancel(ctx)
-	tr := newTraffic(g, st, vm, c, positions)
+	tr := newTraffic(g, st, vm, c, watcher)
 	trafficDone := make(chan struct{})
 	go func() {
 		defer close(trafficDone)

@@ -5,26 +5,17 @@ package collect
 
 import (
 	"context"
-	"errors"
-	"io"
-	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dennisklein/brig/internal/osclient"
+	"github.com/dennisklein/brig/internal/ocwatch"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
 const (
-	// backfill is how far back a watch from the tail of a sandbox's log
-	// reaches.
-	backfill = time.Hour
-	// tailLines is how many lines a watch from the tail asks for: the
-	// gateway's default buffer per sandbox.
-	tailLines = 2000
 	// flushEvery is how often the requests read are added to the store,
 	// so that a burst of lines costs one change.
 	flushEvery = 250 * time.Millisecond
@@ -38,17 +29,9 @@ const (
 
 // sandboxKey identifies a sandbox of a gateway: names are unique per
 // workspace only.
-type sandboxKey struct{ workspace, name string }
+type sandboxKey = ocwatch.Key
 
-func keyOf(workspace, name string) sandboxKey { return sandboxKey{workspace, name} }
-
-// position is where brig ui is in a sandbox's log. It outlives a
-// connection, so that a watch resumes where the last one ended.
-type position struct {
-	cursor string
-	// last is the time of the last line read.
-	last time.Time
-}
+func keyOf(workspace, name string) sandboxKey { return sandboxKey{Workspace: workspace, Name: name} }
 
 // traffic follows the logs of a gateway's sandboxes for their requests,
 // and reads the rules that OpenShell drafted from the denied ones.
@@ -57,13 +40,12 @@ type traffic struct {
 	st *store.Store
 	vm string
 	c  GatewayClient
+	// w keeps the watches; the worker keeps it across connections, so that
+	// a watch resumes where the last one ended.
+	w *ocwatch.Watcher
 
-	mu sync.Mutex
-	// positions are kept by the worker across connections.
-	positions map[sandboxKey]*position
-	// watching holds the cancel function of each sandbox's watch.
-	watching map[sandboxKey]context.CancelFunc
-	pending  []store.Request
+	mu      sync.Mutex
+	pending []store.Request
 	// denied is when a sandbox last had a denial whose drafts were not
 	// read since.
 	denied map[sandboxKey]time.Time
@@ -73,15 +55,23 @@ type traffic struct {
 	draftsErr map[sandboxKey]string
 	// noDrafts is set when the gateway does not offer drafts.
 	noDrafts bool
-	wg       sync.WaitGroup
 }
 
-func newTraffic(g *Gateways, st *store.Store, vm string, c GatewayClient, positions map[sandboxKey]*position) *traffic {
-	return &traffic{
-		g: g, st: st, vm: vm, c: c, positions: positions,
-		watching: map[sandboxKey]context.CancelFunc{}, denied: map[sandboxKey]time.Time{}, draftsRead: map[sandboxKey]time.Time{},
+// newWatcher returns the watcher of the VM's sandboxes' logs, which outlives
+// connections to its gateway.
+func (g *Gateways) newWatcher(vm string) *ocwatch.Watcher {
+	return &ocwatch.Watcher{Who: "brig ui", Backoff: g.Backoff, Log: g.log().With("vm", vm)}
+}
+
+func newTraffic(g *Gateways, st *store.Store, vm string, c GatewayClient, w *ocwatch.Watcher) *traffic {
+	t := &traffic{
+		g: g, st: st, vm: vm, c: c, w: w,
+		denied: map[sandboxKey]time.Time{}, draftsRead: map[sandboxKey]time.Time{},
 		draftsErr: map[sandboxKey]string{},
 	}
+	w.Request = t.add
+	w.Gap = t.gap
+	return t
 }
 
 // run adds what the watches read to the store until ctx ends, then stops
@@ -92,7 +82,7 @@ func (t *traffic) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			t.wg.Wait()
+			t.w.Wait()
 			t.flush()
 			return
 		case <-tick.C:
@@ -112,122 +102,15 @@ func (t *traffic) flush() {
 // follow starts a watch for each sandbox that has none, and stops those of
 // sandboxes that are gone.
 func (t *traffic) follow(ctx context.Context, sandboxes []store.Sandbox) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	listed := map[sandboxKey]bool{}
-	for _, s := range sandboxes {
-		k := keyOf(s.Workspace, s.Name)
-		listed[k] = true
-		if _, ok := t.watching[k]; ok {
-			continue
-		}
-		pos := t.positions[k]
-		if pos == nil {
-			pos = &position{}
-			t.positions[k] = pos
-		}
-		wctx, cancel := context.WithCancel(ctx)
-		t.watching[k] = cancel
-		t.wg.Add(1)
-		go func() {
-			defer t.wg.Done()
-			t.watch(wctx, k, pos)
-			t.mu.Lock()
-			delete(t.watching, k)
-			t.mu.Unlock()
-			cancel()
-		}()
+	keys := make([]sandboxKey, len(sandboxes))
+	for i, s := range sandboxes {
+		keys[i] = keyOf(s.Workspace, s.Name)
 	}
-	for k, cancel := range t.watching {
-		if !listed[k] {
-			cancel()
-		}
-	}
-	for k := range t.positions {
-		if !listed[k] {
-			delete(t.positions, k)
-		}
-	}
+	t.w.Follow(ctx, t.c, keys)
 }
 
-// watch follows a sandbox's log until ctx ends or the sandbox is gone,
-// starting again after an error.
-func (t *traffic) watch(ctx context.Context, k sandboxKey, pos *position) {
-	backoff := t.g.backoff()
-	// logged is the last error logged.
-	logged := ""
-	for {
-		from := osclient.WatchFrom{Cursor: pos.cursor}
-		if from.Cursor == "" {
-			from.Since, from.Tail = time.Now().Add(-backfill), tailLines
-			if pos.last.After(from.Since) {
-				// The lines up to last are in the store already.
-				from.Since = pos.last.Add(time.Millisecond)
-			}
-		}
-		read := false
-		err := t.c.Watch(ctx, k.workspace, k.name, from, func(e osclient.WatchEvent) {
-			read = true
-			t.add(k, pos, e)
-		})
-		if ctx.Err() != nil {
-			return
-		}
-		if msg := errMessage(err); msg != "" && msg != logged {
-			// Once for each new error, not for every try.
-			t.g.log().Warn("brig ui cannot follow a sandbox's log", "vm", t.vm, "workspace", k.workspace, "sandbox", k.name, "err", msg)
-			logged = msg
-		}
-		switch {
-		case errors.Is(err, osclient.ErrCursorLost):
-			pos.cursor = ""
-			t.gap(k, "brig ui lost its place in the log, as when the gateway restarts; requests may be missing here.")
-			continue
-		case status.Code(err) == codes.NotFound:
-			// Deleted; the next list starts a watch if it comes back.
-			return
-		}
-		if read {
-			backoff = t.g.backoff()
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		backoff = min(2*backoff, maxBackoff)
-	}
-}
-
-// add reads an event of a sandbox's log.
-func (t *traffic) add(k sandboxKey, pos *position, e osclient.WatchEvent) {
-	if e.Warning != "" {
-		t.gap(k, "The gateway dropped lines of the log: "+e.Warning)
-		return
-	}
-	if e.Cursor != "" {
-		pos.cursor = e.Cursor
-	}
-	l := e.Line
-	if l == nil {
-		return
-	}
-	if !l.Time.IsZero() {
-		pos.last = l.Time
-	}
-	// Only OCSF events tell of requests; the supervisor's other lines are
-	// its own.
-	if l.Level != "OCSF" && !strings.HasPrefix(l.Message, "NET:") && !strings.HasPrefix(l.Message, "HTTP:") {
-		return
-	}
-	r, ok := osclient.ParseRequest(l.Message)
-	if !ok {
-		return
-	}
-	r.Workspace, r.Sandbox, r.Time = k.workspace, k.name, l.Time
-	if r.Time.IsZero() {
-		r.Time = time.Now()
-	}
+// add takes a request that a watch read.
+func (t *traffic) add(k sandboxKey, r store.Request) {
 	t.mu.Lock()
 	t.pending = append(t.pending, r)
 	if r.Denied() {
@@ -237,9 +120,9 @@ func (t *traffic) add(k sandboxKey, pos *position, e osclient.WatchEvent) {
 }
 
 // gap adds a row that says requests may be missing.
-func (t *traffic) gap(k sandboxKey, why string) {
+func (t *traffic) gap(k sandboxKey, at time.Time, why string) {
 	t.mu.Lock()
-	t.pending = append(t.pending, store.Request{Workspace: k.workspace, Sandbox: k.name, Time: time.Now(), Gap: why})
+	t.pending = append(t.pending, store.Request{Workspace: k.Workspace, Sandbox: k.Name, Time: at, Gap: why})
 	t.mu.Unlock()
 }
 
@@ -295,13 +178,4 @@ func (t *traffic) readDrafts(ctx context.Context, sandboxes []store.Sandbox) {
 			}
 		}
 	}
-}
-
-// errMessage is what a watch's error says, or "" for none: a stream the
-// gateway ended as streams end is no error.
-func errMessage(err error) string {
-	if err == nil || errors.Is(err, io.EOF) {
-		return ""
-	}
-	return err.Error()
 }
