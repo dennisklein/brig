@@ -536,8 +536,13 @@ func (s *syncer) lookup(ctx context.Context, p Provider) (secrets, fingerprints 
 		if s.lookupErr != nil {
 			return nil, nil, fmt.Errorf("credential %s: not looked up after an earlier lookup failed: %w", key, s.lookupErr)
 		}
-		ref := p.Credentials[key].SecretTool
-		secret, err := s.secrets.Lookup(ctx, ref.Lookup)
+		var secret string
+		var err error
+		if c := p.Credentials[key]; c.Env != "" {
+			secret, err = LookupEnv(c.Env)
+		} else {
+			secret, err = s.secrets.Lookup(ctx, c.SecretTool.Lookup)
+		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			s.lookupErr = err
 		}

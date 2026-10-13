@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,26 @@ type SecretTool struct {
 // attributes.
 var ErrSecretNotFound = errors.New("no such secret")
 
-// maxSecretSize bounds what brig reads from secret-tool.
+// maxSecretSize bounds what brig reads from secret-tool and from the
+// environment.
 const maxSecretSize = 1 << 20
+
+// LookupEnv returns the value of the environment variable name, which must
+// start with EnvSecretPrefix. Like the output of secret-tool, it must not be
+// empty or larger than a mebibyte.
+func LookupEnv(name string) (string, error) {
+	if !envSecretRE.MatchString(name) {
+		return "", fmt.Errorf("environment variable %s: the name must start with %s", name, EnvSecretPrefix)
+	}
+	v := os.Getenv(name)
+	switch {
+	case v == "":
+		return "", fmt.Errorf("environment variable %s: %w", name, ErrSecretNotFound)
+	case len(v) > maxSecretSize:
+		return "", fmt.Errorf("environment variable %s: secret larger than %d bytes", name, maxSecretSize)
+	}
+	return v, nil
+}
 
 // Lookup returns the secret with the attributes attrs, given as
 // attribute/value pairs. A single trailing newline is removed. Neither the

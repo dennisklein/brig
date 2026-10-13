@@ -91,8 +91,10 @@ func (p ProfileFile) SHA256() string {
 //	    secret_tool:
 //	      lookup: [service, github.com, user, alice]
 //
-// lookup holds the attribute/value pairs of `secret-tool lookup`. There is
-// deliberately no way to give a credential's value in the file.
+// lookup holds the attribute/value pairs of `secret-tool lookup`. A CI job,
+// which has no keyring, gives `env: BRIG_SECRET_GH_TOKEN` in place of
+// secret_tool. There is deliberately no way to give a credential's value in
+// the file.
 type Provider struct {
 	Name        string                `yaml:"name"`
 	Type        string                `yaml:"type"`
@@ -101,10 +103,20 @@ type Provider struct {
 	Path string `yaml:"-"`
 }
 
-// Credential says where a provider credential's value comes from.
+// Credential says where a provider credential's value comes from: the
+// Secret Service, or an environment variable.
 type Credential struct {
 	SecretTool *SecretToolRef `yaml:"secret_tool"`
+	// Env names a variable of brig's own environment that holds the value.
+	// Its name must start with EnvSecretPrefix, so that a shared config
+	// directory cannot make brig read an unrelated variable, such as
+	// AWS_SECRET_ACCESS_KEY, and send it to a profile's endpoints.
+	Env string `yaml:"env"`
 }
+
+// EnvSecretPrefix is what the name of an environment variable that holds a
+// credential must start with.
+const EnvSecretPrefix = "BRIG_SECRET_"
 
 // SecretToolRef names a secret in the Secret Service by the attributes that
 // `secret-tool lookup` takes.
@@ -122,6 +134,8 @@ var (
 	nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	// envRE matches environment variable names, which credential keys are.
 	envRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// envSecretRE matches the environment variables that hold credentials.
+	envSecretRE = regexp.MustCompile(`^` + EnvSecretPrefix + `[A-Za-z0-9_]+$`)
 	// reservedEnvRE matches credential keys brig cannot hand to the openshell
 	// CLI in its environment without changing how the CLI itself runs, and
 	// OpenShell's own v<digits>_ prefix.
@@ -480,7 +494,7 @@ func loadProvider(path string) (Provider, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(src))
 	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
-		return Provider{}, fmt.Errorf("%s: %s (credentials take only secret_tool references, never values)", path, redactYAMLError(err))
+		return Provider{}, fmt.Errorf("%s: %s (credentials take only secret_tool or env references, never values)", path, redactYAMLError(err))
 	}
 	p.Path = path
 	if err := p.validate(); err != nil {
@@ -505,8 +519,15 @@ func (p Provider) validate() error {
 			return fmt.Errorf("credential %q: not an environment variable name", key)
 		case reservedEnvRE.MatchString(key):
 			return fmt.Errorf("credential %q: brig cannot pass a credential of this name", key)
-		case c.SecretTool == nil:
-			return fmt.Errorf("credential %s: missing secret_tool", key)
+		case c.SecretTool == nil && c.Env == "":
+			return fmt.Errorf("credential %s: missing secret_tool or env", key)
+		case c.SecretTool != nil && c.Env != "":
+			return fmt.Errorf("credential %s: give secret_tool or env, not both", key)
+		case c.Env != "":
+			if !envSecretRE.MatchString(c.Env) {
+				return fmt.Errorf("credential %s: env must name a variable that starts with %s", key, EnvSecretPrefix)
+			}
+			continue
 		}
 		lookup := c.SecretTool.Lookup
 		if len(lookup) < 2 || len(lookup)%2 != 0 || slices.Contains(lookup, "") {
