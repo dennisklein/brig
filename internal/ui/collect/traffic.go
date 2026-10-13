@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dennisklein/brig/internal/ui/osclient"
+	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 

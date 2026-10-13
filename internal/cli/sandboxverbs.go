@@ -20,8 +20,8 @@ import (
 
 	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/action"
-	"github.com/dennisklein/brig/internal/ui/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
