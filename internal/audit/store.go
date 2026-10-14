@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/paths"
 )
 
@@ -44,6 +45,10 @@ func NewStore(d paths.Dirs) Store { return Store{Root: filepath.Join(d.State, "a
 
 // Dir is the audit directory of the VM.
 func (s Store) Dir(vm string) string { return filepath.Join(s.Root, vm) }
+
+// SpoolPath is where the VM's network writes what fence 2 drops, which the
+// VM's collector reads; see package fence2.
+func (s Store) SpoolPath(vm string) string { return filepath.Join(s.Dir(vm), fence2.SpoolFile) }
 
 // VMs lists the VMs that have an audit directory, sorted.
 func (s Store) VMs() ([]string, error) {
@@ -132,6 +137,11 @@ type CollectorState struct {
 	Err string `json:"error,omitempty"`
 	// Gaps are the times of the gap records of the last week.
 	Gaps []time.Time `json:"gaps,omitempty"`
+	// Fence2 is how fully the VM's network records what fence 2 drops,
+	// as the collector last read it from the spool, and Fence2Why why
+	// that is not itemised.
+	Fence2    fence2.Mode `json:"fence2,omitempty"`
+	Fence2Why string      `json:"fence2_why,omitempty"`
 }
 
 // HeartbeatEvery is how often a running collector writes its index at least.

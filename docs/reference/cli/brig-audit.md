@@ -49,7 +49,7 @@ reads the whole trail.
 | `--denied` | show denied requests only, or with --kind those and the other kinds |
 | `-f, --follow` | go on printing records as they are written |
 | `--host string` | show requests and drafts of this host and its subdomains, or of a pattern such as \*.github.com |
-| `--kind stringSlice` | show records of these kinds: request, policy, draft, sandbox, action, gap |
+| `--kind stringSlice` | show records of these kinds: request, drop, policy, draft, sandbox, action, gap |
 | `-o, --output format` | output format: table or json (default `table`) |
 | `--since string` | show records from this time on: a duration back, a date or time, or all (default `24h`) |
 | `--summary` | list each endpoint reached per sandbox instead |
