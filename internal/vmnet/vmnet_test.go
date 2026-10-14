@@ -290,6 +290,7 @@ func TestCommand(t *testing.T) {
 		SSHPort: 40022, GatewayPort: 40670, GuestSSHPort: 22, GuestGatewayPort: 17671,
 		Profile:   config.NetworkProfile{Internet: true},
 		HostAddrs: testHostAddrs[:2],
+		Spool:     "/home/u/.local/state/brig/audit/dev/fence2.spool.jsonl",
 	}
 	argv, err := c.Command("/usr/bin/pasta", "/home/u/bin/brig")
 	if err != nil {
@@ -304,6 +305,7 @@ func TestCommand(t *testing.T) {
 		"--guest-ssh-port", "22", "--guest-gateway-port", "17671",
 		"--profile", `{"internet":true,"host":false,"lan":false,"ipv6":false}`,
 		"--host-addr", "140.181.2.3/16", "--host-addr", "2001:db8:1::abcd/64",
+		"--spool", "/home/u/.local/state/brig/audit/dev/fence2.spool.jsonl",
 	}
 	if !reflect.DeepEqual(argv, want) {
 		t.Fatalf("Command() =\n%q\nwant\n%q", argv, want)
@@ -320,6 +322,11 @@ func TestCommand(t *testing.T) {
 	bad.Socket = "relative.sock"
 	if _, err := bad.Command("pasta", "brig"); err == nil {
 		t.Error("relative socket path accepted")
+	}
+	bad = c
+	bad.Spool = "fence2.spool.jsonl"
+	if _, err := bad.Command("pasta", "brig"); err == nil {
+		t.Error("relative spool path accepted")
 	}
 }
 
@@ -622,5 +629,50 @@ func TestLoadFirewallFallsBack(t *testing.T) {
 	}
 	if _, _, err := loadFirewall(nft, ruleset); err == nil || !strings.Contains(err.Error(), "loading the firewall") || !strings.Contains(err.Error(), "syntax error") {
 		t.Errorf("loadFirewall() with an nft that refuses everything = %v", err)
+	}
+}
+
+func TestStartListener(t *testing.T) {
+	defer func(ready time.Duration) { listenerReady, executable = ready, os.Executable }(listenerReady)
+	fake := func(script string) {
+		path := filepath.Join(t.TempDir(), "brig")
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil { //nolint:gosec // G306: the fake must be executable
+			t.Fatal(err)
+		}
+		executable = func() (string, error) { return path, nil }
+	}
+	spool := filepath.Join(t.TempDir(), "audit", "dev", fence2.SpoolFile)
+	args := filepath.Join(t.TempDir(), "args")
+
+	// The helper waits for the listener to say it is ready.
+	listenerReady = 10 * time.Second
+	fake(`echo "$@" > ` + args + `; echo itemised >&3; exec sleep 1 >/dev/null 2>&1 3>&-`)
+	start := time.Now()
+	startListener(spool, fence2.Itemised, "")
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("startListener() took %v after the listener was ready", elapsed)
+	}
+	b, _ := os.ReadFile(args)
+	if want := "net-helper fence2-log --spool " + spool + " --mode itemised --why \n"; string(b) != want {
+		t.Errorf("the listener ran with %q, want %q", b, want)
+	}
+
+	// A listener that does not get ready does not hold passt up for long.
+	listenerReady = 200 * time.Millisecond
+	fake(`exec sleep 1 >/dev/null 2>&1`)
+	start = time.Now()
+	startListener(spool, fence2.CountsOnly, "no nfnetlink_log")
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("startListener() waited %v for a listener that hangs", elapsed)
+	}
+
+	// Without counters, nothing listens, and the spool says why.
+	startListener(spool, fence2.Off, "no counters")
+	var es []fence2.Entry
+	if _, _, err := fence2.ReadSpool(spool, fence2.Position{}, func(e fence2.Entry) { es = append(es, e) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(es) != 1 || es[0].State != fence2.Off || es[0].Why != "no counters" {
+		t.Errorf("spool %+v", es)
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/ocsync"
@@ -89,6 +90,9 @@ func (a *app) netConfig(v *vm.VM) (vmnet.Config, error) {
 		GuestSSHPort:     guest.SSHPort,
 		GuestGatewayPort: guest.GatewayPort,
 		Profile:          profile,
+		// The network records what its firewall drops next to the
+		// VM's audit trail, where the collector reads it.
+		Spool: filepath.Join(a.auditStore().Dir(v.Name), fence2.SpoolFile),
 	}, nil
 }
 

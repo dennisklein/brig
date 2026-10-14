@@ -9,7 +9,8 @@
 // pasta connects a private network namespace to the host's network and
 // forwards the VM's SSH and gateway ports from the host's loopback interface
 // into it. Inside the namespace, `brig net-helper` loads nftables rules that
-// enforce the VM's network profile and then becomes passt, which serves the
+// enforce the VM's network profile, starts the listener that records what
+// they drop (see package fence2), and then becomes passt, which serves the
 // VM over a vhost-user socket. Everything runs unprivileged, in a transient
 // systemd user unit per VM.
 package vmnet
@@ -65,6 +66,9 @@ type Config struct {
 	// Routes are the destinations of the host's routes, which Ruleset also
 	// counts as the LAN. Start reads them when the VM starts.
 	Routes []netip.Prefix
+	// Spool is where the network's listener writes what the firewall
+	// drops, empty for no listener; see package fence2.
+	Spool string
 }
 
 // UnitName is the systemd user unit that runs the VM's network.
@@ -73,6 +77,9 @@ func UnitName(vm string) string { return "brig-net-" + vm + ".service" }
 func (c Config) validate() error {
 	if c.VM == "" || !filepath.IsAbs(c.Socket) {
 		return errors.New("vmnet: VM name and an absolute socket path are required")
+	}
+	if c.Spool != "" && !filepath.IsAbs(c.Spool) {
+		return errors.New("vmnet: the spool's path must be absolute")
 	}
 	for _, p := range []int{c.SSHPort, c.GatewayPort, c.GuestSSHPort, c.GuestGatewayPort} {
 		if p < 1 || p > 65535 {
@@ -148,6 +155,9 @@ func (c Config) helperArgs() ([]string, error) {
 	}
 	for _, p := range c.Routes {
 		args = append(args, "--route", p.String())
+	}
+	if c.Spool != "" {
+		args = append(args, "--spool", c.Spool)
 	}
 	return args, nil
 }
