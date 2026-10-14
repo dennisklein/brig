@@ -27,6 +27,9 @@ Keep one VM, and one long-lived sandbox per project.
   anything merges.
 - Rotated a token? `brig secret set dev github` stores it again and updates
   that provider; see [secrets](secrets.md#rotate-a-token).
+- Rebuilt an agent's image with `brig agent build dev pi`? `brig agent update
+  dev pi` moves its sandboxes to it, keeping `/sandbox`; see
+  [Upgrade](upgrade.md#sandbox-image).
 
 ## End of day
 
@@ -45,9 +48,9 @@ brig sandbox create dev --connect -- --name tools --template pi \
 `--connect` starts the VM if it is stopped, waits until the sandbox is ready
 and connects to it. Attach only the providers a project needs: a provider's
 secret is reachable only from sandboxes it is attached to. When a project is
-done, push, [copy its sessions
-out](keep-agent-state.md#habits-that-make-deletes-safe), then `brig sandbox
-delete dev tools`.
+done, push, then `brig sandbox delete --snapshot dev tools`, which keeps a
+[snapshot](keep-agent-state.md#snapshots) of its `/sandbox` until you prune
+it.
 
 For a task that should run in a fresh sandbox and leave nothing behind, see
 [one-shot runs](one-shot-runs.md).

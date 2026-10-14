@@ -24,8 +24,8 @@ gateway.
   `brig upgrade` replaces it; nothing on it is meant to last.
 - **Data disk.** Everything that must survive lives on a separate disk
   mounted at `/home/agent`: OpenShell's state, the providers' secrets, the
-  sandbox images in the VM's Podman and every sandbox's workspace. `brig
-  upgrade` keeps it, `brig delete` deletes it. It is formatted btrfs at
+  sandbox images in the VM's Podman, every sandbox's workspace and its
+  [snapshots](#snapshots). `brig upgrade` keeps it, `brig delete` deletes it. It is formatted btrfs at
   first boot, with zstd compression, which shrinks checkouts and
   `node_modules` at little CPU cost. The root disk stays ext4.
 
@@ -36,9 +36,28 @@ than the disk holds; `df` and `btrfs filesystem df /home/agent` show the real
 use. After a host crash, btrfs recovers by replaying its log when it mounts the
 disk; see [troubleshooting](../troubleshooting.md#files-missing-after-a-crash).
 
-A VM created before the data disk became btrfs keeps its ext4 disk. brig does
-not convert it: copy out what you need, then `brig delete dev && brig create
-dev`.
+A VM created before the data disk became btrfs keeps its ext4 disk, which
+cannot hold snapshots. brig does not convert it: copy out what you need, then
+`brig delete dev && brig create dev`.
+
+## Snapshots
+
+A snapshot is a copy of one sandbox's `/sandbox` that brig keeps in the VM,
+under `~/.local/share/brig/snapshots` on the data disk, as a btrfs subvolume.
+The copy is a reflink: it shares every block with the workspace it came from,
+so it takes seconds and almost no space when it is taken. A block that the
+sandbox changes afterwards is written anew, and the snapshot keeps the old one,
+so a snapshot grows as its sandbox moves on.
+
+Because the blocks are shared, `du` counts them once for the workspace and
+again for each snapshot, and adds up to more than the disk holds. `brig
+sandbox snapshot list dev` shows what each snapshot holds alone, the blocks it
+shares with nothing else, which is what deleting it frees. A restore and
+`brig sandbox recreate` copy the snapshot back the same way.
+
+Snapshots belong to the VM, not to a sandbox: they outlive the sandbox they
+came from, and `brig delete` deletes them with the VM. [Keep agent
+state](../how-to/keep-agent-state.md#snapshots) shows how to use them.
 
 ## Sandbox images
 

@@ -217,3 +217,26 @@ func TestAllSandboxesListsRunningVMs(t *testing.T) {
 		t.Errorf("%v: %q", err, &buf)
 	}
 }
+
+func TestSandboxDeleteSnapshotFirst(t *testing.T) {
+	g := newFakeSnapGW()
+	g.add("webapp", "Ready", "localhost/claude-agent:1", "work")
+	testApp(t)
+	fakeSnapshots(t, g)
+	a, _ := newApp()
+	testVM(t, a, "dev")
+	origList := gatewaySandboxes
+	gatewaySandboxes = func(ctx context.Context, _ *vm.VM) ([]store.Sandbox, error) { return g.Sandboxes(ctx) }
+	t.Cleanup(func() { gatewaySandboxes = origList })
+	got := captureExec(t)
+	out, err := run(t, "sandbox", "delete", "dev", "webapp", "--snapshot")
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if len(g.snaps) != 1 || g.sandboxes["default/webapp"].Phase != "Stopped" || !slices.Contains(*got, "delete") {
+		t.Errorf("snapshots %v, exec %q: %s", g.snaps, *got, out)
+	}
+	if !strings.Contains(out, "Took snapshot webapp@") {
+		t.Errorf("output %s", out)
+	}
+}

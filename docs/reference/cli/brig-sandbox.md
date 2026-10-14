@@ -25,7 +25,9 @@ The [global options](brig.md#options) of brig apply too.
 | [`brig sandbox exec`](brig-sandbox-exec.md) | Run a command in a sandbox |
 | [`brig sandbox list`](brig-sandbox-list.md) | List the sandboxes of a VM, or of every running VM |
 | [`brig sandbox logs`](brig-sandbox-logs.md) | Show a sandbox's logs, such as the requests its policy denied |
+| [`brig sandbox recreate`](brig-sandbox-recreate.md) | Move a sandbox to a new image, keeping its /sandbox |
 | [`brig sandbox run`](brig-sandbox-run.md) | Run a command in a new sandbox, with files in and out, and delete it |
+| [`brig sandbox snapshot`](brig-sandbox-snapshot.md) | Keep copies of a sandbox's /sandbox in its VM, and bring them back |
 | [`brig sandbox start`](brig-sandbox-start.md) | Start a stopped sandbox |
 | [`brig sandbox stop`](brig-sandbox-stop.md) | Stop a sandbox, keeping its /sandbox |
 
