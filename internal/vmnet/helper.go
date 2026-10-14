@@ -4,12 +4,18 @@
 package vmnet
 
 import (
+	"bufio"
+	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/dennisklein/brig/internal/fence2"
 )
@@ -30,12 +36,15 @@ type HelperOptions struct {
 	// Fence2 is how the firewall that the reloader replaces records drops,
 	// one of the fence2 modes.
 	Fence2 string
+	// Spool is the listener's spool, as in Config.Spool.
+	Spool string
 }
 
 // RunHelper runs inside pasta's namespace: it loads the firewall for the
-// profile, starts the reloader that keeps it up to date with the host's
-// network, and then replaces itself with passt. If the firewall cannot be
-// loaded, passt never starts and the VM has no network.
+// profile, starts the listener that records its drops and the reloader
+// that keeps it up to date with the host's network, and then replaces
+// itself with passt. If the firewall cannot be loaded, passt never starts
+// and the VM has no network; recording drops never keeps it from starting.
 func RunHelper(o HelperOptions) error {
 	profile, err := decodeProfile(o.Profile)
 	if err != nil {
@@ -72,6 +81,9 @@ func RunHelper(o HelperOptions) error {
 	}
 	if mode != fence2.Itemised {
 		fmt.Fprintf(os.Stderr, "brig: fence 2 records %s: %s\n", mode, why)
+	}
+	if o.Spool != "" {
+		startListener(o.Spool, mode, why)
 	}
 	if o.HostNet != "" {
 		o.Fence2 = string(mode)
@@ -113,6 +125,86 @@ func loadFirewall(nftPath string, ruleset func(fence2.Mode) string) (fence2.Mode
 		return fence2.Off, why, fmt.Errorf("loading the firewall: %w: %s", err, out)
 	}
 	return fence2.Off, why, nil
+}
+
+// listenerReady bounds the wait for the listener to bind its NFLOG group,
+// so that it reads the drops from the VM's first packet on. executable is
+// brig, which runs the listener. Tests replace both.
+var (
+	listenerReady = 5 * time.Second
+	executable    = os.Executable
+)
+
+// startListener starts the listener that writes the firewall's drops to
+// spool, as a child that stays in the namespace when the helper becomes
+// passt, and waits until it is ready. Without counters, there is nothing
+// to listen to, and the helper only notes that in the spool.
+func startListener(spool string, mode fence2.Mode, why string) {
+	note := func(why string) {
+		if err := (fence2.Spool{Path: spool}).Append(fence2.Entry{T: time.Now(), State: fence2.Off, Why: why}); err != nil {
+			fmt.Fprintf(os.Stderr, "brig: cannot write the fence 2 spool: %v\n", err)
+		}
+	}
+	if mode == fence2.Off {
+		note(why)
+		return
+	}
+	brig, err := executable()
+	if err != nil {
+		note("the listener did not start: " + err.Error())
+		return
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		note("the listener did not start: " + err.Error())
+		return
+	}
+	defer func() { _ = r.Close() }()
+	cmd := exec.Command(brig, "net-helper", "fence2-log", "--spool", spool, "--mode", string(mode), "--why", why)
+	cmd.Stderr = os.Stderr
+	cmd.ExtraFiles = []*os.File{w}
+	err = cmd.Start()
+	_ = w.Close()
+	if err != nil {
+		note("the listener did not start: " + err.Error())
+		return
+	}
+	ready := make(chan struct{})
+	go func() {
+		// A line, or the end when the listener exits.
+		_, _ = bufio.NewReader(r).ReadString('\n')
+		close(ready)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(listenerReady):
+		fmt.Fprintln(os.Stderr, "brig: the fence 2 listener is not ready; starting passt without waiting for it")
+	}
+}
+
+// ListenerOptions are the arguments of `brig net-helper fence2-log`.
+type ListenerOptions struct {
+	Spool, Mode, Why string
+}
+
+// RunListener is the listener that startListener starts: it reports ready
+// on file descriptor 3, and writes the drops to the spool until it is
+// stopped or its parent, passt by then, exits.
+func RunListener(ctx context.Context, o ListenerOptions) error {
+	if !filepath.IsAbs(o.Spool) {
+		return errors.New("the spool's path must be absolute")
+	}
+	nftPath, err := lookPath("nft")
+	if err != nil {
+		return err
+	}
+	l := &fence2.Listener{
+		Spool: fence2.Spool{Path: o.Spool}, Mode: fence2.Mode(o.Mode), Why: o.Why,
+		Counters: func() (map[string]uint64, error) { return fence2.ReadCounters(nftPath) },
+		Parent:   os.Getppid(),
+		Log:      slog.New(slog.NewTextHandler(os.Stderr, nil)),
+	}
+	return l.Run(ctx, os.NewFile(3, "ready"))
 }
 
 // lookPath finds a program in PATH or, as on systems that keep it out of
