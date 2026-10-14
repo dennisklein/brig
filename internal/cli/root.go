@@ -100,8 +100,7 @@ leave NAME out, and says so on standard error.
 Configuration lives in $XDG_CONFIG_HOME/brig/config.yaml. brig help topics
 lists the concepts and how-tos that brig help TOPIC explains.
 
-Exit status: 0 success, 3 not found, 4 exists already, 5 not ready (VM,
-gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.`,
+` + exitStatusHelp(),
 		Version:       version.Version(),
 		SilenceUsage:  true,
 		SilenceErrors: true,

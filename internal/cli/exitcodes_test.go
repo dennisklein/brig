@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -83,5 +84,34 @@ func TestReportPrintsJSONErrorsForJSONOutput(t *testing.T) {
 	}
 	if code := report(nil, nil, false, nil, nil); code != 0 {
 		t.Errorf("no error: exit status %d", code)
+	}
+}
+
+func TestExitCodesTableFeedsHelpAndJSONErrors(t *testing.T) {
+	seen := map[int]bool{}
+	for _, c := range ExitCodes() {
+		if seen[c.Code] {
+			t.Errorf("exit status %d is listed twice", c.Code)
+		}
+		seen[c.Code] = true
+		if c.Short == "" || c.Meaning == "" {
+			t.Errorf("exit status %d needs a short text and a meaning", c.Code)
+		}
+		if got := exitReasons[c.Code]; got != c.Reason {
+			t.Errorf("exitReasons[%d] = %q, want %q", c.Code, got, c.Reason)
+		}
+	}
+	for _, code := range []int{exitFailure, exitNotFound, exitExists, exitNotReady, exitSyncFailed} {
+		if !seen[code] {
+			t.Errorf("exit status %d is missing from exitCodes", code)
+		}
+	}
+	if !strings.Contains(newRootCmd(&progressRun{}).Long, exitStatusHelp()) {
+		t.Error("brig --help does not list the exit statuses of exitCodes")
+	}
+	for _, line := range strings.Split(exitStatusHelp(), "\n") {
+		if len(line) > helpWidth {
+			t.Errorf("help line %q is wider than %d", line, helpWidth)
+		}
 	}
 }
