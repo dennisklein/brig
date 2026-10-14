@@ -14,8 +14,8 @@ import (
 
 // The journal mirror's modes, as audit.journal in config.yaml sets them.
 const (
-	// JournalChanges mirrors denials, policy and draft changes, sandboxes
-	// and gaps: what Record.Change reports.
+	// JournalChanges mirrors denials, drops, policy and draft changes,
+	// sandboxes and gaps: what Record.Change reports.
 	JournalChanges = "changes"
 	// JournalAll mirrors allowed requests too, which the journal's rate
 	// limit may drop.
@@ -111,6 +111,11 @@ func JournalEntry(r Record) []byte {
 	field("BRIG_HOST", r.Host)
 	if r.Port != 0 {
 		field("BRIG_PORT", strconv.Itoa(r.Port))
+	}
+	if r.Kind == KindDrop {
+		field("BRIG_PROTO", r.Proto)
+		field("BRIG_REASON", r.Reason)
+		field("BRIG_HITS", strconv.Itoa(r.Hits))
 	}
 	field("BRIG_BINARY", r.Binary)
 	field("BRIG_RULE", r.Rule)

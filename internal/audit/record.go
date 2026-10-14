@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package audit keeps the audit trail of brig's VMs: what each sandbox
-// reached and was denied, how its policy changed and who changed it, and
-// which brig commands worked on the VM. A collector per running VM, a
+// reached and was denied, what the VM's network profile dropped, how each
+// sandbox's policy changed and who changed it, and which brig commands
+// worked on the VM. A collector per running VM, a
 // systemd user unit on the host, follows the VM's gateway and appends one
 // JSON object per event to a file per day, which brig audit and brig ui
 // read. The files are the record; the collector also mirrors changes to the
@@ -39,10 +40,15 @@ const (
 	KindDraft = "draft"
 	// KindAction is a brig or brig ui command that worked on the VM.
 	KindAction = "action"
+	// KindDrop is what the VM's network profile, fence 2, dropped in a
+	// few seconds: packets to one address and port, or the packets of a
+	// reason that were counted but not itemised. Fence 2 sees packets
+	// from the VM, not from a sandbox, so a drop names none.
+	KindDrop = "drop"
 )
 
 // Kinds are the kinds of records, in the order brig audit lists them.
-var Kinds = []string{KindRequest, KindPolicy, KindDraft, KindSandbox, KindAction, KindGap}
+var Kinds = []string{KindRequest, KindDrop, KindPolicy, KindDraft, KindSandbox, KindAction, KindGap}
 
 // The events of sandbox and policy records.
 const (
@@ -95,8 +101,18 @@ type Record struct {
 	Reason  string `json:"reason,omitempty"`
 	Raw     string `json:"raw,omitempty"`
 
-	// Why says why records may be missing before a gap.
+	// Why says why records may be missing before a gap, or why a drop's
+	// hits were counted but not itemised.
 	Why string `json:"why,omitempty"`
+
+	// A drop has Host (its destination address), Port (zero for a
+	// protocol without ports), Reason (the profile setting that dropped
+	// it, see package fence2), and Hits; T and Last are the times of its
+	// first and last packet, and Proto is tcp, udp, icmp, icmpv6, or the
+	// IP protocol's number. A drop that was counted only has neither
+	// Host, Port nor Proto.
+	Proto string    `json:"proto,omitempty"`
+	Last  time.Time `json:"last,omitzero"`
 
 	// Event is what happened to a sandbox or policy: one of the Event
 	// constants.
@@ -129,8 +145,8 @@ type Record struct {
 	// Chunk is a draft's chunk ID, or that of the draft whose approval
 	// made a revision.
 	Chunk string `json:"chunk,omitempty"`
-	// Endpoints (as host:port) and Hits describe a draft; Decided is when
-	// it was approved or rejected.
+	// Endpoints (as host:port) and Hits describe a draft, Hits a drop
+	// too; Decided is when a draft was approved or rejected.
 	Endpoints []string  `json:"endpoints,omitempty"`
 	Hits      int       `json:"hits,omitempty"`
 	Decided   time.Time `json:"decided,omitzero"`
@@ -150,8 +166,11 @@ func (r Record) SandboxKey() string {
 	return r.Workspace + "/" + r.Sandbox
 }
 
-// Denied reports whether the record is a denied request.
-func (r Record) Denied() bool { return r.Kind == KindRequest && r.Verdict == VerdictDeny }
+// Denied reports whether the record is a request that fence 1 denied, or a
+// drop of fence 2.
+func (r Record) Denied() bool {
+	return (r.Kind == KindRequest && r.Verdict == VerdictDeny) || r.Kind == KindDrop
+}
 
 // Change reports whether the record tells of a change rather than of
 // traffic that a rule allowed: what the journal mirror carries by default.
