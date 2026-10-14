@@ -13,7 +13,8 @@ Release={{.FedoraRelease}}
 Architecture=x86-64
 
 [Output]
-# A GPT disk image base.raw: ESP plus an ext4 root, see mkosi.repart/.
+# A GPT disk image base.raw: ESP plus an ext4 root, see mkosi.repart/. The
+# VM's data disk is formatted btrfs at first boot, see BootConfig.fstab.
 Format=disk
 Output=base
 CompressOutput=no
@@ -60,6 +61,7 @@ Packages=
         openssh-server
         shadow-utils
         e2fsprogs
+        btrfs-progs
         nftables
         iproute
         sqlite
