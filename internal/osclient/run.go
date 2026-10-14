@@ -91,28 +91,18 @@ func (c *Client) Exec(ctx context.Context, r ExecRequest, stdout, stderr io.Writ
 // to stop and often takes longer than callTimeout.
 const deleteTimeout = 2 * time.Minute
 
-// deleteRetry is the first pause before DeleteSandbox asks again.
+// deleteRetry is the first pause before a call that the gateway refused as
+// busy asks again.
 var deleteRetry = 500 * time.Millisecond
 
 // DeleteSandbox deletes a sandbox; one that is gone already is no error.
 // While the gateway is still busy with the sandbox, as right after an
 // interrupted command, it asks again.
 func (c *Client) DeleteSandbox(ctx context.Context, workspace, name string) error {
-	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
-	defer cancel()
-	pause := deleteRetry
-	for {
+	return retryBusy(ctx, deleteTimeout, func(ctx context.Context) error {
 		_, err := c.api.DeleteSandbox(ctx, &pb.DeleteSandboxRequest{WorkspaceScope: scope(workspace), Name: name, AllowMissing: true})
-		if !busy(err) {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return err
-		case <-time.After(pause):
-		}
-		pause = min(2*pause, 5*time.Second)
-	}
+		return err
+	})
 }
 
 // busy tells whether err refuses an operation because the gateway has

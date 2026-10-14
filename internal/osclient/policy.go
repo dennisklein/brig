@@ -300,3 +300,63 @@ func orderedKeys(m map[string]any, kind string) []string {
 	})
 	return keys
 }
+
+// PolicyJSON converts a policy file to the protobuf JSON of the policy, as
+// openshell does when it creates a sandbox with --policy: the shape that
+// policyDoc writes, read back. A key the protobuf lacks is an error.
+func PolicyJSON(file []byte) (json.RawMessage, error) {
+	var doc map[string]any
+	if err := yaml.Unmarshal(file, &doc); err != nil {
+		return nil, err
+	}
+	if fs, ok := doc["filesystem_policy"]; ok {
+		delete(doc, "filesystem_policy")
+		doc["filesystem"] = fs
+	}
+	rules, _ := doc["network_policies"].(map[string]any)
+	for _, r := range rules {
+		rule, _ := r.(map[string]any)
+		eps, _ := rule["endpoints"].([]any)
+		for _, e := range eps {
+			if ep, ok := e.(map[string]any); ok {
+				protoEndpoint(ep)
+			}
+		}
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	p := &sb.SandboxPolicy{}
+	if err := protojson.Unmarshal(data, p); err != nil {
+		return nil, fmt.Errorf("the policy file does not fit OpenShell's policy: %w", err)
+	}
+	return protojson.Marshal(p)
+}
+
+// protoEndpoint rewrites an endpoint of a policy file as the protobuf has
+// it, undoing endpoint.
+func protoEndpoint(ep map[string]any) {
+	for field, words := range enums {
+		if s, ok := ep[field].(string); ok {
+			for name, word := range words {
+				if word == s {
+					ep[field] = name
+				}
+			}
+		}
+	}
+	for _, k := range []string{"json_rpc", "mcp"} {
+		m, ok := ep[k].(map[string]any)
+		if !ok {
+			continue
+		}
+		if n, ok := m["max_body_bytes"]; ok {
+			ep["json_rpc_max_body_bytes"] = n
+			delete(m, "max_body_bytes")
+		}
+		if k == "json_rpc" || len(m) == 0 {
+			delete(ep, k)
+		}
+	}
+}
