@@ -192,6 +192,7 @@ func Run(ctx context.Context, o Options) error {
 		trail := audit.NewStore(o.Dirs)
 		history = trail
 		goRun(func() { collect.Audit(ctx, st, trail) })
+		goRun(func() { collect.Drops(ctx, st, trail) })
 		if home, err := openshell.ConfigHome(); err != nil {
 			log.Warn("brig ui cannot read OpenShell gateways", "err", err)
 		} else {

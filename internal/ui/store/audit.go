@@ -37,6 +37,11 @@ type AuditVM struct {
 	Error     string
 	Since     time.Time
 	LastEvent time.Time
+	// Fence2 is how fully the VM's network records what fence 2 drops:
+	// itemised, counts only or off, empty before it ever did; Fence2Why
+	// says why not itemised.
+	Fence2    string
+	Fence2Why string
 	Gaps24h   int
 	Rows      int64
 	Disk      int64

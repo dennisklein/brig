@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
@@ -30,26 +31,30 @@ type pattern struct {
 	// with reason.
 	rule, reason string
 	weight       int
+	// dropAddr is the address that fence 2 drops the allowed request's
+	// packets to, for dropReason.
+	dropAddr, dropReason string
 }
 
 // patterns are the requests of the demo's sandboxes, as in the design mock.
 var patterns = map[string][]pattern{
 	"webapp": {
-		{"/usr/bin/node", 4211, "POST", "https://models.example.org/v1/chat/completions", "_provider_llm", "", 6},
-		{"/usr/bin/git", 4388, "GET", "https://github.com/acme/webapp.git/info/refs?service=git-upload-pack", "_provider_github", "", 3},
-		{"/usr/bin/gh", 4402, "GET", "https://api.github.com/repos/acme/webapp/pulls/412", "_provider_github", "", 2},
-		{"/usr/bin/node", 4211, "", "registry.npmjs.org:443", "", "endpoint registry.npmjs.org:443 is not allowed by any policy", 2},
-		{"/usr/bin/curl", 5120, "", "api.github.com:443", "", "binary /usr/bin/curl is not allowed for endpoint api.github.com:443", 1},
+		{"/usr/bin/node", 4211, "POST", "https://models.example.org/v1/chat/completions", "_provider_llm", "", 6, "", ""},
+		{"/usr/bin/git", 4388, "GET", "https://github.com/acme/webapp.git/info/refs?service=git-upload-pack", "_provider_github", "", 3, "", ""},
+		{"/usr/bin/gh", 4402, "GET", "https://api.github.com/repos/acme/webapp/pulls/412", "_provider_github", "", 2, "", ""},
+		{"/usr/bin/node", 4211, "", "registry.npmjs.org:443", "", "endpoint registry.npmjs.org:443 is not allowed by any policy", 2, "", ""},
+		{"/usr/bin/curl", 5120, "", "api.github.com:443", "", "binary /usr/bin/curl is not allowed for endpoint api.github.com:443", 1, "", ""},
+		{"/usr/bin/smbclient", 4720, "", "nas.lan:445", "nas_share", "", 1, "192.168.1.20", fence2.ReasonLAN},
 	},
 	"kit-dev": {
-		{"/usr/bin/node", 3107, "POST", "https://models.example.org/v1/chat/completions", "_provider_llm", "", 5},
-		{"/usr/bin/node", 3107, "", "raw.githubusercontent.com:443", "", "endpoint raw.githubusercontent.com:443 is not allowed by any policy", 1},
-		{"/usr/bin/node", 3107, "GET", "http://10.0.2.2:11434/api/tags", "ollama_host", "", 1},
+		{"/usr/bin/node", 3107, "POST", "https://models.example.org/v1/chat/completions", "_provider_llm", "", 5, "", ""},
+		{"/usr/bin/node", 3107, "", "raw.githubusercontent.com:443", "", "endpoint raw.githubusercontent.com:443 is not allowed by any policy", 1, "", ""},
+		{"/usr/bin/node", 3107, "GET", "http://10.0.2.2:11434/api/tags", "ollama_host", "", 1, "", ""},
 	},
 	"pr-review": {
-		{"/usr/local/bin/claude", 2901, "POST", "https://api.anthropic.com/v1/messages", "_provider_claude-code", "", 6},
-		{"/usr/bin/gh", 3015, "GET", "https://api.github.com/repos/acme/webapp/pulls/412/files", "_provider_github", "", 3},
-		{"/usr/bin/gh", 3015, "POST", "https://uploads.github.com/repos/acme/webapp/releases/9/assets", "", "credential_endpoint_mismatch: GH_TOKEN is not bound to uploads.github.com", 1},
+		{"/usr/local/bin/claude", 2901, "POST", "https://api.anthropic.com/v1/messages", "_provider_claude-code", "", 6, "", ""},
+		{"/usr/bin/gh", 3015, "GET", "https://api.github.com/repos/acme/webapp/pulls/412/files", "_provider_github", "", 3, "", ""},
+		{"/usr/bin/gh", 3015, "POST", "https://uploads.github.com/repos/acme/webapp/releases/9/assets", "", "credential_endpoint_mismatch: GH_TOKEN is not bound to uploads.github.com", 1, "", ""},
 	},
 }
 
@@ -136,6 +141,10 @@ func (t *traffic) backfill(now time.Time, vms []store.VM) {
 	raw, _ := osclient.ParseRequest("HTTP:CONNECT [MED] DENIED tunnel to 192.0.2.7:8443 refused by the upstream proxy")
 	raw.Workspace, raw.Sandbox, raw.Time = store.DefaultWorkspace, "webapp", now.Add(-23*time.Minute)
 	t.st.AddRequests("dev", []store.Request{raw})
+	t.st.AddDrops("dev", []store.Drop{{
+		Time: now.Add(-17 * time.Minute), Last: now.Add(-17*time.Minute + fence2.Window), Reason: fence2.ReasonUDPFlows,
+		Hits: 18234, Why: fence2.WhyOverRate,
+	}})
 }
 
 // tick makes a request of a running sandbox at the time at.
@@ -170,6 +179,12 @@ func (t *traffic) tick(at time.Time, vms []store.VM) {
 	}
 	r.Workspace, r.Sandbox, r.Time = sb.workspace, sb.sandbox, at
 	t.st.AddRequests(sb.vm, []store.Request{r})
+	if p.dropAddr != "" && !r.Denied() {
+		t.st.AddDrops(sb.vm, []store.Drop{{
+			Time: at.Add(40 * time.Millisecond), Last: at.Add(3 * time.Second), Reason: p.dropReason,
+			Proto: "tcp", Addr: p.dropAddr, Port: r.Port, Hits: 3,
+		}})
+	}
 	if r.Denied() {
 		t.drafted(sb.vm, sb.workspace, sb.sandbox, p, at)
 	}

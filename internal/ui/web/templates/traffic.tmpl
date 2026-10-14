@@ -2,7 +2,7 @@
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
 {{define "content"}}{{$q := .TrafficQ}}
-<div class="head"><div class="titles"><h1>Traffic{{with $q.Sandbox}} <span class="muted">· {{.}}{{with $q.Workspace}} ({{.}}){{end}}</span>{{else}}{{with $q.Workspace}} <span class="muted">· workspace {{.}}</span>{{end}}{{end}}</h1><div class="sub"><span>Requests of sandboxes as OpenShell's proxy decided them ({{term "fence-1" "fence 1"}}). Drops at {{term "fence-2" "fence 2"}}, the VM's network profile, are not logged yet.</span></div></div>
+<div class="head"><div class="titles"><h1>Traffic{{with $q.Sandbox}} <span class="muted">· {{.}}{{with $q.Workspace}} ({{.}}){{end}}</span>{{else}}{{with $q.Workspace}} <span class="muted">· workspace {{.}}</span>{{end}}{{end}}</h1><div class="sub"><span>Requests of sandboxes as OpenShell's proxy decided them ({{term "fence-1" "fence 1"}}), and what each VM's network profile dropped ({{term "fence-2" "fence 2"}}).</span></div></div>
   <div class="actions">
     <nav class="seg" aria-label="Verdict"><a class="{{if not $q.Denied}}on{{end}}" href="{{($q.With false).URL}}">All</a><a class="{{if $q.Denied}}on{{end}}" href="{{($q.With true).URL}}">Denied</a></nav>
     <nav class="seg" aria-label="Filter by VM"><a class="{{if not $q.VM}}on{{end}}" href="{{($q.OnVM "").URL}}">All VMs</a>{{range .Snap.VMs}}<a class="{{if and (eq .Name $q.VM) (not $q.Sandbox)}}on{{end}}" href="{{($q.OnVM .Name).URL}}">{{.Name}}</a>{{end}}</nav>

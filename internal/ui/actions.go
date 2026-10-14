@@ -55,8 +55,8 @@ var dialogSpecs = map[string]dialogSpec{
 	},
 	"mount-rm": {OK: "Remove", Open: "Remove", Title: func(d *dialog) string { return "Stop sharing " + d.Form.Get("target") }},
 	"profile": {
-		OK: "Change", Open: "Change…", Title: vmTitle("Network profile of %s"),
-		Defaults: func(d *dialog) { d.def("profile", d.VM.NetworkProfile) },
+		OK: "Change", Open: "Change…", Title: vmTitle("Network profile of %s"), Sub: profileSub,
+		Defaults: profileDefaults,
 	},
 	"resources": {
 		OK: "Save", Open: "Change…", Title: vmTitle("Resources of %s"),
