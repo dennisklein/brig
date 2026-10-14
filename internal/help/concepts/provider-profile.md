@@ -6,6 +6,7 @@ see: [provider, effective-policy]
 commands:
   - "openshell profile list"
 ui: "/gateway?tab=profiles"
+doc: "concepts/openshell-config.md#objects-on-a-gateway"
 ---
 A provider's secret may be sent to every endpoint of its profile, so read a
 shared profile's endpoints before you pair it with your token. `brig sync

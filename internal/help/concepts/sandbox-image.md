@@ -6,6 +6,7 @@ see: [template, base-image]
 commands:
   - "brig image push dev localhost/pi-agent:latest"
   - "brig agent build dev claude"
+doc: "concepts/disks-and-images.md#sandbox-images"
 ---
 Build agent images with Podman on this host, then push them into a VM.
 brig agent build does both for an agent that brig agent init set up, and

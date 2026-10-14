@@ -5,6 +5,7 @@ see: [effective-policy, policy-file]
 commands:
   - "openshell policy get webapp --base"
   - "brig policy diff dev webapp"
+doc: "concepts/openshell-config.md#base-and-effective-policy"
 ---
 Rules added to a running sandbox are not in its policy file until you save
 them, so a sandbox created again from that file lacks them.

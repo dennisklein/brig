@@ -7,6 +7,7 @@ commands:
   - "brig use dev"
   - "openshell sandbox list"
 ui: "/gateway"
+doc: "concepts/architecture.md#vm"
 ---
 Each VM runs one. It holds the VM's sandboxes, providers, profiles and
 policies, and talks to the CLI on this host over mTLS on 127.0.0.1.

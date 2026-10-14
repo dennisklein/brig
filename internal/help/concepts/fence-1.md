@@ -6,6 +6,7 @@ see: [fence-2, verdict, draft, policies]
 commands:
   - "brig policy allow dev webapp registry.npmjs.org --binary /usr/bin/node"
 ui: "/traffic"
+doc: "concepts/architecture.md#the-two-fences"
 ---
 Every denial in Traffic comes from here. Allow… turns one into a rule for that
 sandbox only.

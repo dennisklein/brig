@@ -7,6 +7,7 @@ commands:
   - "brig sandbox create dev --connect -- --name webapp --template claude --provider claude-code"
 show:
   href: "/gateway?tab=templates"
+doc: "start/first-agent.md"
 ---
 1. Run brig agent init with the agent's kind. It writes the image definition,
    provider profile, provider and a default policy into a config directory,

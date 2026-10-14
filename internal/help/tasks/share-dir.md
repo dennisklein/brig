@@ -6,6 +6,7 @@ commands:
 show:
   href: "/vms"
   action: mount-add
+doc: "how-to/share-directories.md"
 ---
 1. Open the VM, then Mounts, and press Add mount.
 2. Tick Offer to sandboxes. The directory becomes a read-only Podman volume,

@@ -8,6 +8,7 @@ commands:
   - "brig show dev"
   - "brig up dev"
 ui: "/vms"
+doc: "concepts/architecture.md#vm"
 ---
 It runs rootless in your libvirt user session and shows in virt-manager as
 brig-NAME, but start it with `brig start`, which also starts its network.

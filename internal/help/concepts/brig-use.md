@@ -7,6 +7,7 @@ commands:
   - "brig use dev"
   - "brig use"
   - "brig use --unset"
+doc: "start/install.md#shell-integration"
 ---
 It needs brig's shell integration, which the package sets up. The Powerlevel10k
 segment then shows the VM, such as ▥ dev.

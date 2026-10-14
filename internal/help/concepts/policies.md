@@ -6,6 +6,7 @@ see: [base-policy, effective-policy, policy-file, fence-1]
 commands:
   - "openshell policy get webapp"
 ui: "/gateway?tab=policies"
+doc: "concepts/openshell-config.md#which-policy-a-sandbox-gets"
 ---
 It takes the first that exists: a global policy on the gateway, the file given
 at create (--policy, or OPENSHELL_SANDBOX_POLICY, which brig use sets from your

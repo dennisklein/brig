@@ -6,6 +6,7 @@ see: [fence-1, vm]
 commands:
   - "brig update dev --profile default"
   - "brig show dev"
+doc: "concepts/architecture.md#network-profiles-in-detail"
 ---
 A profile allows or blocks the internet, the LAN, services on this host and
 IPv6, for the whole VM. A change applies when the VM next starts.

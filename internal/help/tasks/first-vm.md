@@ -8,6 +8,7 @@ commands:
 show:
   href: "/"
   action: create
+doc: "start/first-vm.md"
 ---
 1. Open Host and check that every check passes.
 2. Press New VM. brig builds a base image first if there is none, then creates

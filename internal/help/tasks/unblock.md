@@ -7,6 +7,7 @@ commands:
 show:
   href: "/traffic?verdict=deny"
   action: allow
+doc: "how-to/unblock.md"
 ---
 1. Open Traffic and pick Denied, or the sandbox's Traffic tab.
 2. Press Allow… on the request. If OpenShell drafted a rule for it, approve the

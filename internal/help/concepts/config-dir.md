@@ -5,6 +5,7 @@ aliases: ["openshell config", "providers/", "profiles/"]
 see: [config-sync, provider, policy-file]
 commands:
   - "brig update dev --add-openshell-config ~/src/agent-openshell"
+doc: "concepts/openshell-config.md#config-directories"
 ---
 Keep the shared one, such as ~/src/agent-openshell, in git. Secrets are not in
 it: provider files name entries in your keyring.

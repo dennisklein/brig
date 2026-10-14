@@ -6,6 +6,7 @@ commands:
   - "brig secret list dev"
 show:
   href: "/gateway?tab=providers"
+doc: "how-to/secrets.md#rotate-a-token"
 ---
 1. Run brig secret set with the VM and the provider. It asks for the new
    value without echo and stores it in your keyring under the attributes the

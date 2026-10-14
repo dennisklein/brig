@@ -6,6 +6,7 @@ see: [base-policy, config-dir]
 commands:
   - "brig policy save dev webapp --dry-run"
   - "brig policy save dev webapp"
+doc: "how-to/unblock.md#keep-it-for-new-sandboxes"
 ---
 `brig policy save` writes the rules a sandbox has and its file lacks into that
 file, keeping its comments, so that sandboxes created from it get them too. It

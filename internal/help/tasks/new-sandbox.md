@@ -6,6 +6,7 @@ commands:
 show:
   href: "/sandboxes"
   action: sandbox-create
+doc: "start/first-agent.md#start-a-sandbox"
 ---
 1. Press New sandbox and pick the VM, a name and a template or image.
 2. Attach only the providers the agent needs, and the host directories it may

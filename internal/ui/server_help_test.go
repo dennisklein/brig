@@ -63,7 +63,7 @@ func TestHelpPane(t *testing.T) {
 	for target, want := range map[string][]string{
 		"/help?page=vm&tab=mounts":   {"<h2>VM</h2>", `data-chip="mount"`, "/help/task/share-dir"},
 		"/help?page=nope":            {"<h2>Overview</h2>"},
-		"/help/concept/fence-2":      {"Fence 2, the network profile", "brig update dev --profile default", "brig help fence-2"},
+		"/help/concept/fence-2":      {"Fence 2, the network profile", "brig update dev --profile default", "brig help fence-2", `href="https://github.com/dennisklein/brig/blob/main/docs/concepts/architecture.md#network-profiles-in-detail" target="_blank"`},
 		"/help/task/unblock":         {`<ol class="hp-steps">`, `href="/traffic?verdict=deny#show-allow"`},
 		"/help/action/delete":        {"Delete VM", "brig delete VM", `class="callout bad"`},
 		"/help/hint/concept/fence-2": {"Fence 2, the network profile", "outside the VM"},

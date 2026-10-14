@@ -7,6 +7,7 @@ commands:
   - "brig ssh dev"
 show:
   href: "/vms"
+doc: "start/install.md#shell-integration"
 ---
 1. Run brig use with the VM's name. The prompt shows the VM, such as ▥ dev.
 2. Plain openshell commands now go to that VM's gateway.
