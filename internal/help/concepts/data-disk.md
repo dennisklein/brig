@@ -1,6 +1,6 @@
 ---
 title: "Data disk"
-summary: "The VM's disk at /home/agent: gateway state, secrets, images and sandbox workspaces. Kept on upgrade, deleted with the VM."
+summary: "The VM's btrfs disk at /home/agent: gateway state, secrets, images and sandbox workspaces. Kept on upgrade, deleted with the VM."
 see: [root-disk, base-image]
 doc: "concepts/disks-and-images.md#disks"
 ---

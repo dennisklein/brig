@@ -104,7 +104,7 @@ In a terminal: `brig help config-dir`.
 
 ### Data disk<a id="data-disk"></a>
 
-The VM's disk at /home/agent: gateway state, secrets, images and sandbox workspaces. Kept on upgrade, deleted with the VM.
+The VM's btrfs disk at /home/agent: gateway state, secrets, images and sandbox workspaces. Kept on upgrade, deleted with the VM.
 
 See also: [Root disk](#root-disk), [Base image](#base-image).
 
