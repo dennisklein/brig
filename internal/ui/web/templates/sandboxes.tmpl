@@ -2,7 +2,7 @@
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
 {{define "content"}}
-<div class="head"><div class="titles"><h1>Sandboxes</h1><div class="sub">Agent containers on every VM's OpenShell {{term "gateway" "gateway"}}. Each keeps its workspace at /sandbox.</div></div>
+<div class="head"><div class="titles"><h1>Sandboxes</h1><div class="sub"><span>Agent containers on every VM's OpenShell {{term "gateway" "gateway"}}. Each keeps its workspace at /sandbox.</span></div></div>
   <div class="actions">{{if .Filter}}{{template "act" (act $ "sandbox-create" "" "primary" "vm" .Filter)}}{{else}}{{template "act" (act $ "sandbox-create" "" "primary")}}{{end}}<nav class="seg" aria-label="Filter by VM"><a class="{{if not .Filter}}on{{end}}" href="{{sandboxesURL "" .WSFilter}}">All VMs</a>{{range .Snap.VMs}}<a class="{{if eq .Name $.Filter}}on{{end}}" href="{{sandboxesURL .Name $.WSFilter}}">{{.Name}}</a>{{end}}</nav>
   {{with workspaceChoices .Snap .Filter}}<nav class="seg" aria-label="Filter by workspace"><a class="{{if not $.WSFilter}}on{{end}}" href="{{sandboxesURL $.Filter ""}}">All workspaces</a>{{range .}}<a class="{{if eq . $.WSFilter}}on{{end}}" href="{{sandboxesURL $.Filter .}}">{{.}}</a>{{end}}</nav>{{end}}</div>
 </div>

@@ -2,7 +2,7 @@
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
 {{define "content"}}
-<div class="head"><div class="titles"><h1>Images</h1><div class="sub">{{term "base-image" "Base images"}} that VMs are made from. brig builds them with mkosi; {{term "sandbox-image" "sandbox images"}} come from your Podman.</div></div>
+<div class="head"><div class="titles"><h1>Images</h1><div class="sub"><span>{{term "base-image" "Base images"}} that VMs are made from. brig builds them with mkosi; {{term "sandbox-image" "sandbox images"}} come from your Podman.</span></div></div>
   <div class="actions">{{template "act" (act $ "image-push" "" "")}}{{template "act" (act $ "image-prune" "" "")}}{{template "act" (act $ "image-build" "" "primary")}}</div>
 </div>
 <section class="panel tw" sse-swap="images">{{template "images" .}}</section>
