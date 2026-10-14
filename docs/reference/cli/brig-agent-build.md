@@ -21,8 +21,8 @@ It then copies the image into the VM, unless the VM has this exact image
 already, and makes the template that agent.yaml names use it, in the
 workspace of -w. OpenShell can only create and delete templates, so brig
 deletes and creates it again. That is safe: a sandbox copies its template
-when it is created, so existing sandboxes keep their image. Move them when
-it suits you.
+when it is created, so existing sandboxes keep their image. Move them, with
+their /sandbox, when it suits you: [`brig agent update`](brig-agent-update.md).
 
 Without VM, the one that [`brig use`](brig-use.md) selected is used.
 

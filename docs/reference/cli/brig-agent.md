@@ -2,7 +2,7 @@
 
 # brig agent
 
-Set up a coding agent's image, provider and template, and rebuild its image
+Set up a coding agent's image, provider and template, rebuild its image and move its sandboxes to it
 
 ## Synopsis
 
@@ -18,6 +18,7 @@ The [global options](brig.md#options) of brig apply too.
 | --- | --- |
 | [`brig agent build`](brig-agent-build.md) | Rebuild an agent's image, copy it into a VM and point its template at it |
 | [`brig agent init`](brig-agent-init.md) | Write the files for a first agent sandbox, and with --vm set it up |
+| [`brig agent update`](brig-agent-update.md) | Move an agent's sandboxes to its current image, keeping their /sandbox |
 
 ## See also
 

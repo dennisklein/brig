@@ -8,9 +8,10 @@ Every command of brig, as [`brig`](brig.md) lists them. Run `brig COMMAND --help
 
 | Command | Description |
 | --- | --- |
-| [`brig agent`](brig-agent.md) | Set up a coding agent's image, provider and template, and rebuild its image |
+| [`brig agent`](brig-agent.md) | Set up a coding agent's image, provider and template, rebuild its image and move its sandboxes to it |
 | [`brig agent build`](brig-agent-build.md) | Rebuild an agent's image, copy it into a VM and point its template at it |
 | [`brig agent init`](brig-agent-init.md) | Write the files for a first agent sandbox, and with --vm set it up |
+| [`brig agent update`](brig-agent-update.md) | Move an agent's sandboxes to its current image, keeping their /sandbox |
 | [`brig audit`](brig-audit.md) | Show what sandboxes reached, and who allowed it |
 | [`brig audit prune`](brig-audit-prune.md) | Delete audit history |
 | [`brig audit status`](brig-audit-status.md) | Show the audit collectors and the space their history takes |
@@ -33,6 +34,7 @@ Every command of brig, as [`brig`](brig.md) lists them. Run `brig COMMAND --help
 | [`brig sandbox exec`](brig-sandbox-exec.md) | Run a command in a sandbox |
 | [`brig sandbox list`](brig-sandbox-list.md) | List the sandboxes of a VM, or of every running VM |
 | [`brig sandbox logs`](brig-sandbox-logs.md) | Show a sandbox's logs, such as the requests its policy denied |
+| [`brig sandbox recreate`](brig-sandbox-recreate.md) | Move a sandbox to a new image, keeping its /sandbox |
 | [`brig sandbox run`](brig-sandbox-run.md) | Run a command in a new sandbox, with files in and out, and delete it |
 | [`brig sandbox snapshot`](brig-sandbox-snapshot.md) | Keep copies of a sandbox's /sandbox in its VM, and bring them back |
 | [`brig sandbox snapshot create`](brig-sandbox-snapshot-create.md) | Take a snapshot of a sandbox's /sandbox |
