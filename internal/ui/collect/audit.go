@@ -68,6 +68,7 @@ func ReadAudit(ctx context.Context, sn store.Snapshot, s audit.Store) store.Audi
 	for _, st := range statuses {
 		a := store.AuditVM{
 			VM: st.VM, Collector: st.Collector, Problem: st.Problem(), Error: st.Error, Since: st.Since, LastEvent: st.LastEvent,
+			Fence2: string(st.Fence2), Fence2Why: st.Fence2Why,
 			Gaps24h: st.Gaps24h, Rows: st.Rows, Disk: st.Disk, Oldest: st.Oldest, Deleted: st.Deleted,
 		}
 		if x, err := s.ReadIndex(st.VM); err == nil {

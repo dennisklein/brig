@@ -56,9 +56,9 @@
 <p class="muted">Stops sharing {{range .VM.Mounts}}{{if eq .Target $t}}<span class="mono">{{tilde .Source}}</span> {{end}}{{end}}at <span class="mono">{{$t}}</span>. The directory on the host stays as it is.</p>
 {{end}}
 
-{{define "dlg-profile"}}{{template "vmfield" .}}
-<div class="field"><label for="n-profile">Profile</label><select id="n-profile" name="profile">{{range profileNames .Snap}}<option value="{{.}}"{{if eq . ($.Form.Get "profile")}} selected{{end}}>{{.}}</option>{{end}}</select>
-  <span class="hint">Profiles live in config.yaml. This is fence 2: it applies to every sandbox in the VM, from outside the VM.</span></div>
+{{define "dlg-profile"}}{{template "vmfield" .}}{{with .Form.Get "reason"}}<input type="hidden" name="reason" value="{{.}}">{{end}}{{with .Form.Get "dest"}}<input type="hidden" name="dest" value="{{.}}">{{end}}{{with .Form.Get "port"}}<input type="hidden" name="port" value="{{.}}">{{end}}
+<div class="field"><label for="n-profile">Profile</label><select id="n-profile" name="profile">{{range profileNames .Snap}}<option value="{{.}}"{{if eq . ($.Form.Get "profile")}} selected{{end}}>{{.}}{{with index $.Snap.Profiles .}} · {{.Allows}}{{end}}</option>{{end}}</select>
+  <span class="hint">Profiles live in config.yaml. This is {{term "fence-2" "fence 2"}}: it applies to every sandbox in the VM, from outside the VM.</span></div>
 {{end}}
 
 {{define "dlg-resources"}}{{template "vmfield" .}}

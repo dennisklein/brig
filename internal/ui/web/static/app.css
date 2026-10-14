@@ -116,6 +116,7 @@ h3 { font: 600 11px var(--f-body); text-transform: uppercase; letter-spacing: .0
 .chip { font: 11.5px var(--f-mono); padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
 .chip.acc { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
 .chip.off { text-decoration: line-through; opacity: .6; }
+.chip.f2 { color: var(--warn); border: 1px dashed var(--warn); background: var(--warn-soft); }
 
 .grid { display: grid; gap: 14px; }
 .g2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
