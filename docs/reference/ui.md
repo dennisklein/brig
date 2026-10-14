@@ -10,6 +10,11 @@ What each page of `brig ui` shows and what each of its actions does. The help pa
 
 Your VMs at a glance, what needs you, and what brig did and denied lately.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/overview-dark.png">
+  <img alt="Overview: a card for each of three VMs, then what needs attention and what brig did lately" src="../images/overview-light.png">
+</picture>
+
 Words: [VM](glossary.md#vm), [Needs you](glossary.md#needs-you), [Fence 1, the sandbox policy](glossary.md#fence-1), [Activity](glossary.md#activity).
 
 How to: [Set up brig on a new host](glossary.md#first-vm), [Get going after a reboot](glossary.md#start-of-day), [Unblock an agent that cannot reach a host](glossary.md#unblock).
@@ -18,6 +23,11 @@ How to: [Set up brig on a new host](glossary.md#first-vm), [Get going after a re
 
 Every VM on this host. Each runs one OpenShell gateway, registered here as brig-NAME.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/vms-dark.png">
+  <img alt="VMs: one row for each VM with its state, gateway, size, network profile and base image" src="../images/vms-light.png">
+</picture>
+
 Words: [VM](glossary.md#vm), [Gateway](glossary.md#gateway), [Fence 2, the network profile](glossary.md#fence-2), [Base image](glossary.md#base-image).
 
 How to: [Set up brig on a new host](glossary.md#first-vm), [Get going after a reboot](glossary.md#start-of-day), [Move a VM onto a newer base image](glossary.md#upgrade-vm).
@@ -25,6 +35,21 @@ How to: [Set up brig on a new host](glossary.md#first-vm), [Get going after a re
 ### VM<a id="page-vm"></a>
 
 One VM, its disks, host directories, sandboxes, OpenShell config and network.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/vm-dark.png">
+  <img alt="A VM: its state, the OpenShell version, disks and the host checks that concern it" src="../images/vm-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/vm-mounts-dark.png">
+  <img alt="A VM&#39;s Mounts tab: the host directories shared with the VM and whether each is a sandbox volume" src="../images/vm-mounts-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/vm-network-dark.png">
+  <img alt="A VM&#39;s Network tab: the network profile and what it lets through, the two fences" src="../images/vm-network-light.png">
+</picture>
 
 Words: [VM](glossary.md#vm), [Gateway](glossary.md#gateway), [Data disk](glossary.md#data-disk), [Root disk](glossary.md#root-disk), [Base image](glossary.md#base-image).
 
@@ -46,6 +71,11 @@ Tab `summary`: [Data disk](glossary.md#data-disk), [Root disk](glossary.md#root-
 
 The base images that VMs are made from. Sandbox images live in each VM.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/images-dark.png">
+  <img alt="Images: the base images that VMs are made from and which VMs use each" src="../images/images-light.png">
+</picture>
+
 Words: [Base image](glossary.md#base-image), [Sandbox image](glossary.md#sandbox-image), [Root disk](glossary.md#root-disk).
 
 How to: [Move a VM onto a newer base image](glossary.md#upgrade-vm).
@@ -53,6 +83,11 @@ How to: [Move a VM onto a newer base image](glossary.md#upgrade-vm).
 ### Host<a id="page-host"></a>
 
 brig doctor on this host, which checks what brig needs and says how to fix what fails, and the audit trail that brig keeps of each VM.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/host-dark.png">
+  <img alt="Host: the brig doctor checks, and the audit trail of each VM" src="../images/host-light.png">
+</picture>
 
 Words: [Audit trail](glossary.md#audit-trail).
 
@@ -62,11 +97,21 @@ How to: [Set up brig on a new host](glossary.md#first-vm), [See what a sandbox d
 
 What brig did, from brig ui or a terminal, newest first. Open an entry for its steps.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/activity-dark.png">
+  <img alt="Activity: what brig did, from brig ui or a terminal, newest first" src="../images/activity-light.png">
+</picture>
+
 Words: [Activity](glossary.md#activity).
 
 ### Sandboxes<a id="page-sandboxes"></a>
 
 Every sandbox on every VM's gateway. Each keeps its files at /sandbox across stop and start.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/sandboxes-dark.png">
+  <img alt="Sandboxes: every sandbox of every VM&#39;s gateway with its state, image, providers and policy version" src="../images/sandboxes-light.png">
+</picture>
 
 Words: [Sandbox](glossary.md#sandboxes), [Workspace](glossary.md#workspace), [Provider](glossary.md#provider), [Sandbox policy](glossary.md#policies).
 
@@ -75,6 +120,21 @@ How to: [Start an agent in a new sandbox](glossary.md#new-sandbox), [Set up Clau
 ### Sandbox<a id="page-sandbox"></a>
 
 One sandbox, its providers and setup, its policy, its traffic, its files and its history.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/sandbox-dark.png">
+  <img alt="A sandbox: its providers, setup and the commands to connect to it from a terminal" src="../images/sandbox-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/sandbox-policy-dark.png">
+  <img alt="A sandbox&#39;s Policy tab: the policy it was created with next to the effective policy" src="../images/sandbox-policy-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/sandbox-traffic-dark.png">
+  <img alt="A sandbox&#39;s Traffic tab: its requests and the rule that allowed or the reason that denied each" src="../images/sandbox-traffic-light.png">
+</picture>
 
 Words: [Sandbox](glossary.md#sandboxes), [Provider](glossary.md#provider), [Placeholder](glossary.md#placeholder), [Sandbox policy](glossary.md#policies), [Workspace](glossary.md#workspace), [Audit trail](glossary.md#audit-trail).
 
@@ -92,6 +152,11 @@ Tab `traffic`: [Verdict](glossary.md#verdict), [Drafted rule](glossary.md#draft)
 
 What a VM's gateway holds, read live from it. Change it with sync and your config directories.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/gateway-dark.png">
+  <img alt="Gateway: what a VM&#39;s OpenShell gateway holds, starting with its providers" src="../images/gateway-light.png">
+</picture>
+
 Words: [Gateway](glossary.md#gateway), [Workspace](glossary.md#workspace), [Provider](glossary.md#provider), [Provider profile](glossary.md#provider-profile), [Sandbox template](glossary.md#template).
 
 How to: [Rotate a provider's token](glossary.md#rotate-token), [Set up Claude Code, Pi or opencode](glossary.md#set-up-agent).
@@ -108,6 +173,11 @@ Tab `templates`: [Sandbox template](glossary.md#template), [Sandbox image](gloss
 
 Every request of every sandbox, as OpenShell's proxy decided it, live for the last hour and from the audit trail before.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/traffic-dark.png">
+  <img alt="Traffic: the requests of all sandboxes with their verdicts, and Allow for a denied one" src="../images/traffic-light.png">
+</picture>
+
 Words: [Verdict](glossary.md#verdict), [Fence 1, the sandbox policy](glossary.md#fence-1), [Drafted rule](glossary.md#draft), [Fence 2, the network profile](glossary.md#fence-2), [Audit trail](glossary.md#audit-trail).
 
 How to: [Unblock an agent that cannot reach a host](glossary.md#unblock), [Find out why a request fails that the policy allows](glossary.md#blocked-outside), [See what a sandbox did and who changed its policy](glossary.md#look-back).
@@ -115,6 +185,11 @@ How to: [Unblock an agent that cannot reach a host](glossary.md#unblock), [Find 
 ### Topology<a id="page-topology"></a>
 
 Every path from this host to the endpoints sandboxes reach, and those they tried and could not.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/topology-dark.png">
+  <img alt="Topology: the path from this host through gateways, sandboxes and providers to the endpoints they reached" src="../images/topology-light.png">
+</picture>
 
 Words: [Gateway](glossary.md#gateway), [Provider](glossary.md#provider), [Fence 1, the sandbox policy](glossary.md#fence-1).
 
@@ -165,6 +240,11 @@ Words: [Base image](glossary.md#base-image), [Data disk](glossary.md#data-disk),
 Shares a host directory with the VM, at once if it runs, read-only unless you pick read-write.
 
 Runs: `brig update VM --add-mount SOURCE:TARGET:ro`
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/mount-add-dark.png">
+  <img alt="The Share a host directory dialog, with the brig update command it runs" src="../images/mount-add-light.png">
+</picture>
 
 Undo: Remove.
 
@@ -221,6 +301,11 @@ Words: [Config directory](glossary.md#config-dir).
 Creates and starts a VM with its own gateway, building a base image first if there is none.
 
 Runs: `brig create NAME`
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/new-vm-dark.png">
+  <img alt="The New VM dialog, with the brig create command it runs" src="../images/new-vm-light.png">
+</picture>
 
 Undo: Delete.
 
@@ -284,6 +369,11 @@ Turns a denied request into one rule for this sandbox only, or approves the rule
 
 Runs: `brig policy allow VM SANDBOX HOST:PORT --binary PATH`
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/allow-dark.png">
+  <img alt="The Allow dialog for a denied request, with the brig policy allow command it runs" src="../images/allow-light.png">
+</picture>
+
 Words: [Fence 1, the sandbox policy](glossary.md#fence-1), [Drafted rule](glossary.md#draft), [Audit mode](glossary.md#audit-mode), [Policy file](glossary.md#policy-file).
 
 ### Reject draft<a id="action-reject"></a>
@@ -315,6 +405,11 @@ Words: [Policy file](glossary.md#policy-file).
 Creates a sandbox for an agent, with the providers and host directories you pick.
 
 Runs: `brig sandbox create VM -- --name NAME`
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/sandbox-create-dark.png">
+  <img alt="The New sandbox dialog, with the brig sandbox create command it runs" src="../images/sandbox-create-light.png">
+</picture>
 
 Undo: Delete.
 

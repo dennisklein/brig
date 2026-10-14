@@ -111,6 +111,18 @@ func uiPage(repo string, h *help.Help) (string, error) {
 	if !slices.Equal(slices.Sorted(slices.Values(pages)), h.PageIDs()) || !slices.Equal(slices.Sorted(slices.Values(actions)), h.ActionIDs()) {
 		return "", fmt.Errorf("internal/help: pages.yaml and actions.yaml disagree with the loaded help")
 	}
+	list, err := loadShots(repo)
+	if err != nil {
+		return "", err
+	}
+	for _, s := range list {
+		switch {
+		case s.Page != "" && !slices.Contains(pages, s.Page):
+			return "", fmt.Errorf("%s: shot %s is of the page %q, which brig ui has no help for", shotsFile, s.Name, s.Page)
+		case s.Action != "" && !slices.Contains(actions, s.Action):
+			return "", fmt.Errorf("%s: shot %s is of the action %q, which brig ui has no help for", shotsFile, s.Name, s.Action)
+		}
+	}
 	byTitle := map[string]string{}
 	for _, id := range actions {
 		a, _ := h.Action(id)
@@ -127,6 +139,9 @@ func uiPage(repo string, h *help.Help) (string, error) {
 	for _, id := range pages {
 		p, _ := h.Page(id)
 		fmt.Fprintf(&b, "\n### %s<a id=\"page-%s\"></a>\n\n%s\n", escape(p.Title), id, inline(p.Summary))
+		for _, s := range shotsOf(list, func(s shot) string { return s.Page }, id) {
+			b.WriteString("\n" + s.picture(referenceDir))
+		}
 		if len(p.Concepts) > 0 {
 			fmt.Fprintf(&b, "\nWords: %s.\n", topicLinks(h, p.Concepts, "glossary.md"))
 		}
@@ -142,6 +157,9 @@ func uiPage(repo string, h *help.Help) (string, error) {
 	for _, id := range actions {
 		a, _ := h.Action(id)
 		fmt.Fprintf(&b, "\n### %s<a id=\"action-%s\"></a>\n\n%s\n\nRuns: %s\n", escape(a.Title), id, inline(a.Summary), code(a.Command))
+		for _, s := range shotsOf(list, func(s shot) string { return s.Action }, id) {
+			b.WriteString("\n" + s.picture(referenceDir))
+		}
 		switch {
 		case a.Danger != "":
 			fmt.Fprintf(&b, "\n**%s**\n", escape(a.Danger))

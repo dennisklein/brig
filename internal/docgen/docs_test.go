@@ -48,6 +48,7 @@ var (
 	inlineLinkRE = regexp.MustCompile(`\]\(\s*(<[^>]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)`)
 	refLinkRE    = regexp.MustCompile(`^ {0,3}\[[^\]]+\]:\s*(\S+)`)
 	anchorTagRE  = regexp.MustCompile(`<a\s+(?:id|name)="([^"]+)"`)
+	htmlSrcRE    = regexp.MustCompile(`<(?:img|source)\s[^>]*?\b(?:src|srcset)="([^"]+)"`)
 )
 
 // parseMarkdown reads the file at rel, below root.
@@ -97,6 +98,9 @@ func parseMarkdown(root, rel string) (*mdFile, error) {
 		}
 		if m := refLinkRE.FindStringSubmatch(prose); m != nil {
 			f.links = append(f.links, mdLink{strings.Trim(m[1], "<>"), i + 1})
+		}
+		for _, m := range htmlSrcRE.FindAllStringSubmatch(prose, -1) {
+			f.links = append(f.links, mdLink{m[1], i + 1})
 		}
 	}
 	f.text = text.String()
