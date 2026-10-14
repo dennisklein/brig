@@ -104,9 +104,9 @@ In a terminal: `brig help config-dir`.
 
 ### Data disk<a id="data-disk"></a>
 
-The VM's btrfs disk at /home/agent: gateway state, secrets, images and sandbox workspaces. Kept on upgrade, deleted with the VM.
+The VM's btrfs disk at /home/agent: gateway state, secrets, images, sandbox workspaces and snapshots. Kept on upgrade, deleted with the VM.
 
-See also: [Root disk](#root-disk), [Base image](#base-image).
+See also: [Root disk](#root-disk), [Base image](#base-image), [Snapshot](#snapshot).
 
 The whole story: [`concepts/disks-and-images.md`](../concepts/disks-and-images.md#disks).
 
@@ -295,6 +295,24 @@ The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.m
 
 In a terminal: `brig help provider-profile`.
 
+### Recreate<a id="recreate"></a>
+
+Move a sandbox to a new image: snapshot it, create it again with the same name, restore /sandbox. brig agent update does it for an agent.
+
+Also called: agent update, move sandbox, new image.
+
+See also: [Sandbox](#sandboxes), [Snapshot](#snapshot), [Sandbox image](#sandbox-image), [Sandbox template](#template).
+
+```sh
+brig agent update dev claude --dry-run
+brig sandbox recreate dev webapp
+brig sandbox recreate dev webapp --image localhost/pi-agent:2026-10-14
+```
+
+The whole story: [`how-to/upgrade.md`](../how-to/upgrade.md#sandbox-image).
+
+In a terminal: `brig help recreate`.
+
 ### Root disk<a id="root-disk"></a>
 
 A throwaway overlay of the base image. Upgrade replaces it; nothing on it is meant to last.
@@ -311,7 +329,7 @@ A container on a gateway where an agent runs, fenced by its policy. Its director
 
 Also called: container, agent.
 
-See also: [Sandbox policy](#policies), [Provider](#provider), [Sandbox template](#template), [Fence 1, the sandbox policy](#fence-1).
+See also: [Sandbox policy](#policies), [Provider](#provider), [Sandbox template](#template), [Fence 1, the sandbox policy](#fence-1), [Snapshot](#snapshot), [Recreate](#recreate).
 
 ```sh
 brig sandbox create dev --connect
@@ -330,11 +348,12 @@ The container image a sandbox runs, kept in the VM's Podman. It is separate from
 
 Also called: container image, podman.
 
-See also: [Sandbox template](#template), [Base image](#base-image).
+See also: [Sandbox template](#template), [Base image](#base-image), [Recreate](#recreate).
 
 ```sh
 brig image push dev localhost/pi-agent:latest
 brig agent build dev claude
+brig agent update dev claude
 ```
 
 The whole story: [`concepts/disks-and-images.md`](../concepts/disks-and-images.md#sandbox-images).
@@ -392,6 +411,25 @@ brig sandbox create dev --mount ~/src/kit:/usr/local/share/kit -- --name kit
 The whole story: [`how-to/share-directories.md`](../how-to/share-directories.md#into-a-sandbox).
 
 In a terminal: `brig help sandbox-volume`.
+
+### Snapshot<a id="snapshot"></a>
+
+A copy of one sandbox's /sandbox, kept in the VM on the data disk. It outlives the sandbox and goes with the VM.
+
+Also called: backup, restore, fork.
+
+See also: [Sandbox](#sandboxes), [Recreate](#recreate), [Data disk](#data-disk).
+
+```sh
+brig sandbox snapshot create dev webapp
+brig sandbox snapshot list dev
+brig sandbox snapshot restore dev webapp@2026-10-14T15:02:11Z webapp
+brig sandbox snapshot prune dev
+```
+
+The whole story: [`how-to/keep-agent-state.md`](../how-to/keep-agent-state.md#snapshots).
+
+In a terminal: `brig help snapshot`.
 
 ### Sync<a id="config-sync"></a>
 
@@ -487,6 +525,7 @@ In a terminal: `brig help workspace`.
 | <a id="start-of-day"></a>Get going after a reboot | `brig help start-of-day` | [`how-to/daily-workflow.md`](../how-to/daily-workflow.md#start-of-day) |
 | <a id="keep-rules"></a>Keep the rules I added to a sandbox | `brig help keep-rules` | [`how-to/unblock.md`](../how-to/unblock.md#keep-it-for-new-sandboxes) |
 | <a id="upgrade-vm"></a>Move a VM onto a newer base image | `brig help upgrade-vm` | [`how-to/upgrade.md`](../how-to/upgrade.md#vm-and-openshell) |
+| <a id="move-to-new-image"></a>Move sandboxes to a new agent image | `brig help move-to-new-image` | [`how-to/upgrade.md`](../how-to/upgrade.md#sandbox-image) |
 | <a id="rotate-token"></a>Rotate a provider's token | `brig help rotate-token` | [`how-to/secrets.md`](../how-to/secrets.md#rotate-a-token) |
 | <a id="one-shot"></a>Run a task in a throwaway sandbox | `brig help one-shot` | [`how-to/one-shot-runs.md`](../how-to/one-shot-runs.md) |
 | <a id="look-back"></a>See what a sandbox did and who changed its policy | `brig help look-back` | [`how-to/audit.md`](../how-to/audit.md) |
