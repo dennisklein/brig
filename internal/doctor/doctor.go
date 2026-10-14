@@ -18,6 +18,7 @@ import (
 	clidoctor "github.com/GSI-HPC/go-clikit/doctor"
 
 	"github.com/dennisklein/brig/internal/deps"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/image"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/vmnet"
@@ -35,7 +36,7 @@ type Host struct {
 	// Writable reports whether the current user may open name read-write.
 	Writable func(name string) bool
 	// ProbeNetwork starts and stops a VM network without a VM.
-	ProbeNetwork func(ctx context.Context) error
+	ProbeNetwork func(ctx context.Context) (vmnet.ProbeResult, error)
 }
 
 // System is the real host.
@@ -57,7 +58,7 @@ func System() Host {
 			_ = f.Close()
 			return true
 		},
-		ProbeNetwork: func(ctx context.Context) error {
+		ProbeNetwork: func(ctx context.Context) (vmnet.ProbeResult, error) {
 			return vmnet.Probe(ctx, os.Getenv("XDG_RUNTIME_DIR"))
 		},
 	}
@@ -72,7 +73,12 @@ const sessionHint = "log in through a session that starts your systemd user mana
 // Run performs all checks.
 func Run(ctx context.Context, h Host) []clidoctor.Check {
 	results := hostChecks(ctx, h)
-	return append(results, checkNetwork(ctx, h, results))
+	network, probed := checkNetwork(ctx, h, results)
+	results = append(results, network)
+	if probed != nil {
+		results = append(results, checkFence2(*probed))
+	}
+	return results
 }
 
 // Preflight performs the checks that take no time, which is all of them but
@@ -304,17 +310,18 @@ var networkNeeds = []string{"user namespaces", "XDG_RUNTIME_DIR", "systemd --use
 
 // checkNetwork starts the network of a VM, without the VM, as brig start
 // would, once the checks it depends on have passed.
-func checkNetwork(ctx context.Context, h Host, prior []clidoctor.Check) clidoctor.Check {
+func checkNetwork(ctx context.Context, h Host, prior []clidoctor.Check) (clidoctor.Check, *vmnet.ProbeResult) {
 	r := clidoctor.Check{Name: "VM network", Status: clidoctor.StatusOK, Detail: "pasta, nftables and passt start"}
 	for _, p := range prior {
 		if slices.Contains(networkNeeds, p.Name) && p.Status != clidoctor.StatusOK {
 			r.Status, r.Detail = clidoctor.StatusWarning, "not tried, since "+p.Name+" did not pass"
-			return r
+			return r, nil
 		}
 	}
-	err := h.ProbeNetwork(ctx)
+	res, err := h.ProbeNetwork(ctx)
 	switch {
 	case err == nil:
+		return r, &res
 	case errors.Is(err, vmnet.ErrNoIPv4Gateway):
 		r.Status, r.Detail, r.Remediation = clidoctor.StatusWarning, "not tried: the host has no IPv4 default gateway", "connect the host to a network with an IPv4 default gateway (ip -4 route shows it), or take down interfaces such as container bridges while offline"
 	default:
@@ -324,6 +331,26 @@ func checkNetwork(ctx context.Context, h Host, prior []clidoctor.Check) clidocto
 			r.Detail += ": " + cause
 		}
 		r.Remediation = hint + "\nThe error was:\n" + err.Error()
+	}
+	return r, nil
+}
+
+// checkFence2 says how fully the probed network recorded what its firewall
+// drops: the audit trail of fence 2.
+func checkFence2(res vmnet.ProbeResult) clidoctor.Check {
+	r := clidoctor.Check{Name: "fence 2 audit", Status: clidoctor.StatusOK, Detail: "drops are recorded with their addresses"}
+	switch res.Fence2 {
+	case fence2.Itemised:
+	case fence2.CountsOnly:
+		r.Status, r.Detail = clidoctor.StatusWarning, "drops are counted per reason only, without their addresses"
+		r.Remediation = "load the kernel's logging modules: sudo modprobe -a nft_log nfnetlink_log; to load them at boot, list them in /etc/modules-load.d/brig.conf\n" +
+			"VMs started since then record each drop's address. The reason was: " + res.Why
+	case fence2.Off:
+		r.Status, r.Detail = clidoctor.StatusWarning, "drops are not recorded"
+		r.Remediation = "check that the kernel has nftables' named counters (nft_counter, nft_objref): the reason was: " + res.Why
+	default:
+		r.Status, r.Detail = clidoctor.StatusWarning, "the network did not say whether it records drops"
+		r.Remediation = "run brig doctor again; journalctl --user -u brig-net-_probe-* shows the network's log"
 	}
 	return r
 }
