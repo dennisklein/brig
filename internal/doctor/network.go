@@ -6,6 +6,8 @@ package doctor
 import (
 	"regexp"
 	"strings"
+
+	"github.com/dennisklein/brig/internal/docs"
 )
 
 // missingProgramRE matches the errors of vmnet and of the net-helper about
@@ -56,7 +58,7 @@ func classifyNetwork(err error) (cause, hint string) {
 		// namespace, which SELinux may deny it.
 		return "SELinux probably denies passt", "sudo dnf install brig-selinux, which allows passt to sandbox itself in pasta's user namespace\n" +
 			"To confirm the denial, look for { setfcap } and tclass=cap_userns in: sudo ausearch -m AVC -c passt\n" +
-			"Without that package, see Troubleshooting in brig's README for a local SELinux module."
+			"Without that package, add a local SELinux module as " + docs.URL("troubleshooting.md#passt-cannot-write-uid_map") + " shows."
 	case has("routable interface", "No interface"):
 		return "pasta finds no network", "connect the host to a network with a default route; ip route shows the routes pasta copies into the VM's network"
 	case has("user namespace", "Operation not permitted", "Permission denied"):
@@ -68,7 +70,7 @@ func classifyNetwork(err error) (cause, hint string) {
 	case has("exited before it created"):
 		return "the network exited early", "read the log below for the reason; sudo ausearch -m AVC -ts recent shows SELinux denials, which also end pasta and passt silently"
 	}
-	return "", "read the error below; sudo ausearch -m AVC -ts recent shows SELinux denials, and Troubleshooting in brig's README lists known causes"
+	return "", "read the error below; sudo ausearch -m AVC -ts recent shows SELinux denials, and " + docs.URL("troubleshooting.md#host") + " lists known causes"
 }
 
 // classifyFirewall classifies a failure of the net-helper to load the

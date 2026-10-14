@@ -226,7 +226,7 @@ func TestClassifyNetwork(t *testing.T) {
 		},
 		"selinux without a message": {
 			unit + " exited after it created /run/user/1000/brig/probe-1/net.sock: ",
-			"SELinux", "sudo dnf install brig-selinux", "README",
+			"SELinux", "sudo dnf install brig-selinux", "troubleshooting.md#passt-cannot-write-uid_map",
 		},
 		"nft kernel support": {
 			"starting: " + unit + " exited before it created x: loading the firewall: exit status 1: Error: Could not process rule: Operation not supported",
@@ -290,7 +290,7 @@ func TestClassifyNetwork(t *testing.T) {
 		},
 		"unknown": {
 			"mkdir /run/user/1000/brig: no space left on device",
-			"", "read the error below", "README",
+			"", "read the error below", "troubleshooting.md#host",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
