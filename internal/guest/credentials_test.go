@@ -111,7 +111,7 @@ func TestCredentials(t *testing.T) {
 		t.Errorf("tmpfiles.extra has %d entries:\n%s", len(files), data["tmpfiles.extra"])
 	}
 
-	wantFstab := `/dev/disk/by-id/virtio-brig-data /home/agent ext4 defaults,x-systemd.makefs,x-systemd.growfs 0 2
+	wantFstab := `/dev/disk/by-id/virtio-brig-data /home/agent btrfs defaults,compress=zstd:1,x-systemd.makefs,x-systemd.growfs 0 0
 brig0 /mnt/a virtiofs ro,nofail 0 0
 brig1 /work/b virtiofs rw,nofail 0 0
 brig2 /home/agent/c virtiofs ro,nofail,context=system_u:object_r:container_file_t:s0 0 0
@@ -139,7 +139,7 @@ func TestCredentialsWithoutSandboxMounts(t *testing.T) {
 	if got := files["/home/agent/.ssh/authorized_keys"].content; got != testKey+"\n" {
 		t.Errorf("authorized_keys = %q", got)
 	}
-	if got, want := data["fstab.extra"], "/dev/disk/by-id/virtio-brig-data /home/agent ext4 defaults,x-systemd.growfs 0 2\n"; got != want {
+	if got, want := data["fstab.extra"], "/dev/disk/by-id/virtio-brig-data /home/agent btrfs defaults,compress=zstd:1,x-systemd.growfs 0 0\n"; got != want {
 		t.Errorf("fstab.extra = %q, want %q", got, want)
 	}
 }

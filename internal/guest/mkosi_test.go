@@ -91,6 +91,7 @@ func TestWriteMkosiConfig(t *testing.T) {
 		"mkosi.postinst.chroot":                                       0o755,
 		"mkosi.repart/10-root.conf":                                   0o644,
 		"mkosi.extra":                                                 fs.ModeDir | 0o755,
+		"mkosi.extra/etc/containers/storage.conf":                     0o644,
 		"mkosi.extra/usr/libexec/brig":                                fs.ModeDir | 0o755,
 		"mkosi.extra/usr/libexec/brig/sandbox-volumes":                0o755,
 		"mkosi.extra/usr/lib/systemd/user/brig-gateway-proxy.service": 0o644,

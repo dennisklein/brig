@@ -255,15 +255,16 @@ func (c BootConfig) mountParents() []string {
 }
 
 // fstab returns the fstab(5) lines of the data disk and the virtiofs mounts.
-// The data disk is formatted with FormatDataDisk and grown after a resize. A
-// virtiofs mount that fails does not fail the boot.
+// The data disk is a btrfs file system, formatted with FormatDataDisk and
+// grown after a resize. btrfs has no boot-time fsck (it replays its log at
+// mount), so the pass is 0. A virtiofs mount that fails does not fail the boot.
 func (c BootConfig) fstab() string {
 	var b strings.Builder
-	opts := "defaults,x-systemd.growfs"
+	opts := "defaults,compress=zstd:1,x-systemd.growfs"
 	if c.FormatDataDisk {
-		opts = "defaults,x-systemd.makefs,x-systemd.growfs"
+		opts = "defaults,compress=zstd:1,x-systemd.makefs,x-systemd.growfs"
 	}
-	fmt.Fprintf(&b, "/dev/disk/by-id/virtio-%s %s ext4 %s 0 2\n", DataDiskSerial, home, opts)
+	fmt.Fprintf(&b, "/dev/disk/by-id/virtio-%s %s btrfs %s 0 0\n", DataDiskSerial, home, opts)
 	for _, m := range c.Mounts {
 		fmt.Fprintf(&b, "%s %s virtiofs %s 0 0\n", m.Tag, m.Target, mountOptions(m, "nofail"))
 	}
