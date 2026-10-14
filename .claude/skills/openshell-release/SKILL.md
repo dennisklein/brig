@@ -141,6 +141,25 @@ configuration and the docs against what brig relies on:
   `crates/openshell-cli/src/policy_update.rs`, and the flags and endpoint
   spec against `internal/ui/action/allow.go`. Drafts are polled because the gateway does
   not stream them; see whether `WatchSandbox` sends `DraftPolicyUpdate` now.
+- **Sandbox workspaces and replacement**: OpenShell cannot change a sandbox's
+  image, so moving a sandbox to a new image means recreating it, which loses
+  `/sandbox` (`docs/how-to/keep-agent-state.md`). brig's planned sandbox
+  snapshots and recreate keep it by copying the Podman driver's workspace
+  volume, and so will depend on the driver's internals. Check `git diff PREV
+  TAG -- crates/openshell-driver-podman proto/openshell.proto` and the release
+  notes for changes to what that relies on: the volume name
+  `openshell-sandbox-<id>-workspace` (`volume_name` in `src/container.rs`),
+  that it is mounted at `/sandbox` and owned by the workload's UID, that stop
+  keeps it and delete removes it, that nothing may be mounted on the workspace
+  root, which fields a create from a `workload_template` takes from the
+  request (`crates/openshell-server/src/grpc/sandbox.rs`), and that images
+  with a custom `WORKDIR` get no volume. Also look for upstream's own answer:
+  an RPC or CLI command that changes a sandbox's image or snapshots, exports
+  or imports its workspace, a workspace volume that outlives the sandbox, or
+  Podman parity with the Kubernetes driver, where a mount under `/sandbox`
+  replaces the workspace (its README calls its persistence a stopgap that
+  "future snapshotting should replace"). Report what you find even when brig
+  needs no change, so the maintainer can decide whether brig should adopt it.
 - **Version compatibility**: `openshell.CompatibleVersions` treats a new
   minor version as incompatible, so `brig upgrade` needs `--force` across
   minors. Revisit it if the release notes say otherwise.
