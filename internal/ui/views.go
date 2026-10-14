@@ -431,7 +431,7 @@ func rel(t time.Time) string {
 
 // since says how long ago t was, without "ago": "just now" is "now".
 func since(t time.Time) string {
-	d := time.Since(t)
+	d := clock().Sub(t)
 	switch {
 	case d < 45*time.Second:
 		return "under a minute"

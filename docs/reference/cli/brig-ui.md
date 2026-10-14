@@ -21,7 +21,10 @@ Only you can open it: it prints a URL with a token that is new each run,
 and it refuses other users' connections. A second brig ui opens the
 running one instead.
 
---demo serves made-up VMs and touches nothing on this host.
+--demo serves made-up VMs and touches nothing on this host. With --still the
+demo also stands at a fixed time, in UTC, and its meters and requests stay,
+so that the pages look the same on every run; the screenshots in the docs
+are taken that way.
 
 ## Options
 
@@ -30,6 +33,7 @@ running one instead.
 | `--demo` | serve made-up VMs, for a look around or screenshots |
 | `--no-open` | print the URL without opening a browser |
 | `--port int` | port on 127.0.0.1 to listen on (default: a free one) |
+| `--still` | with --demo, stop the clock and the meters, so that the pages look the same on every run |
 
 The [global options](brig.md#options) of brig apply too.
 

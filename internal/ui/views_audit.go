@@ -167,7 +167,7 @@ func (s *Server) sandboxHistory(w http.ResponseWriter, r *http.Request) {
 	err := s.history.Read(q, func(rec audit.Record) bool { h.Records = append(h.Records, rec); return true })
 	if err == nil {
 		slices.Reverse(h.Records)
-		q.Kinds, q.Since = nil, time.Now().AddDate(0, 0, -historyReachDays)
+		q.Kinds, q.Since = nil, clock().AddDate(0, 0, -historyReachDays)
 		h.Reach, err = audit.Summarize(s.history, q)
 	}
 	if err != nil {

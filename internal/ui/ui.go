@@ -38,6 +38,10 @@ import (
 	"github.com/dennisklein/brig/internal/vm"
 )
 
+// clock is the time the pages measure from. It is the system clock, except
+// in a still demo, where Run sets it once, before it serves.
+var clock = time.Now
+
 // Options configure Run.
 type Options struct {
 	// Port to listen on; 0 picks a free one.
@@ -46,6 +50,10 @@ type Options struct {
 	NoOpen bool
 	// Demo serves made-up VMs and touches nothing on the host.
 	Demo bool
+	// Still stops the demo's clock at demo.Epoch and its meters and
+	// requests with it, so that the pages look the same on every run. It
+	// is for screenshots, and needs Demo.
+	Still bool
 	// DevAssets serves the templates and static files from this directory,
 	// read again on every request.
 	DevAssets string
@@ -126,7 +134,11 @@ func Run(ctx context.Context, o Options) error {
 		checkHost = demo.CheckHost
 		host := demo.New(st)
 		starter, files = host, host
-		history = demo.History(time.Now())
+		if o.Still {
+			host.Still()
+			clock = func() time.Time { return demo.Epoch }
+		}
+		history = demo.History(clock())
 		goRun(func() { host.Run(ctx, addr) })
 	} else {
 		brig := o.Brig

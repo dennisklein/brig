@@ -217,7 +217,7 @@ func trafficNeeds(sn store.Snapshot) []need {
 	type key struct{ vm, workspace, sandbox string }
 	counts := map[key]int{}
 	latest := map[key]store.Request{}
-	since := time.Now().Add(-recentWindow)
+	since := clock().Add(-recentWindow)
 	for _, t := range sn.Traffic {
 		for i := len(t.Requests) - 1; i >= 0 && !t.Requests[i].Time.Before(since); i-- {
 			r := t.Requests[i]
@@ -372,9 +372,9 @@ func trafficFuncs() template.FuncMap {
 			}
 			return out
 		},
-		"recentDenials": func(v *view) int { return denialCount(v.Snap, "", "", "", time.Now().Add(-recentWindow)) },
+		"recentDenials": func(v *view) int { return denialCount(v.Snap, "", "", "", clock().Add(-recentWindow)) },
 		"sandboxDenials": func(v *view) int {
-			return denialCount(v.Snap, v.Gateway.VM, v.Sandbox.Workspace, v.Sandbox.Name, time.Now().Add(-recentWindow))
+			return denialCount(v.Snap, v.Gateway.VM, v.Sandbox.Workspace, v.Sandbox.Name, clock().Add(-recentWindow))
 		},
 		"oldestShown": oldestShown,
 		"allowAct":    allowAct,
