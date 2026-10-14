@@ -14,7 +14,7 @@ brig upgrade [NAME]
 
 | Option | Description |
 | --- | --- |
-| `--allow-minor` | allow an OpenShell minor version change |
+| `--allow-minor` | allow an OpenShell minor version change, taking a snapshot of every sandbox first |
 | `--image string` | base image ID (default: newest) |
 | `-o, --output format` | output format: table or json (default `table`) |
 
