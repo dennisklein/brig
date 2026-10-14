@@ -25,8 +25,8 @@ New to brig? Run these in order.
 - How do I give a sandbox a host directory? [Share
   directories](how-to/share-directories.md)
 - How do I store or rotate a token, or run in CI? [Secrets](how-to/secrets.md)
-- How do I keep an agent's work when I delete its sandbox? [Keep agent
-  state](how-to/keep-agent-state.md)
+- How do I keep an agent's work when I move it to a new image or delete it?
+  [Keep agent state](how-to/keep-agent-state.md)
 - How do I run one task in a throwaway sandbox? [One-shot
   runs](how-to/one-shot-runs.md)
 - How do I move to a newer OpenShell or Fedora? [Upgrade](how-to/upgrade.md)

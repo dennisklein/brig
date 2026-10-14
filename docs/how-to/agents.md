@@ -4,7 +4,8 @@
 agent's files. This page shows those files for Claude Code, Pi and opencode,
 explains the choices behind them, and is the manual path for building your
 own image. Edit the files freely and run `brig agent build dev NAME` after
-each change. Examples use the VM `dev`, the sandbox `webapp` for the
+each change, then `brig agent update dev NAME` to move the agent's sandboxes to
+the new image with their `/sandbox`. Examples use the VM `dev`, the sandbox `webapp` for the
 repository `alice/webapp` and the shared [config
 directory](../concepts/openshell-config.md#config-directories)
 `~/src/agent-openshell`.
@@ -99,7 +100,10 @@ tracking on and flooding the shell with the terminal's replies to Pi's colour
 queries. The `PI_*` switches stop Pi's own update
 checks and telemetry, which would only show up as denials. Do not put files
 under `/sandbox` in the image: Podman copies them into a sandbox's workspace
-once, at creation, and image updates never reach them again.
+once, at creation, and image updates never reach them again. A settings file
+that the start script seeds only once behaves the same; `brig agent update dev
+NAME --reset PATH` leaves PATH out of the move, so that the new image's start
+script sets it up fresh.
 
 The start script copies Pi's settings into a fresh sandbox (copied, not
 linked, because Pi writes to them) and links what the image keeps managing:

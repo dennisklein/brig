@@ -49,9 +49,12 @@ reviewed file.
 
 ## Keep it for new sandboxes
 
-A rule added to a running sandbox is gone once the sandbox is recreated. To
-keep it, write it into the [policy file](../concepts/openshell-config.md#which-policy-a-sandbox-gets)
-that new sandboxes of the project are created from:
+A rule added to a running sandbox lasts as long as the sandbox, and `brig
+sandbox recreate` and `brig agent update` carry it over to the new sandbox.
+A new sandbox, or one created again by hand, starts from its policy file
+instead. To keep the rule for those, write it into the [policy
+file](../concepts/openshell-config.md#which-policy-a-sandbox-gets) that new
+sandboxes of the project are created from:
 
 ```sh
 brig policy diff dev webapp              # rules the sandbox has and its file lacks, and the reverse
