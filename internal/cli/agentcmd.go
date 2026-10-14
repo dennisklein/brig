@@ -30,9 +30,9 @@ import (
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Set up a coding agent's image, provider and template, and rebuild its image",
+		Short: "Set up a coding agent's image, provider and template, rebuild its image and move its sandboxes to it",
 	}
-	cmd.AddCommand(newAgentInitCmd(), newAgentBuildCmd())
+	cmd.AddCommand(newAgentInitCmd(), newAgentBuildCmd(), newAgentUpdateCmd())
 	return cmd
 }
 
@@ -507,8 +507,8 @@ It then copies the image into the VM, unless the VM has this exact image
 already, and makes the template that agent.yaml names use it, in the
 workspace of -w. OpenShell can only create and delete templates, so brig
 deletes and creates it again. That is safe: a sandbox copies its template
-when it is created, so existing sandboxes keep their image. Move them when
-it suits you.
+when it is created, so existing sandboxes keep their image. Move them, with
+their /sandbox, when it suits you: brig agent update.
 
 Without VM, the one that brig use selected is used.`,
 		Example: `  brig agent build dev claude
@@ -663,7 +663,7 @@ func (a *app) agentBuild(cmd *cobra.Command, v *vm.VM, ws, name, tag string, noP
 			return fmt.Errorf("the image is in VM %s as %s, but its template %s was not updated: %w", v.Name, ref, def.Template, err)
 		}
 		fmt.Fprintf(out, "Built %s and pointed template %s at it.\n", ref, def.Template)
-		fmt.Fprintf(errw, "Existing sandboxes keep their image; new ones from template %s get this one.\n", def.Template)
+		fmt.Fprintf(errw, "Existing sandboxes keep their image; move them with brig agent update %s %s.\n", v.Name, name)
 		return nil
 	}
 	fmt.Fprintf(out, "Built %s and copied it into VM %s.\n", ref, v.Name)

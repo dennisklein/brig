@@ -22,7 +22,7 @@ SIZE is what a snapshot holds, EXCLUSIVE what it holds alone: the blocks it
 shares with nothing else, which deleting it frees. Since a snapshot shares
 its blocks with its sandbox and the other snapshots, the sizes add up to more
 than the disk holds. NOTE marks snapshots whose sandbox is gone, and those an
-unfinished [`brig sandbox`](brig-sandbox.md) recreate needs.
+unfinished [`brig sandbox recreate`](brig-sandbox-recreate.md) needs.
 
 ## Examples
 

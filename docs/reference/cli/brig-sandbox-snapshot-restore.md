@@ -21,7 +21,7 @@ sandbox, which needs --yes.
 
 SANDBOX may be another sandbox than the one SNAPSHOT came from, which copies
 one sandbox's work into another. Restore leaves SANDBOX's image, providers
-and policy as they are; [`brig sandbox`](brig-sandbox.md) recreate moves a sandbox to a new image.
+and policy as they are; [`brig sandbox recreate`](brig-sandbox-recreate.md) moves a sandbox to a new image.
 
 --reset PATH, relative to /sandbox, leaves PATH out, so that the image's start
 script sets it up fresh. If the sandbox's user differs from the snapshot's,

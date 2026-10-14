@@ -31,7 +31,7 @@ func newSandboxCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newSandboxCreateCmd(), newSandboxListCmd(), newSandboxConnectCmd(), newSandboxExecCmd(), newSandboxLogsCmd(),
 		newSandboxStartCmd(), newSandboxStopCmd(), newSandboxDeleteCmd(), newSandboxAttachCmd(), newSandboxDetachCmd(),
-		newSandboxRunCmd(), newSandboxCleanCmd(), newSandboxSnapshotCmd())
+		newSandboxRunCmd(), newSandboxCleanCmd(), newSandboxSnapshotCmd(), newSandboxRecreateCmd())
 	return cmd
 }
 

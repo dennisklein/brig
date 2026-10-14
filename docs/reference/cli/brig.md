@@ -39,7 +39,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.
 
 | Command | Description |
 | --- | --- |
-| [`brig agent`](brig-agent.md) | Set up a coding agent's image, provider and template, and rebuild its image |
+| [`brig agent`](brig-agent.md) | Set up a coding agent's image, provider and template, rebuild its image and move its sandboxes to it |
 | [`brig audit`](brig-audit.md) | Show what sandboxes reached, and who allowed it |
 | [`brig completion`](brig-completion.md) | Generate the autocompletion script for the specified shell |
 | [`brig console`](brig-console.md) | Attach to a VM's serial console (exit with Ctrl+]) |
