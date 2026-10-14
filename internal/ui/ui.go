@@ -143,7 +143,7 @@ func Run(ctx context.Context, o Options) error {
 			Brig: brig, OpenShell: cli, ActivityLog: o.ActivityLog, Store: st, Ended: collector.Refresh, KeepOK: keepFinished,
 		}
 		st.SetHost(store.Host{Addr: addr})
-		goRun(func() { st.SetHost(collect.Host(ctx, addr)) })
+		goRun(func() { collect.HostRun(ctx, st, addr) })
 		goRun(func() { collector.Run(ctx, st) })
 		trail := audit.NewStore(o.Dirs)
 		history = trail
