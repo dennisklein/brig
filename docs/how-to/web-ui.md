@@ -16,6 +16,18 @@ shows the sandboxes with their providers and base and effective policies, and
 the gateway's providers, provider profiles, default policy and templates;
 credentials only by name. Pages update live.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/overview-dark.png">
+  <img alt="Overview: a card for each of three VMs, then what needs attention and what brig did lately" src="../images/overview-light.png">
+</picture>
+
+In a narrow window the navigation moves to the top.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/overview-phone-dark.png">
+  <img alt="The Overview in a narrow window, with the navigation along the top" src="../images/overview-phone-light.png" width="300">
+</picture>
+
 ## Traffic and history
 
 Traffic shows each sandbox's requests as OpenShell's proxy decided them, from
@@ -26,6 +38,16 @@ the Overview, under Needs you and on the sandbox's Traffic tab. Topology draws
 the path from this host through each gateway and sandbox to the providers'
 endpoints and the hosts sandboxes reached or were denied. Drops by a VM's
 network profile are not logged yet.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/traffic-dark.png">
+  <img alt="Traffic: the requests of all sandboxes with their verdicts, and Allow for a denied one" src="../images/traffic-light.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/topology-dark.png">
+  <img alt="Topology: the path from this host through gateways, sandboxes and providers to the endpoints they reached" src="../images/topology-light.png">
+</picture>
 
 Traffic also reads the [audit trail](../concepts/audit-trail.md): pick 24
 hours, 7 days or all instead of the last hour, and a sandbox that was deleted,
@@ -38,6 +60,11 @@ traffic nothing records shows under Needs you.
 **Allow…** on a denied request adds a rule for that sandbox, and can keep it
 in the sandbox's policy file; [unblock an agent](unblock.md#allow-it-for-this-sandbox)
 describes it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/allow-dark.png">
+  <img alt="The Allow dialog for a denied request, with the brig policy allow command it runs" src="../images/allow-light.png">
+</picture>
 
 ## What it changes
 
@@ -72,6 +99,11 @@ words, its how-tos with a **Show me** link and their commands; the jump box
 finds help too, and only help after a `?`. The help pane's **Hints Off** turns
 the cards off; `?` keeps working. The texts are those of `brig help TOPIC`,
 and each links to its page in these docs.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../images/help-dark.png">
+  <img alt="The help pane of the Overview, with its words, its how-tos and the keys" src="../images/help-light.png">
+</picture>
 
 ## Who can open it
 

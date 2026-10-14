@@ -41,6 +41,17 @@ Keep `dev`: the guides build on it. [Your first VM](docs/start/first-vm.md)
 explains what you now have, and [your first agent](docs/start/first-agent.md)
 puts Claude Code, Pi or opencode into a sandbox on it.
 
+`brig ui` shows the same VMs, sandboxes and traffic in a web UI, and runs the
+same commands:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+  <img alt="Overview: a card for each of three VMs, then what needs attention and what brig did lately" src="docs/images/overview-light.png">
+</picture>
+
+[The web UI](docs/how-to/web-ui.md) describes it, and
+[its reference](docs/reference/ui.md) shows every page.
+
 ## Documentation
 
 [docs/](docs/index.md) is organised by what you want to do:

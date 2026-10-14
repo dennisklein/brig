@@ -31,6 +31,31 @@ checks that each `doc:` names a file and heading that exist.
 block after an `<!-- agent-file: KIND PATH -->` marker must match that file
 as rendered for the page's examples; `internal/agent`'s tests check it.
 
+## Screenshots
+
+The images of brig ui in `docs/images/` are not edited or taken by hand.
+`docs/images/shots.yaml` lists each shot: a page, tab or dialog, in light and
+dark and, where it says so, at phone width. `tools/screenshots` takes them
+from `brig ui --demo --still`, which serves made-up VMs at a fixed time with
+nothing moving, so the same code gives the same pages, and drives an
+installed Chromium:
+
+```sh
+go build -o brig . && (cd tools/screenshots && go run . -brig ../../brig)
+```
+
+It is a module of its own, so that brig does not depend on a browser driver.
+`-only NAME` takes one shot, `-chromium PATH` names the browser, and the
+images are the PNGs of at most 256 colours that git keeps small. Run it
+when a page, the demo or `shots.yaml` changes, and commit the images with the
+change; browser and font versions differ between machines, so CI does not
+take them again. A shot with `page:` or `action:` appears in the
+[UI reference](../reference/ui.md) under that page or action, which
+`go generate ./...` writes; the rest the pages show by a `<picture>` of both
+themes, as the [web UI](../how-to/web-ui.md) does. Tests check that the images
+are the list's, that each is shown in both themes, and that the demo's pages
+repeat.
+
 ## Style
 
 - Short, plain sentences, in the words the CLI and brig ui use: VM, gateway,
