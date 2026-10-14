@@ -1,8 +1,27 @@
 # Development tools; run `mise install` to get the pinned versions.
+#
+# golangci-lint and goreleaser are fetched straight from their release
+# downloads, and govulncheck from the Go module proxy. mise's default
+# backends look releases up through GitHub's API first, which sandboxed
+# environments such as Claude Code's cloud sessions block for repositories
+# other than brig. Checksums are from each release's checksums file.
 [tools]
 go = "1.27.2"
-golangci-lint = "2.14.0"
-goreleaser = "2.18.2"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"
+
+[tools."http:golangci-lint"]
+version = "2.14.0"
+
+[tools."http:golangci-lint".platforms]
+linux-x64 = { url = "https://github.com/golangci/golangci-lint/releases/download/v{{version}}/golangci-lint-{{version}}-linux-amd64.tar.gz", checksum = "sha256:ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab" }
+linux-arm64 = { url = "https://github.com/golangci/golangci-lint/releases/download/v{{version}}/golangci-lint-{{version}}-linux-arm64.tar.gz", checksum = "sha256:ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae" }
+
+[tools."http:goreleaser"]
+version = "2.18.2"
+
+[tools."http:goreleaser".platforms]
+linux-x64 = { url = "https://github.com/goreleaser/goreleaser/releases/download/v{{version}}/goreleaser_Linux_x86_64.tar.gz", checksum = "sha256:0a96edc9d9bc594e4a41cc4d59467c182062910ab24d9d1f6dd7b667d32606d3" }
+linux-arm64 = { url = "https://github.com/goreleaser/goreleaser/releases/download/v{{version}}/goreleaser_Linux_arm64.tar.gz", checksum = "sha256:a71681b29194f08f057a68cfcaa5c6b15d907a83a2622c51900c4faff828f322" }
 
 [tasks.signing-key]
 description = "Create the key that signs brig's RPM repository (run once, see scripts/signing-key.sh)"
