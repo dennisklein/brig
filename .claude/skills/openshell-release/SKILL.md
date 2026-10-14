@@ -144,7 +144,7 @@ configuration and the docs against what brig relies on:
 - **Version compatibility**: `openshell.CompatibleVersions` treats a new
   minor version as incompatible, so `brig upgrade` needs `--force` across
   minors. Revisit it if the release notes say otherwise.
-- **Docs**: `README.md` and `docs/openshell.md` link to and pin the version
+- **Docs**: pages under `docs/` link to and pin the version
   they were written against (search for `PREV` without the `v`). Check the
   linked files and the commands shown against `TAG`, then update them.
 

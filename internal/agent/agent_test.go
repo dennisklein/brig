@@ -278,7 +278,7 @@ var guideMarkerRE = regexp.MustCompile(`^<!-- agent-file: (\w+) (\S+) -->$`)
 // "agent-file: KIND PATH" marker, by KIND and PATH.
 func guideFiles(t *testing.T) map[[2]string]string {
 	t.Helper()
-	f, err := os.Open("../../docs/openshell.md")
+	f, err := os.Open("../../docs/how-to/agents.md")
 	if err != nil {
 		t.Fatal(err)
 	}

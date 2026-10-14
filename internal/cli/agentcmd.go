@@ -50,8 +50,8 @@ func newAgentInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init claude|pi|opencode [NAME] [--dir DIR] [--vm VM]",
 		Short: "Write the files for a first agent sandbox, and with --vm set it up",
-		Long: `Write what an agent sandbox of the given kind needs, as the guide describes
-it, without touching any VM:
+		Long: `Write what an agent sandbox of the given kind needs, as brig's agents guide
+(docs/how-to/agents.md) describes it, without touching any VM:
 
   DIR/agents/NAME/       agent.yaml, Containerfile, start script, settings
   DIR/profiles/          the agent's provider profile, unless a directory
