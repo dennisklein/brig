@@ -5,8 +5,11 @@ package audit
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
+
+	"github.com/dennisklein/brig/internal/fence2"
 )
 
 // Describe says in one line what the record tells, without its time, VM
@@ -15,6 +18,8 @@ func Describe(r Record) string {
 	switch r.Kind {
 	case KindRequest:
 		return describeRequest(r)
+	case KindDrop:
+		return describeDrop(r)
 	case KindGap:
 		return "gap: " + r.Why
 	case KindSandbox:
@@ -91,6 +96,33 @@ func describeRequest(r Record) string {
 		s += ": " + r.Reason
 	}
 	return s
+}
+
+func describeDrop(r Record) string {
+	s := "drop"
+	if r.Proto != "" {
+		s += " " + r.Proto
+	}
+	if target := DropTarget(r); target != "" {
+		s += " " + target
+	}
+	if r.Hits > 1 || r.Host == "" {
+		s += fmt.Sprintf(" ×%d", r.Hits)
+	}
+	s += ": " + fence2.Explain(r.Reason)
+	if r.Why != "" {
+		s += " (" + r.Why + ")"
+	}
+	return s
+}
+
+// DropTarget is where a drop went, as address:port, [address]:port or the
+// address alone; empty for drops that were counted only.
+func DropTarget(r Record) string {
+	if r.Host == "" || r.Port == 0 {
+		return r.Host
+	}
+	return net.JoinHostPort(r.Host, strconv.Itoa(r.Port))
 }
 
 func describePolicy(r Record) string {

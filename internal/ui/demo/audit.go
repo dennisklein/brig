@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/audit"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
@@ -40,8 +41,10 @@ func Audit(now time.Time) store.Audit {
 		store.AuditPart{Name: "team/webapp", Rows: 18000, Disk: 2 * mib},
 		store.AuditPart{Name: "", Rows: 300, Disk: mib / 8},
 	)
+	dev.Fence2 = string(fence2.Itemised)
 	review := vm("review", audit.UnitRunning, 26*time.Hour, 12, 4000, mib,
 		store.AuditPart{Name: "default/pr-review", Rows: 48000, Disk: 12 * mib})
+	review.Fence2, review.Fence2Why = string(fence2.CountsOnly), "cannot read the drops the firewall logs: the kernel has no nfnetlink_log"
 	airgap := vm("airgap", audit.StateVMStopped, 6*24*time.Hour, 40, 300, mib/10,
 		store.AuditPart{Name: "default/corpus-scan", Rows: 12000, Disk: 4 * mib})
 	scratch := vm("scratch", audit.StateVMDeleted, 12*24*time.Hour, 9, 7000, 2*mib,
@@ -58,7 +61,8 @@ func Audit(now time.Time) store.Audit {
 }
 
 // History returns the demo's audit records as of now: the policy history
-// of webapp on dev, and the requests of spike, a sandbox deleted since.
+// of webapp on dev, the requests of spike, a sandbox deleted since, and
+// what fence 2 dropped of them.
 func History(now time.Time) audit.Records {
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
 	day := 24 * time.Hour
@@ -98,6 +102,15 @@ func History(now time.Time) audit.Records {
 		}),
 		rec(ago(60*time.Hour), "spike", audit.KindRequest, func(r *audit.Record) {
 			r.Verdict, r.Host, r.Port, r.Binary, r.Reason = audit.VerdictDeny, "paste.example.net", 443, "/usr/bin/curl", "no rule allows this endpoint"
+		}),
+		rec(ago(65*time.Hour), "spike", audit.KindRequest, func(r *audit.Record) {
+			r.Verdict, r.Host, r.Port, r.Binary, r.Rule = audit.VerdictAllow, "nas.lan", 445, "/usr/bin/smbclient", "nas_share"
+		}),
+		rec(ago(65*time.Hour-50*time.Millisecond), "", audit.KindDrop, func(r *audit.Record) {
+			r.Workspace, r.Reason, r.Proto, r.Host, r.Port, r.Hits, r.Last = "", fence2.ReasonLAN, "tcp", "192.168.1.20", 445, 3, ago(65*time.Hour-3*time.Second)
+		}),
+		rec(ago(52*time.Hour), "", audit.KindDrop, func(r *audit.Record) {
+			r.Workspace, r.Reason, r.Proto, r.Host, r.Port, r.Hits = "", fence2.ReasonHostPort, "tcp", "10.0.2.2", 8080, 1
 		}),
 		rec(ago(50*time.Hour), "spike", audit.KindSandbox, func(r *audit.Record) { r.Event = audit.EventDeleted }),
 	}

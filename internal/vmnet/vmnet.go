@@ -9,7 +9,8 @@
 // pasta connects a private network namespace to the host's network and
 // forwards the VM's SSH and gateway ports from the host's loopback interface
 // into it. Inside the namespace, `brig net-helper` loads nftables rules that
-// enforce the VM's network profile and then becomes passt, which serves the
+// enforce the VM's network profile, starts the listener that records what
+// they drop (see package fence2), and then becomes passt, which serves the
 // VM over a vhost-user socket. Everything runs unprivileged, in a transient
 // systemd user unit per VM.
 package vmnet
@@ -32,6 +33,7 @@ import (
 	"github.com/GSI-HPC/go-clikit/progress"
 
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/ports"
 )
@@ -65,6 +67,9 @@ type Config struct {
 	// Routes are the destinations of the host's routes, which Ruleset also
 	// counts as the LAN. Start reads them when the VM starts.
 	Routes []netip.Prefix
+	// Spool is where the network's listener writes what the firewall
+	// drops, empty for no listener; see package fence2.
+	Spool string
 }
 
 // UnitName is the systemd user unit that runs the VM's network.
@@ -73,6 +78,9 @@ func UnitName(vm string) string { return "brig-net-" + vm + ".service" }
 func (c Config) validate() error {
 	if c.VM == "" || !filepath.IsAbs(c.Socket) {
 		return errors.New("vmnet: VM name and an absolute socket path are required")
+	}
+	if c.Spool != "" && !filepath.IsAbs(c.Spool) {
+		return errors.New("vmnet: the spool's path must be absolute")
 	}
 	for _, p := range []int{c.SSHPort, c.GatewayPort, c.GuestSSHPort, c.GuestGatewayPort} {
 		if p < 1 || p > 65535 {
@@ -148,6 +156,9 @@ func (c Config) helperArgs() ([]string, error) {
 	}
 	for _, p := range c.Routes {
 		args = append(args, "--route", p.String())
+	}
+	if c.Spool != "" {
+		args = append(args, "--spool", c.Spool)
 	}
 	return args, nil
 }
@@ -368,36 +379,56 @@ func Stop(ctx context.Context, vm string) {
 	}
 }
 
+// ProbeResult is what Probe found out besides that a network starts: how
+// fully fence 2 records drops on this host, and why not itemised.
+type ProbeResult struct {
+	Fence2 fence2.Mode
+	Why    string
+}
+
 // Probe starts and stops a network like a VM's, without a VM and with a
-// profile that allows nothing, to check that pasta, the firewall and passt
-// work on this host. Its socket goes below the runtime directory rt.
-func Probe(ctx context.Context, rt string) error {
+// profile that allows nothing, to check that pasta, the firewall, the
+// listener of its drops and passt work on this host. Its socket and spool
+// go below the runtime directory rt.
+func Probe(ctx context.Context, rt string) (ProbeResult, error) {
+	var res ProbeResult
 	if !filepath.IsAbs(rt) {
-		return errors.New("XDG_RUNTIME_DIR must be set to an absolute path")
+		return res, errors.New("XDG_RUNTIME_DIR must be set to an absolute path")
 	}
 	if err := os.MkdirAll(filepath.Join(rt, "brig"), 0o700); err != nil {
-		return err
+		return res, err
 	}
 	dir, err := os.MkdirTemp(filepath.Join(rt, "brig"), "probe-")
 	if err != nil {
-		return err
+		return res, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	c := Config{
 		// VM names cannot start with an underscore, so no VM's unit is hit.
 		VM:               "_probe-" + strconv.Itoa(os.Getpid()),
 		Socket:           filepath.Join(dir, "net.sock"),
+		Spool:            filepath.Join(dir, fence2.SpoolFile),
 		GuestSSHPort:     guest.SSHPort,
 		GuestGatewayPort: guest.GatewayPort,
 	}
 	if c.SSHPort, err = ports.Free(); err != nil {
-		return err
+		return res, err
 	}
 	for c.GatewayPort == 0 || c.GatewayPort == c.SSHPort {
 		if c.GatewayPort, err = ports.Free(); err != nil {
-			return err
+			return res, err
 		}
 	}
 	defer Stop(context.WithoutCancel(ctx), c.VM)
-	return Start(ctx, c)
+	if err := Start(ctx, c); err != nil {
+		return res, err
+	}
+	// The helper waits for the listener to write its state before it
+	// starts passt.
+	_, _, err = fence2.ReadSpool(c.Spool, fence2.Position{}, func(e fence2.Entry) {
+		if e.State != "" {
+			res = ProbeResult{Fence2: e.State, Why: e.Why}
+		}
+	})
+	return res, err
 }

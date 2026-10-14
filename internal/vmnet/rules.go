@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/fence2"
 )
 
 // Special-purpose IPv4 and IPv6 ranges that the lan setting covers: private,
@@ -45,11 +46,31 @@ const maxUDPFlows = 1024
 // IPv6 LANs mostly do. So do routes, the destinations of the host's routes
 // other than default ones: pasta's connections follow them, for example
 // into a VPN's intranet.
-func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []netip.Prefix) string {
+//
+// mode says how drops are recorded (see package fence2). Unless it is
+// fence2.Off, each rule that drops jumps instead to the chain of its reason,
+// which counts the packet, logs it with fence2.Itemised, and drops it; so
+// does the policy's fall-through. Logging is limited only inside those
+// chains, which end in drop, so a packet over the limit is still dropped
+// and never falls through to a later accept. With fence2.Off, the rules
+// drop where they match, and nothing is counted.
+func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []netip.Prefix, mode fence2.Mode) string {
 	addrs4, addrs6, nets4, nets6 := hostSets(hostAddrs, routes)
 	var b strings.Builder
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
+	drop := func(reason string) string {
+		if mode == fence2.Off {
+			return "drop"
+		}
+		return "jump " + fence2.Chain(reason)
+	}
 	w("table inet brig {")
+	if mode != fence2.Off {
+		for _, reason := range fence2.Reasons {
+			w("\tcounter %s {", reason)
+			w("\t}")
+		}
+	}
 	w("\tchain output {")
 	w("\t\ttype filter hook output priority filter; policy drop;")
 	w("\t\toif \"lo\" accept")
@@ -61,14 +82,15 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []net
 		// pasta answers on the tap; nothing is forwarded.
 		w("\t\ticmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept")
 	}
-	w("\t\tmeta l4proto udp ct state new ct count over %d drop", maxUDPFlows)
+	w("\t\tmeta l4proto udp ct state new ct count over %d %s", maxUDPFlows, drop(fence2.ReasonUDPFlows))
 	if p.Internet || p.LAN || p.Host {
 		w("\t\tip daddr %s meta l4proto { tcp, udp } th dport 53 accept", DNSAddr)
 	}
 	// pasta maps more than DNS on this address to the host's resolver,
 	// e.g. DNS over TLS on port 853.
-	w("\t\tip daddr %s drop", DNSAddr)
+	w("\t\tip daddr %s %s", DNSAddr, drop(fence2.ReasonDNS))
 	if gws := addrList(gateways.IPv4); gws != "" {
+		reason := fence2.ReasonHost
 		switch {
 		case p.Host:
 			w("\t\tip daddr %s accept", gws)
@@ -78,23 +100,24 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []net
 				ports[i] = fmt.Sprint(port)
 			}
 			w("\t\tip daddr %s tcp dport { %s } accept", gws, strings.Join(ports, ", "))
+			reason = fence2.ReasonHostPort
 		}
-		w("\t\tip daddr %s drop", gws)
+		w("\t\tip daddr %s %s", gws, drop(reason))
 	}
 	if gws := addrList(gateways.IPv6); gws != "" && p.IPv6 {
-		verdict := "drop"
+		verdict := drop(fence2.ReasonHost)
 		if p.Host {
 			verdict = "accept"
 		}
 		w("\t\tip6 daddr %s %s", gws, verdict)
 	}
 	if !p.Host && len(addrs4) > 0 {
-		w("\t\tip daddr { %s } drop", strings.Join(addrs4, ", "))
+		w("\t\tip daddr { %s } %s", strings.Join(addrs4, ", "), drop(fence2.ReasonHost))
 	}
 	if !p.Host && p.IPv6 && len(addrs6) > 0 {
-		w("\t\tip6 daddr { %s } drop", strings.Join(addrs6, ", "))
+		w("\t\tip6 daddr { %s } %s", strings.Join(addrs6, ", "), drop(fence2.ReasonHost))
 	}
-	verdict := "drop"
+	verdict := drop(fence2.ReasonLAN)
 	if p.LAN {
 		verdict = "accept"
 	}
@@ -102,12 +125,28 @@ func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []net
 	if p.IPv6 {
 		w("\t\tip6 daddr { %s } %s", strings.Join(nets6, ", "), verdict)
 	} else {
-		w("\t\tmeta nfproto ipv6 drop")
+		w("\t\tmeta nfproto ipv6 %s", drop(fence2.ReasonIPv6))
 	}
-	if p.Internet {
+	switch {
+	case p.Internet:
 		w("\t\taccept")
+	case mode != fence2.Off:
+		// The policy drops the rest; this records it first.
+		w("\t\t%s", drop(fence2.ReasonInternet))
 	}
 	w("\t}")
+	if mode != fence2.Off {
+		for _, reason := range fence2.Reasons {
+			w("\tchain %s {", fence2.Chain(reason))
+			w("\t\tcounter name %q", reason)
+			if mode == fence2.Itemised {
+				w("\t\tlimit rate %d/second burst %d packets log group %d snaplen %d prefix %q",
+					fence2.LogRate, fence2.LogBurst, fence2.Group, fence2.Snaplen, reason)
+			}
+			w("\t\tdrop")
+			w("\t}")
+		}
+	}
 	w("}")
 	return b.String()
 }

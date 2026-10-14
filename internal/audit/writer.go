@@ -177,6 +177,11 @@ func (w *Writer) requeue(rs []Record) {
 // Close flushes, marks the collector stopped, and gives the directory up.
 func (w *Writer) Close(positions any) error {
 	w.Update(func(c *CollectorState) { c.Stopped = w.Now() })
+	return w.release(positions)
+}
+
+// release flushes and gives the directory up.
+func (w *Writer) release(positions any) error {
 	err := w.Flush(positions)
 	w.unlock()
 	return err
