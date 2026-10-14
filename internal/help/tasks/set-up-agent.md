@@ -4,6 +4,7 @@ concepts: [sandbox-image, template, provider, provider-profile, config-dir]
 commands:
   - "brig agent init claude --dir ~/src/agent-openshell --vm dev"
   - "brig agent build dev claude"
+  - "brig agent update dev claude"
   - "brig sandbox create dev --connect -- --name webapp --template claude --provider claude-code"
 show:
   href: "/gateway?tab=templates"
@@ -18,4 +19,5 @@ doc: "start/first-agent.md"
 3. Start a sandbox from the agent's template with its providers.
 
 After you change the agent's files, brig agent build builds a new image and
-points the template at it.
+points the template at it, and brig agent update moves the agent's sandboxes
+to it.
