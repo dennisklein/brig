@@ -12,6 +12,8 @@ Everything brig did, whether brig ui ran it or you did in a terminal, with the s
 
 In `brig ui`: `/activity`.
 
+The whole story: [`how-to/scripting.md`](../how-to/scripting.md#the-activity-log).
+
 In a terminal: `brig help activity`.
 
 ### Audit mode<a id="audit-mode"></a>
@@ -25,6 +27,8 @@ See also: [Verdict](#verdict), [Fence 1, the sandbox policy](#fence-1), [Audit t
 ```sh
 brig policy allow dev webapp HOST --binary PATH --audit
 ```
+
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#audit-mode).
 
 In a terminal: `brig help audit-mode`.
 
@@ -44,6 +48,8 @@ brig audit status
 
 In `brig ui`: `/host`.
 
+The whole story: [`concepts/audit-trail.md`](../concepts/audit-trail.md).
+
 In a terminal: `brig help audit-trail`.
 
 ### Base image<a id="base-image"></a>
@@ -61,6 +67,8 @@ brig upgrade dev
 
 In `brig ui`: `/images`.
 
+The whole story: [`concepts/disks-and-images.md`](../concepts/disks-and-images.md#base-images).
+
 In a terminal: `brig help base-image`.
 
 ### Base policy<a id="base-policy"></a>
@@ -73,6 +81,8 @@ See also: [Effective policy](#effective-policy), [Policy file](#policy-file).
 openshell policy get webapp --base
 brig policy diff dev webapp
 ```
+
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#base-and-effective-policy).
 
 In a terminal: `brig help base-policy`.
 
@@ -88,6 +98,8 @@ See also: [Sync](#config-sync), [Provider](#provider), [Policy file](#policy-fil
 brig update dev --add-openshell-config ~/src/agent-openshell
 ```
 
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#config-directories).
+
 In a terminal: `brig help config-dir`.
 
 ### Data disk<a id="data-disk"></a>
@@ -95,6 +107,8 @@ In a terminal: `brig help config-dir`.
 The VM's disk at /home/agent: gateway state, secrets, images and sandbox workspaces. Kept on upgrade, deleted with the VM.
 
 See also: [Root disk](#root-disk), [Base image](#base-image).
+
+The whole story: [`concepts/disks-and-images.md`](../concepts/disks-and-images.md#disks).
 
 In a terminal: `brig help data-disk`.
 
@@ -110,6 +124,8 @@ See also: [Fence 1, the sandbox policy](#fence-1), [Policy file](#policy-file).
 brig policy allow dev webapp HOST --draft ID
 ```
 
+The whole story: [`how-to/unblock.md`](../how-to/unblock.md#allow-it-for-this-sandbox).
+
 In a terminal: `brig help draft`.
 
 ### Effective policy<a id="effective-policy"></a>
@@ -121,6 +137,8 @@ See also: [Base policy](#base-policy), [Provider](#provider).
 ```sh
 openshell policy get webapp --full
 ```
+
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#base-and-effective-policy).
 
 In a terminal: `brig help effective-policy`.
 
@@ -138,6 +156,8 @@ brig policy allow dev webapp registry.npmjs.org --binary /usr/bin/node
 
 In `brig ui`: `/traffic`.
 
+The whole story: [`concepts/architecture.md`](../concepts/architecture.md#the-two-fences).
+
 In a terminal: `brig help fence-1`.
 
 ### Fence 2, the network profile<a id="fence-2"></a>
@@ -152,6 +172,8 @@ See also: [Fence 1, the sandbox policy](#fence-1), [VM](#vm).
 brig update dev --profile default
 brig show dev
 ```
+
+The whole story: [`concepts/architecture.md`](../concepts/architecture.md#network-profiles-in-detail).
 
 In a terminal: `brig help fence-2`.
 
@@ -170,6 +192,8 @@ openshell sandbox list
 
 In `brig ui`: `/gateway`.
 
+The whole story: [`concepts/architecture.md`](../concepts/architecture.md#vm).
+
 In a terminal: `brig help gateway`.
 
 ### Host directory<a id="mount"></a>
@@ -183,6 +207,8 @@ See also: [Sandbox volume](#sandbox-volume).
 ```sh
 brig update dev --add-mount ~/src/kit:/srv/kit:ro
 ```
+
+The whole story: [`how-to/share-directories.md`](../how-to/share-directories.md#into-the-vm).
 
 In a terminal: `brig help mount`.
 
@@ -198,6 +224,8 @@ brig up dev
 
 In `brig ui`: `/`.
 
+The whole story: [`how-to/web-ui.md`](../how-to/web-ui.md#what-it-shows).
+
 In a terminal: `brig help needs-you`.
 
 ### Placeholder<a id="placeholder"></a>
@@ -207,6 +235,8 @@ What the agent sees instead of a secret, such as openshell:resolve:env:GH\_TOKEN
 Also called: openshell:resolve, credential_endpoint_mismatch.
 
 See also: [Provider](#provider), [Provider profile](#provider-profile).
+
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#placeholders).
 
 In a terminal: `brig help placeholder`.
 
@@ -222,6 +252,8 @@ See also: [Base policy](#base-policy), [Config directory](#config-dir).
 brig policy save dev webapp --dry-run
 brig policy save dev webapp
 ```
+
+The whole story: [`how-to/unblock.md`](../how-to/unblock.md#keep-it-for-new-sandboxes).
 
 In a terminal: `brig help policy-file`.
 
@@ -241,6 +273,8 @@ brig sync dev
 
 In `brig ui`: `/gateway?tab=providers`.
 
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#providers-and-sandboxes).
+
 In a terminal: `brig help provider`.
 
 ### Provider profile<a id="provider-profile"></a>
@@ -257,6 +291,8 @@ openshell profile list
 
 In `brig ui`: `/gateway?tab=profiles`.
 
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#objects-on-a-gateway).
+
 In a terminal: `brig help provider-profile`.
 
 ### Root disk<a id="root-disk"></a>
@@ -264,6 +300,8 @@ In a terminal: `brig help provider-profile`.
 A throwaway overlay of the base image. Upgrade replaces it; nothing on it is meant to last.
 
 See also: [Data disk](#data-disk), [Base image](#base-image).
+
+The whole story: [`concepts/disks-and-images.md`](../concepts/disks-and-images.md#disks).
 
 In a terminal: `brig help root-disk`.
 
@@ -282,6 +320,8 @@ brig sandbox connect dev webapp
 
 In `brig ui`: `/sandboxes`.
 
+The whole story: [`concepts/architecture.md`](../concepts/architecture.md#sandbox).
+
 In a terminal: `brig help sandboxes`.
 
 ### Sandbox image<a id="sandbox-image"></a>
@@ -296,6 +336,8 @@ See also: [Sandbox template](#template), [Base image](#base-image).
 brig image push dev localhost/pi-agent:latest
 brig agent build dev claude
 ```
+
+The whole story: [`concepts/disks-and-images.md`](../concepts/disks-and-images.md#sandbox-images).
 
 In a terminal: `brig help sandbox-image`.
 
@@ -313,6 +355,8 @@ openshell policy get webapp
 
 In `brig ui`: `/gateway?tab=policies`.
 
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#which-policy-a-sandbox-gets).
+
 In a terminal: `brig help policies`.
 
 ### Sandbox template<a id="template"></a>
@@ -329,6 +373,8 @@ openshell sandbox template list
 
 In `brig ui`: `/gateway?tab=templates`.
 
+The whole story: [`how-to/agents.md`](../how-to/agents.md#start-it).
+
 In a terminal: `brig help template`.
 
 ### Sandbox volume<a id="sandbox-volume"></a>
@@ -342,6 +388,8 @@ See also: [Host directory](#mount), [Sandbox](#sandboxes).
 ```sh
 brig sandbox create dev --mount ~/src/kit:/usr/local/share/kit -- --name kit
 ```
+
+The whole story: [`how-to/share-directories.md`](../how-to/share-directories.md#into-a-sandbox).
 
 In a terminal: `brig help sandbox-volume`.
 
@@ -357,6 +405,8 @@ See also: [Config directory](#config-dir), [Provider](#provider).
 brig sync dev --dry-run
 brig sync dev
 ```
+
+The whole story: [`concepts/openshell-config.md`](../concepts/openshell-config.md#what-a-sync-does).
 
 In a terminal: `brig help config-sync`.
 
@@ -374,6 +424,8 @@ brig use
 brig use --unset
 ```
 
+The whole story: [`start/install.md`](../start/install.md#shell-integration).
+
 In a terminal: `brig help brig-use`.
 
 ### Verdict<a id="verdict"></a>
@@ -385,6 +437,8 @@ Also called: allow, deny, policy_denied.
 See also: [Fence 1, the sandbox policy](#fence-1), [Audit mode](#audit-mode), [Drafted rule](#draft), [Audit trail](#audit-trail).
 
 In `brig ui`: `/traffic`.
+
+The whole story: [`how-to/unblock.md`](../how-to/unblock.md#see-what-was-denied).
 
 In a terminal: `brig help verdict`.
 
@@ -404,6 +458,8 @@ brig up dev
 
 In `brig ui`: `/vms`.
 
+The whole story: [`concepts/architecture.md`](../concepts/architecture.md#vm).
+
 In a terminal: `brig help vm`.
 
 ### Workspace<a id="workspace"></a>
@@ -419,22 +475,24 @@ brig use dev -w team
 brig sandbox list dev
 ```
 
+The whole story: [`concepts/workspaces.md`](../concepts/workspaces.md).
+
 In a terminal: `brig help workspace`.
 
 ## How-tos
 
-| How to | In a terminal |
-| --- | --- |
-| <a id="blocked-outside"></a>Find out why a request fails that the policy allows | `brig help blocked-outside` |
-| <a id="start-of-day"></a>Get going after a reboot | `brig help start-of-day` |
-| <a id="keep-rules"></a>Keep the rules I added to a sandbox | `brig help keep-rules` |
-| <a id="upgrade-vm"></a>Move a VM onto a newer base image | `brig help upgrade-vm` |
-| <a id="rotate-token"></a>Rotate a provider's token | `brig help rotate-token` |
-| <a id="one-shot"></a>Run a task in a throwaway sandbox | `brig help one-shot` |
-| <a id="look-back"></a>See what a sandbox did and who changed its policy | `brig help look-back` |
-| <a id="first-vm"></a>Set up brig on a new host | `brig help first-vm` |
-| <a id="set-up-agent"></a>Set up Claude Code, Pi or opencode | `brig help set-up-agent` |
-| <a id="share-dir"></a>Share a host directory with a sandbox | `brig help share-dir` |
-| <a id="new-sandbox"></a>Start an agent in a new sandbox | `brig help new-sandbox` |
-| <a id="unblock"></a>Unblock an agent that cannot reach a host | `brig help unblock` |
-| <a id="terminal"></a>Work with a VM from my terminal | `brig help terminal` |
+| How to | In a terminal | In the docs |
+| --- | --- | --- |
+| <a id="blocked-outside"></a>Find out why a request fails that the policy allows | `brig help blocked-outside` | [`how-to/unblock.md`](../how-to/unblock.md#when-the-policy-allows-it) |
+| <a id="start-of-day"></a>Get going after a reboot | `brig help start-of-day` | [`how-to/daily-workflow.md`](../how-to/daily-workflow.md#start-of-day) |
+| <a id="keep-rules"></a>Keep the rules I added to a sandbox | `brig help keep-rules` | [`how-to/unblock.md`](../how-to/unblock.md#keep-it-for-new-sandboxes) |
+| <a id="upgrade-vm"></a>Move a VM onto a newer base image | `brig help upgrade-vm` | [`how-to/upgrade.md`](../how-to/upgrade.md#vm-and-openshell) |
+| <a id="rotate-token"></a>Rotate a provider's token | `brig help rotate-token` | [`how-to/secrets.md`](../how-to/secrets.md#rotate-a-token) |
+| <a id="one-shot"></a>Run a task in a throwaway sandbox | `brig help one-shot` | [`how-to/one-shot-runs.md`](../how-to/one-shot-runs.md) |
+| <a id="look-back"></a>See what a sandbox did and who changed its policy | `brig help look-back` | [`how-to/audit.md`](../how-to/audit.md) |
+| <a id="first-vm"></a>Set up brig on a new host | `brig help first-vm` | [`start/first-vm.md`](../start/first-vm.md) |
+| <a id="set-up-agent"></a>Set up Claude Code, Pi or opencode | `brig help set-up-agent` | [`start/first-agent.md`](../start/first-agent.md) |
+| <a id="share-dir"></a>Share a host directory with a sandbox | `brig help share-dir` | [`how-to/share-directories.md`](../how-to/share-directories.md) |
+| <a id="new-sandbox"></a>Start an agent in a new sandbox | `brig help new-sandbox` | [`start/first-agent.md`](../start/first-agent.md#start-a-sandbox) |
+| <a id="unblock"></a>Unblock an agent that cannot reach a host | `brig help unblock` | [`how-to/unblock.md`](../how-to/unblock.md) |
+| <a id="terminal"></a>Work with a VM from my terminal | `brig help terminal` | [`start/install.md`](../start/install.md#shell-integration) |
