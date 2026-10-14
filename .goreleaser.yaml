@@ -3,6 +3,11 @@ version: 2
 
 project_name: brig
 
+before:
+  hooks:
+    # The man pages come from the command tree; they are not committed.
+    - env SOURCE_DATE_EPOCH={{ .CommitTimestamp }} go run ./internal/docgen man -version v{{ .Version }} man
+
 builds:
   - id: brig
     main: .
@@ -41,6 +46,16 @@ archives:
       - src: NOTICE
         info: *fileinfo
       - src: README.md
+        info: *fileinfo
+      - src: config.example.yaml
+        info: *fileinfo
+      - src: man/*.1
+        dst: man/man1
+        strip_parent: true
+        info: *fileinfo
+      - src: man/*.7
+        dst: man/man7
+        strip_parent: true
         info: *fileinfo
 
 checksum:

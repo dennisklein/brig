@@ -1,6 +1,7 @@
 # Build outputs
 /brig
 /dist/
+/man/
 
 # Test outputs
 *.test
