@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# An example config.yaml for brig. Copy it to $XDG_CONFIG_HOME/brig/config.yaml
+# (usually ~/.config/brig/config.yaml) and keep what you want to change. Every
+# key is optional: one you leave out keeps the built-in default, and the
+# values below that are built in say so. docs/reference/config.md explains
+# each key.
+
+# What a command uses for a setting that it does not get as a flag.
+defaults:
+  cpus: 4
+  memory: 8GiB
+  root_disk: 20GiB
+  data_disk: 40GiB
+  # Any profile below, or a built-in one: default, open or isolated.
+  network_profile: default
+  fedora_release: 44
+
+# Network profiles restrict what a VM can reach. brig has the profiles
+# default (the internet only), open (everything) and isolated (nothing); a
+# profile in this file with one of their names replaces it as a whole. The
+# profiles here are not built in.
+network_profiles:
+  # The internet, and a model server on the host at port 11434.
+  ollama:
+    internet: true
+    host_ports: [11434]
+  # The internet, the LAN including a VPN's intranet, and IPv6.
+  office:
+    internet: true
+    lan: true
+    ipv6: true
+  # The internet, and every service on the host.
+  workbench:
+    internet: true
+    host: true
+
+openshell:
+  # The program that looks up and stores provider secrets: a name to find
+  # in PATH, or an absolute path.
+  secret_tool: secret-tool
+  # OpenShell config directories that new VMs get. Absolute paths; a leading
+  # ~/ is your home directory.
+  configs:
+    - ~/src/agent-openshell
+
+audit:
+  # What the audit collector mirrors to the user journal: changes, all
+  # (allowed requests too) or off.
+  journal: changes
+  # Delete history older than this: 90d, 12w or 36h. 0 keeps everything.
+  retention: 90d

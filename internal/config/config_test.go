@@ -165,3 +165,58 @@ func TestUnknownProfileListsTheKnownOnes(t *testing.T) {
 		t.Errorf("Profile(nope) = %v", err)
 	}
 }
+
+func TestExampleConfigSetsEveryKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := map[string]bool{}
+	setKeys(reflect.ValueOf(*cfg), "", set)
+	for _, key := range allKeys(reflect.TypeFor[Config](), "") {
+		if !set[key] {
+			t.Errorf("config.example.yaml does not set %s; add it, so that the example stays complete", key)
+		}
+	}
+	if len(cfg.NetworkProfiles) <= len(Builtin().NetworkProfiles) {
+		t.Error("config.example.yaml defines no network profile of its own")
+	}
+}
+
+// allKeys lists the yaml keys below t, such as audit.retention. NAME stands
+// for the key of a map.
+func allKeys(t reflect.Type, prefix string) []string {
+	switch t.Kind() {
+	case reflect.Map:
+		return allKeys(t.Elem(), prefix+"NAME.")
+	case reflect.Struct:
+		var out []string
+		for i := range t.NumField() {
+			tag, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
+			out = append(out, allKeys(t.Field(i).Type, prefix+tag+".")...)
+		}
+		return out
+	}
+	return []string{strings.TrimSuffix(prefix, ".")}
+}
+
+// setKeys records the keys below v that hold a value other than zero; a key
+// of a map is set if any entry sets it.
+func setKeys(v reflect.Value, prefix string, set map[string]bool) {
+	switch v.Kind() {
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			setKeys(v.MapIndex(k), prefix+"NAME.", set)
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			tag, _, _ := strings.Cut(v.Type().Field(i).Tag.Get("yaml"), ",")
+			setKeys(v.Field(i), prefix+tag+".", set)
+		}
+	default:
+		if !v.IsZero() {
+			set[strings.TrimSuffix(prefix, ".")] = true
+		}
+	}
+}
