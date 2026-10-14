@@ -9,12 +9,14 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dennisklein/brig/internal/activity"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/ocwatch"
 	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/policy"
@@ -32,8 +34,9 @@ type Gateway interface {
 	Close() error
 }
 
-// Collector follows one VM's gateway and brig's activity log, and writes
-// what it reads to the VM's audit trail. One runs per running VM, as the
+// Collector follows one VM's gateway, brig's activity log and the spool of
+// what the VM's network profile drops, and writes what it reads to the VM's
+// audit trail. One runs per running VM, as the
 // systemd user unit that UnitName names.
 type Collector struct {
 	VM    string
@@ -84,6 +87,8 @@ type positions struct {
 	Clean bool `json:"clean,omitempty"`
 	// Retained is the date the retention was last applied.
 	Retained string `json:"retained,omitempty"`
+	// Spool is the place in the spool of fence 2's drops.
+	Spool fence2.Position `json:"spool,omitzero"`
 }
 
 type sandboxState struct {
@@ -162,7 +167,9 @@ func (c *Collector) Run(ctx context.Context) error {
 		r.red = activity.NewReducer(actionsKept)
 		r.tail = activity.NewTail(c.ActivityLog, r.red)
 	}
-	w.Update(func(s *CollectorState) { *s = CollectorState{Started: now, Gaps: s.Gaps, LastEvent: s.LastEvent} })
+	w.Update(func(s *CollectorState) {
+		*s = CollectorState{Started: now, Gaps: s.Gaps, LastEvent: s.LastEvent, Fence2: s.Fence2, Fence2Why: s.Fence2Why}
+	})
 	r.retain(now)
 	gone := r.loop(ctx)
 	r.pos.Clean = gone
@@ -248,6 +255,7 @@ func (r *collectorRun) loop(ctx context.Context) bool {
 			continue
 		case <-tick.C:
 			r.actions()
+			r.drops()
 			r.retain(time.Now())
 			if err := r.w.Flush(r.positions()); err != nil {
 				r.log().Error("cannot write the audit trail", "err", err)
@@ -546,6 +554,69 @@ func (r *collectorRun) actions() {
 	if n := len(r.pos.Actions); n > actionsKept {
 		r.pos.Actions = slices.Clone(r.pos.Actions[n-actionsKept:])
 	}
+}
+
+// drops records what fence 2 dropped since the spool was last read, and
+// the state of its listener.
+func (r *collectorRun) drops() {
+	var recs []Record
+	pos, lost, err := fence2.ReadSpool(r.Store.SpoolPath(r.VM), r.pos.Spool, func(e fence2.Entry) {
+		if e.State == "" {
+			recs = append(recs, Record{
+				T: e.T, Last: e.Last, Kind: KindDrop, Reason: e.Reason, Proto: e.Proto,
+				Host: e.Addr, Port: e.Port, Hits: e.Hits, Why: e.Why,
+			})
+			return
+		}
+		r.w.Update(func(s *CollectorState) { s.Fence2, s.Fence2Why = e.State, e.Why })
+		switch e.State {
+		case fence2.CountsOnly:
+			recs = append(recs, Record{T: e.T, Kind: KindGap, Why: "Fence 2 counts drops only, without their addresses: " + e.Why})
+		case fence2.Off:
+			recs = append(recs, Record{T: e.T, Kind: KindGap, Why: "Fence 2 records no drops: " + e.Why})
+		}
+	})
+	if lost {
+		recs = append([]Record{{Kind: KindGap, Why: "The spool of fence 2's drops was rotated twice before the audit collector read it; drops from then are missing."}}, recs...)
+	}
+	if err != nil {
+		r.log().Warn("cannot read the drops of fence 2", "err", err)
+	}
+	r.pos.Spool = pos
+	r.add(recs...)
+}
+
+// Drain records what is left in the VM's spool of fence 2's drops and
+// returns, for after the VM's network stopped: its collector stops first,
+// so brig stop drains the spool, lest the last drops wait for the next
+// start or, after brig delete, for ever. While a collector runs, it reads
+// the spool itself, and Drain does nothing.
+func (c *Collector) Drain() error {
+	spool := c.Store.SpoolPath(c.VM)
+	if !exists(spool) && !exists(spool+".1") {
+		return nil
+	}
+	w, err := c.Store.OpenWriter(c.VM)
+	if errors.Is(err, ErrCollecting) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	r := &collectorRun{Collector: c, w: w}
+	if err := c.Store.ReadPositions(c.VM, &r.pos); err != nil {
+		return errors.Join(err, w.Close(nil))
+	}
+	stopped := w.index.Collector.Stopped
+	r.drops()
+	// The collector stopped when it stopped; this was no collector run.
+	w.Update(func(s *CollectorState) { s.Stopped = stopped })
+	return w.release(r.pos)
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // retain deletes the days older than the retention, once a day.
