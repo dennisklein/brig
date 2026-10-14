@@ -48,13 +48,22 @@ It is a module of its own, so that brig does not depend on a browser driver.
 `-only NAME` takes one shot, `-chromium PATH` names the browser, and the
 images are the PNGs of at most 256 colours that git keeps small. Run it
 when a page, the demo or `shots.yaml` changes, and commit the images with the
-change; browser and font versions differ between machines, so CI does not
-take them again. A shot with `page:` or `action:` appears in the
+change. A shot with `page:` or `action:` appears in the
 [UI reference](../reference/ui.md) under that page or action, which
 `go generate ./...` writes; the rest the pages show by a `<picture>` of both
 themes, as the [web UI](../how-to/web-ui.md) does. Tests check that the images
 are the list's, that each is shown in both themes, and that the demo's pages
 repeat.
+
+The `screenshots` workflow takes them again on GitHub, and opens a pull request
+from the branch `screenshots/refresh` if they differ. It runs when you start it
+from the Actions tab, and on pushes to `main` that change the UI's templates,
+styles or scripts (`internal/ui/web`), the demo's data (`internal/ui/demo`) or
+`shots.yaml`; a run that takes the same images opens nothing. Browser and font
+versions differ between machines, so the images it takes replace those you took
+locally. GitHub does not start the `ci` workflow on a pull request that the
+workflow's token opened: push to its branch, or close and reopen it, to run the
+checks.
 
 ## Style
 

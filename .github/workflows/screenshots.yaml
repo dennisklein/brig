@@ -1,0 +1,72 @@
+name: screenshots
+
+# Retakes the screenshots of brig ui in docs/images and opens a pull request
+# when they differ from the committed ones. See docs/contributing/docs.md.
+#
+# The pull request is opened with the workflow's token, so GitHub does not
+# start the ci workflow on it: push to its branch or close and reopen it to
+# run the checks. The repository must allow GitHub Actions to create pull
+# requests (Settings > Actions > General).
+
+# It runs by hand, and on pushes to main that change what the screenshots
+# show for certain: the UI's templates, styles and scripts, the demo's data
+# and the shot list. A run that takes the same images opens nothing.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - internal/ui/web/**
+      - internal/ui/demo/**
+      - docs/images/shots.yaml
+  workflow_dispatch:
+
+permissions: {}
+
+# A newer push to main makes the images of an older one stale.
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+env:
+  BRANCH: screenshots/refresh
+
+jobs:
+  retake:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - name: Build brig
+        run: go build -o brig .
+      # Chrome's sandbox needs user namespaces, which the runner restricts.
+      - name: Take the screenshots
+        working-directory: tools/screenshots
+        run: go run . -brig ../../brig -chromium "$(command -v google-chrome)" -no-sandbox
+      - name: Open a pull request for the images that changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$(git status --porcelain -- docs/images)" ]; then
+            echo "The screenshots are up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add docs/images
+          git commit -q \
+            -m "docs(ui): retake the screenshots of brig ui" \
+            -m "- Taken again by the screenshots workflow from brig ui --demo --still."
+          # The branch holds only this commit on the current main.
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')" ]; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "docs(ui): retake the screenshots of brig ui" \
+              --body "The screenshots in docs/images differ from the ones that the screenshots workflow just took from brig ui --demo --still on main."
+          fi
