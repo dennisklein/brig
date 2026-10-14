@@ -2,22 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Command docgen makes the parts of brig's documentation that its code
-// knows: the reference pages in docs/reference. It reads
+// knows: the reference pages in docs/reference and the man pages. It reads
 // brig's command tree, help texts, config structs and exit codes, so that the
 // documentation cannot drift from them.
 //
 // Usage:
 //
 //	go run ./internal/docgen [reference]    refresh docs/reference
+//	go run ./internal/docgen man [-version V] DIR
+//	                                         write the man pages into DIR
 //
-// Run it in brig's source tree, or point it there with -C. go generate ./...
-// refreshes the reference.
+// The reference is made in brig's source tree, or where -C points. go generate
+// ./... refreshes it. The man pages are not committed: the RPM build and
+// GoReleaser make them.
 package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/dennisklein/brig/internal/version"
 )
 
 func main() {
@@ -30,12 +35,18 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("docgen", flag.ContinueOnError)
 	src := fs.String("C", ".", "run in this directory of brig's source tree")
+	ver := fs.String("version", version.Version(), "the brig version that the man pages name")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cmd := "reference"
-	if fs.NArg() > 0 {
-		cmd = fs.Arg(0)
+	// Flags may come before and after the command.
+	cmd, rest := "reference", fs.Args()
+	if len(rest) > 0 {
+		cmd = rest[0]
+		if err := fs.Parse(rest[1:]); err != nil {
+			return err
+		}
+		rest = fs.Args()
 	}
 	switch cmd {
 	case "reference":
@@ -48,6 +59,11 @@ func run(args []string) error {
 			return err
 		}
 		return out.write(repo)
+	case "man":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: docgen man [-version V] DIR")
+		}
+		return writeMan(rest[0], *ver)
 	}
-	return fmt.Errorf("unknown command %q: want reference", cmd)
+	return fmt.Errorf("unknown command %q: want reference or man", cmd)
 }
