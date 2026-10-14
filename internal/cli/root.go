@@ -86,6 +86,9 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// Command returns brig's command tree, as tools that document it need it.
+func Command() *cobra.Command { return newRootCmd(&progressRun{}) }
+
 func newRootCmd(p *progressRun) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "brig",

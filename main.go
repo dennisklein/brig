@@ -5,6 +5,8 @@
 // OpenShell on a Fedora host.
 package main
 
+//go:generate go run ./internal/docgen
+
 import (
 	"os"
 
