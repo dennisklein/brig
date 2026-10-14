@@ -53,14 +53,28 @@ func glossaryPage(h *help.Help) string {
 		if t.UI != "" {
 			fmt.Fprintf(&b, "\nIn `brig ui`: %s.\n", code(t.UI))
 		}
+		if t.Doc != "" {
+			fmt.Fprintf(&b, "\nThe whole story: %s.\n", docLink(t.Doc))
+		}
 		fmt.Fprintf(&b, "\nIn a terminal: %s.\n", code("brig help "+t.ID))
 	}
 
-	b.WriteString("\n## How-tos\n\n| How to | In a terminal |\n| --- | --- |\n")
+	b.WriteString("\n## How-tos\n\n| How to | In a terminal | In the docs |\n| --- | --- | --- |\n")
 	for _, t := range h.Topics(help.Task) {
-		fmt.Fprintf(&b, "| <a id=\"%s\"></a>%s | %s |\n", t.ID, cell(t.Title), code("brig help "+t.ID))
+		page := ""
+		if t.Doc != "" {
+			page = docLink(t.Doc)
+		}
+		fmt.Fprintf(&b, "| <a id=\"%s\"></a>%s | %s | %s |\n", t.ID, cell(t.Title), code("brig help "+t.ID), page)
 	}
 	return b.String()
+}
+
+// docLink links the page of the docs that a help topic names, a path under
+// docs/ with an optional #heading, from a page of docs/reference.
+func docLink(doc string) string {
+	page, _, _ := strings.Cut(doc, "#")
+	return fmt.Sprintf("[%s](../%s)", code(page), doc)
 }
 
 // yamlKeys returns the keys of the YAML mapping in file, in the file's order.
