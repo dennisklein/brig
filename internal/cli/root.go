@@ -137,8 +137,8 @@ lists the concepts and how-tos that brig help TOPIC explains.
 	}
 	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
 	// These own the terminal, or must keep standard output exactly as is;
-	// ui runs until stopped and is no work to show.
-	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"secret", "set"}, {"agent", "init"}, {"agent", "build"}, {"ui"}} {
+	// ui and the fence 2 listener run until stopped and are no work to show.
+	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"net-helper", "fence2-log"}, {"sandbox", "create"}, {"secret", "set"}, {"agent", "init"}, {"agent", "build"}, {"ui"}} {
 		if c, _, err := cmd.Find(path); err == nil && c != cmd {
 			if c.Annotations == nil {
 				c.Annotations = map[string]string{}
