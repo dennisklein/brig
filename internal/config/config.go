@@ -38,8 +38,8 @@ type Audit struct {
 	// changes (denials, policy and draft changes, sandboxes and gaps), all
 	// (allowed requests too) or off.
 	Journal string `yaml:"journal"`
-	// Retention deletes the days of history older than it; zero keeps
-	// everything.
+	// Retention deletes the days of history older than it, at least a
+	// day; zero keeps everything.
 	Retention Duration `yaml:"retention"`
 }
 
@@ -84,18 +84,28 @@ type OpenShell struct {
 	// absolute path. Config directories cannot set it, so that one shared
 	// with others cannot run programs on the user's host.
 	SecretTool string `yaml:"secret_tool"`
-	// Configs are the config directories of new VMs.
+	// Configs are the config directories of new VMs: absolute paths, where
+	// a leading ~/ stands for your home directory.
 	Configs []string `yaml:"configs"`
 }
 
 // Defaults are used for settings a command does not set explicitly.
 type Defaults struct {
-	CPUs           int           `yaml:"cpus"`
-	Memory         bytesize.Size `yaml:"memory"`
-	RootDisk       bytesize.Size `yaml:"root_disk"`
-	DataDisk       bytesize.Size `yaml:"data_disk"`
-	NetworkProfile string        `yaml:"network_profile"`
-	FedoraRelease  int           `yaml:"fedora_release"`
+	// CPUs is the number of virtual CPUs of a new VM.
+	CPUs int `yaml:"cpus"`
+	// Memory is the memory of a new VM, a whole number of MiB.
+	Memory bytesize.Size `yaml:"memory"`
+	// RootDisk is the size of a new VM's root disk, the throwaway overlay
+	// of its base image.
+	RootDisk bytesize.Size `yaml:"root_disk"`
+	// DataDisk is the size of a new VM's data disk, which holds the
+	// gateway's state, secrets, images and the sandboxes' workspaces.
+	DataDisk bytesize.Size `yaml:"data_disk"`
+	// NetworkProfile names the network profile of a new VM.
+	NetworkProfile string `yaml:"network_profile"`
+	// FedoraRelease is the Fedora release of the base images that brig
+	// builds, as its number.
+	FedoraRelease int `yaml:"fedora_release"`
 }
 
 // NetworkProfile restricts the network destinations a VM can reach. All
@@ -108,8 +118,8 @@ type NetworkProfile struct {
 	// Host allows all services on the host's loopback interface. Without
 	// it, the host's own addresses are blocked too.
 	Host bool `yaml:"host" json:"host"`
-	// HostPorts allows these TCP ports on the host's loopback interface even
-	// when Host is false, e.g. a local model server.
+	// HostPorts allows these TCP ports (1 to 65535) on the host's loopback
+	// interface even when host is false, e.g. a local model server.
 	HostPorts []uint16 `yaml:"host_ports,omitempty" json:"host_ports,omitempty"`
 	// LAN allows private, shared, link-local and multicast address ranges,
 	// and the networks of the host's own addresses and routes other than
