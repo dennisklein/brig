@@ -11,6 +11,7 @@ import (
 
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/ui/action"
+	"github.com/dennisklein/brig/internal/ui/collect"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -43,10 +44,14 @@ type trafficHistory struct {
 	Err   string
 }
 
-// historyRows reads the requests and gaps that q picks from the audit
-// trail, the newest limit of them, newest first, and how many there were.
+// historyRows reads the requests, drops and gaps that q picks from the
+// audit trail, the newest limit of them, newest first, and how many there
+// were.
 func historyRows(h audit.Reader, q trafficQuery, now time.Time, limit int) ([]trafficRow, int, error) {
 	aq := audit.Query{Workspace: q.Workspace, Sandbox: q.Sandbox, Denied: q.Denied, Kinds: []string{audit.KindRequest, audit.KindGap}}
+	if q.dropsShown() {
+		aq.Kinds = append(aq.Kinds, audit.KindDrop)
+	}
 	if q.VM != "" {
 		aq.VMs = []string{q.VM}
 	}
@@ -59,6 +64,9 @@ func historyRows(h audit.Reader, q trafficQuery, now time.Time, limit int) ([]tr
 	n := 0
 	err := h.Read(aq, func(r audit.Record) bool {
 		row := trafficRow{Request: requestOf(r)}
+		if r.Kind == audit.KindDrop {
+			row = dropRow(collect.DropOf(r))
+		}
 		if len(ring) < limit {
 			ring = append(ring, row)
 		} else {
@@ -73,6 +81,11 @@ func historyRows(h audit.Reader, q trafficQuery, now time.Time, limit int) ([]tr
 		ring = append(ring[k:], ring[:k]...)
 	}
 	slices.Reverse(ring)
+	if err != nil {
+		return ring, n, err
+	}
+	drops, err := historyDrops(h, ring)
+	markDrops(ring, drops)
 	return ring, n, err
 }
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
@@ -100,12 +101,23 @@ func (q trafficQuery) OnSandbox(ws, name string, deleted bool) trafficQuery {
 	return q
 }
 
-// trafficRow is a row of a traffic table.
+// trafficRow is a row of a traffic table: a request, or what fence 2
+// dropped.
 type trafficRow struct {
 	store.Request
 	// Draft is the pending rule that OpenShell drafted and that would
 	// allow the request, if there is exactly one.
 	Draft *store.Draft
+	// Drop is what fence 2 dropped, for a drop row; its Request holds
+	// the VM and time only.
+	Drop *store.Drop
+	// Dropped is the drop that likely stopped an allowed request.
+	Dropped *store.Drop
+}
+
+// dropRow is a drop as a row of a traffic table.
+func dropRow(d store.Drop) trafficRow {
+	return trafficRow{Request: store.Request{VM: d.VM, Time: d.Time}, Drop: &d}
 }
 
 // Unparsed reports whether the row is a line that brig ui could not read.
@@ -130,6 +142,10 @@ func (r trafficRow) NameOnly() bool { return programRE.MatchString(r.Process) }
 func (r trafficRow) Who() string {
 	return cmp.Or(r.Process, "an unknown program")
 }
+
+// dropsShown reports whether q's table shows drops: they are the VM's, not
+// a sandbox's.
+func (q trafficQuery) dropsShown() bool { return q.Workspace == "" && q.Sandbox == "" }
 
 // matches reports whether the request belongs in q's table.
 func (q trafficQuery) matches(r store.Request) bool {
@@ -167,11 +183,17 @@ func trafficRows(sn store.Snapshot, q trafficQuery, limit int) []trafficRow {
 			out = append(out, row)
 			n++
 		}
+		if q.dropsShown() {
+			for i := len(t.Drops) - 1; i >= 0 && i >= len(t.Drops)-limit; i-- {
+				out = append(out, dropRow(t.Drops[i]))
+			}
+		}
 	}
 	slices.SortStableFunc(out, func(a, b trafficRow) int { return b.Time.Compare(a.Time) })
 	if len(out) > limit {
 		out = out[:limit]
 	}
+	markDrops(out, sn.TrafficOf)
 	return out
 }
 
@@ -378,6 +400,9 @@ func trafficFuncs() template.FuncMap {
 		},
 		"oldestShown": oldestShown,
 		"allowAct":    allowAct,
+		"dropAct":     dropAct,
+		"dropWhat":    dropWhat,
+		"explainDrop": fence2.Explain,
 		"draftAct": func(v *view, d store.Draft) actButton {
 			return act(v, "allow", "Approve…", "sm", "vm", v.Gateway.VM, "workspace", d.Workspace, "sandbox", d.Sandbox, "draft", d.ID)
 		},

@@ -10,18 +10,20 @@
      its history takes. */}}
 
 {{define "host-audit"}}{{$a := .Snap.Audit}}
-<section class="panel"><div class="ph"><h2>{{term "audit-trail" "Audit trail"}}</h2><span class="faint small">Each VM's requests, policy changes and commands{{with $a.Dir}}, kept in <span class="mono">{{tilde .}}</span>{{end}}</span></div>
+<section class="panel"><div class="ph"><h2>{{term "audit-trail" "Audit trail"}}</h2><span class="faint small">Each VM's requests, drops, policy changes and commands{{with $a.Dir}}, kept in <span class="mono">{{tilde .}}</span>{{end}}</span></div>
 {{if not $a.Read}}<div class="pb faint">Reading the audit trail…</div>
 {{else if not $a.VMs}}<div class="empty">No VM has an audit history yet. brig start runs a collector for each VM it starts.</div>
-{{else}}<div class="tw"><table><thead><tr><th>VM</th><th>Collector</th><th>Last event</th><th class="num" title="Times in the last 24 hours that requests may have gone unrecorded">Gaps 24h</th><th class="num">Records</th><th class="num">Size</th><th>Oldest</th><th></th></tr></thead><tbody>
+{{else}}<div class="tw"><table><thead><tr><th>VM</th><th>Collector</th><th>Last event</th><th class="num" title="Times in the last 24 hours that requests may have gone unrecorded">Gaps 24h</th><th title="How fully the VM's network records what its profile drops">{{term "fence-2" "Fence 2"}}</th><th class="num">Records</th><th class="num">Size</th><th>Oldest</th><th></th></tr></thead><tbody>
 {{range $a.VMs}}<tr><td>{{if hasVM $.Snap .VM}}<a href="/vms/{{.VM}}">{{.VM}}</a>{{else}}{{.VM}}{{end}}</td>
   <td>{{if .Problem}}<span class="pill bad"><span class="dot"></span>{{auditCollector .}}</span>{{else if eq .Collector "running"}}<span class="pill ok"><span class="dot"></span>running</span>{{else}}<span class="muted">{{auditCollector .}}</span>{{end}}</td>
   <td class="small">{{if .LastEvent.IsZero}}<span class="faint">–</span>{{else}}<span title="{{stamp .LastEvent}}">{{rel .LastEvent}}</span>{{end}}</td>
   <td class="num">{{if .Gaps24h}}<span class="pill warn">{{.Gaps24h}}</span>{{else}}<span class="faint">0</span>{{end}}</td>
+  <td class="small">{{if not (eq .Collector "running")}}<span class="faint">–</span>{{else if eq .Fence2 "itemised"}}itemised{{else if .Fence2}}<span class="pill warn" title="{{.Fence2Why}}">{{.Fence2}}</span>{{else}}<span class="faint">–</span>{{end}}</td>
   <td class="num mono">{{.Rows}}</td><td class="num mono">{{disk .Disk}}</td>
   <td class="small">{{if .Oldest.IsZero}}<span class="faint">–</span>{{else}}<span title="{{stamp .Oldest}}">{{rel .Oldest}}</span>{{end}}</td>
   <td class="act">{{if .Days}}{{template "act" (pruneAct $ .VM)}}{{end}}</td></tr>
-{{if or .Error .Problem}}<tr><td></td><td colspan="7" class="small">{{with .Error}}<span class="mono">{{.}}</span>{{else}}Nothing records the traffic of {{.VM}}.{{end}} <code>brig start {{.VM}}</code> starts its collector again; <code>brig audit status</code> says more.</td></tr>{{end}}
+{{if or .Error .Problem}}<tr><td></td><td colspan="8" class="small">{{with .Error}}<span class="mono">{{.}}</span>{{else}}Nothing records the traffic of {{.VM}}.{{end}} <code>brig start {{.VM}}</code> starts its collector again; <code>brig audit status</code> says more.</td></tr>{{end}}
+{{if and (eq .Collector "running") .Fence2 (ne .Fence2 "itemised")}}<tr><td></td><td colspan="8" class="small">Fence 2 records {{if eq .Fence2 "off"}}no drops{{else}}how many packets it drops, not where they went{{end}}: {{.Fence2Why}}. <code>brig doctor</code> says how to fix it; it applies when {{.VM}} next starts.</td></tr>{{end}}
 {{end}}</tbody></table></div>
 <div class="pb">
 <div class="tw"><table><thead><tr><th>Sandbox</th><th class="meterc">Share of its VM's history</th><th class="num">Size</th><th class="num">Records</th></tr></thead><tbody>
