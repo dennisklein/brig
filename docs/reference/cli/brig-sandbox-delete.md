@@ -7,7 +7,7 @@ Delete a sandbox and its /sandbox
 ## Synopsis
 
 ```text
-brig sandbox delete [VM] SANDBOX
+brig sandbox delete [VM] SANDBOX [--snapshot]
 ```
 
 Also: `brig sandbox rm`.
@@ -19,10 +19,15 @@ Delete a sandbox, as openshell sandbox delete does, with what is in its
 a terminal on standard input, as in a script, it deletes without asking, as
 [`brig delete`](brig-delete.md) does.
 
+--snapshot first takes a snapshot of the sandbox's /sandbox, which stays in
+the VM: [`brig sandbox snapshot restore`](brig-sandbox-snapshot-restore.md) brings it back into another sandbox,
+and [`brig sandbox snapshot prune`](brig-sandbox-snapshot-prune.md) removes it.
+
 ## Options
 
 | Option | Description |
 | --- | --- |
+| `--snapshot` | take a snapshot of the sandbox's /sandbox first |
 | `-w, --workspace string` | the workspace of the gateway to work in (default: $BRIG\_WORKSPACE, else default) |
 | `-y, --yes` | do not ask for confirmation |
 

@@ -280,16 +280,25 @@ the agent included; its /sandbox stays for brig sandbox start.`
 }
 
 func newSandboxDeleteCmd() *cobra.Command {
-	var yes bool
-	cmd := sandboxCommand(sandboxVerb{use: "delete [VM] SANDBOX", short: "Delete a sandbox and its /sandbox"}, func(cmd *cobra.Command, t sandboxTarget, _ []string) error {
+	var yes, snap bool
+	cmd := sandboxCommand(sandboxVerb{use: "delete [VM] SANDBOX [--snapshot]", short: "Delete a sandbox and its /sandbox"}, func(cmd *cobra.Command, t sandboxTarget, _ []string) error {
 		if confirm := confirmer(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), yes); confirm != nil {
-			ok, err := confirm(fmt.Sprintf("Delete sandbox %s of VM %s (workspace %s), with everything in its /sandbox? [y/N] ",
-				termtext.Escape(t.sandbox.Name), t.vm.Name, t.workspace))
+			what := "with everything in its /sandbox"
+			if snap {
+				what = "keeping a snapshot of its /sandbox"
+			}
+			ok, err := confirm(fmt.Sprintf("Delete sandbox %s of VM %s (workspace %s), %s? [y/N] ",
+				termtext.Escape(t.sandbox.Name), t.vm.Name, t.workspace, what))
 			if err != nil {
 				return err
 			}
 			if !ok {
 				return fmt.Errorf("sandbox %s not deleted", t.sandbox.Name)
+			}
+		}
+		if snap {
+			if err := snapshotBeforeDelete(cmd, t); err != nil {
+				return err
 			}
 		}
 		return execve("openshell", t.openshell("sandbox", "delete", t.sandbox.Name))
@@ -298,9 +307,39 @@ func newSandboxDeleteCmd() *cobra.Command {
 	cmd.Long = `Delete a sandbox, as openshell sandbox delete does, with what is in its
 /sandbox. On a terminal, delete asks first; --yes skips the question. Without
 a terminal on standard input, as in a script, it deletes without asking, as
-brig delete does.`
+brig delete does.
+
+--snapshot first takes a snapshot of the sandbox's /sandbox, which stays in
+the VM: brig sandbox snapshot restore brings it back into another sandbox,
+and brig sandbox snapshot prune removes it.`
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
+	cmd.Flags().BoolVar(&snap, "snapshot", false, "take a snapshot of the sandbox's /sandbox first")
 	return cmd
+}
+
+// snapshotBeforeDelete takes the snapshot of brig sandbox delete
+// --snapshot, leaving the sandbox stopped for the delete.
+func snapshotBeforeDelete(cmd *cobra.Command, t sandboxTarget) error {
+	ctx := cmd.Context()
+	a, err := newApp()
+	if err != nil {
+		return err
+	}
+	s, err := a.snapshots(ctx, t.vm, cmd.ErrOrStderr())
+	if err != nil {
+		return err
+	}
+	defer s.close()
+	r, err := s.get(ctx, t.workspace, t.sandbox.Name)
+	if err != nil {
+		return err
+	}
+	sn, err := s.create(ctx, r, createOpts{leaveStopped: true})
+	if err != nil {
+		return fmt.Errorf("sandbox %s not deleted: %w", t.sandbox.Name, err)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Took snapshot %s of sandbox %s.\n", termtext.Escape(sn.Name()), termtext.Escape(t.sandbox.Name))
+	return nil
 }
 
 func newSandboxAttachCmd() *cobra.Command {
