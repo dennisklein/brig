@@ -14,6 +14,9 @@ later. `brig help unblock` and `brig help keep-rules` have the short version.
 - In a terminal, `brig sandbox logs dev webapp --since 10m --source sandbox`,
   `openshell term`, or `brig audit dev webapp --denied -f` show the method,
   path, program and reason of each denial.
+- `brig audit dev --denied --since 10m` adds what the VM's network profile,
+  fence 2, dropped, with the setting that dropped it and the sandbox it likely
+  came from. brig ui shows these drops in Traffic with a fence 2 badge.
 
 A request denied as `credential_endpoint_mismatch` carries a provider's
 placeholder to a host its profile does not list. Allowing it does not help;
@@ -74,7 +77,10 @@ If a request fails although a rule allows it:
   instead of `/usr/bin`. `brig sandbox exec dev webapp -- sh -c 'readlink -f
   "$(command -v TOOL)"'` prints the real path; put that in the rule.
 - **Fence 2 drops it.** The VM's network profile blocks for the whole VM,
-  outside it, and its drops are not logged yet. The default profile blocks
-  hosts on the LAN and on this host. `brig show dev` shows the profile, and
-  `brig update dev --profile NAME` changes it at the next start; see [network
+  outside it. The default profile blocks hosts on the LAN and on this host.
+  `brig audit dev --kind drop` lists the drops with the setting that dropped
+  them, such as `drop tcp 192.168.1.20:445 ×3: lan is off`, and brig ui marks
+  the allowed request as likely dropped. `brig show dev` shows the profile, and
+  `brig update dev --profile NAME` changes it at the next start; in brig ui,
+  **Profile…** on the drop does. See [network
   profiles](../reference/network-profiles.md).
