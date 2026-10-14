@@ -4,12 +4,14 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"slices"
 	"strconv"
@@ -23,6 +25,7 @@ import (
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/vm"
@@ -37,11 +40,18 @@ func newAuditCmd() *cobra.Command {
 		Use:   "audit [VM] [SANDBOX]",
 		Short: "Show what sandboxes reached, and who allowed it",
 		Long: `audit reads the audit trail that brig keeps of each VM: every request that
-a sandbox's proxy allowed or denied, sandboxes created and deleted, each
-revision of a sandbox's policy with the rules it added, removed and changed
-and who made it, the rules OpenShell drafted and the decisions on them,
-the brig commands that worked on the VM, and gaps where records may be
-missing.
+a sandbox's proxy allowed or denied (fence 1), what the VM's network
+profile dropped (fence 2), sandboxes created and deleted, each revision of
+a sandbox's policy with the rules it added, removed and changed and who
+made it, the rules OpenShell drafted and the decisions on them, the brig
+commands that worked on the VM, and gaps where records may be missing.
+
+Fence 2 sees packets from the VM, not from sandboxes: a drop records the
+address, port and protocol the VM tried to reach and the profile setting
+that dropped it, summed up over a few seconds. Where a sandbox's request
+that fence 1 allowed to the same port lies just before, the timeline
+names that sandbox as the likely source; this is a guess, never stored.
+Drops belong to the VM, so a sandbox's trail has none.
 
 While a VM runs, a collector on the host, the systemd user unit
 brig-audit-VM.service, writes the trail to
@@ -60,8 +70,9 @@ With a VM, audit reads that VM's trail; with no VM, the one that brig
 use selected, else every VM's. A single argument that is no VM names a
 sandbox of the selected VM. The output is a timeline, oldest first;
 --summary lists per sandbox each endpoint reached, with allowed and
-denied counts and the rule that allowed it. -o json prints the records
-as stored, one per line. Denials do not change the exit status.
+denied counts and the rule that allowed it, and then what each VM's
+network profile dropped. -o json prints the records as stored, one per
+line. Denials and drops do not change the exit status.
 
 --since and --until take a duration back from now (30m, 24h, 7d, 2w), a
 date (2026-10-13) or a time (2026-10-13 08:00 or RFC 3339); --since all
@@ -76,8 +87,8 @@ reads the whole trail.`,
 	addWorkspaceFlag(cmd, &o.workspace)
 	f.StringVar(&o.since, "since", "24h", "show records from this time on: a duration back, a date or time, or all")
 	f.StringVar(&o.until, "until", "", "show records before this time")
-	f.BoolVar(&o.denied, "denied", false, "show denied requests only, or with --kind those and the other kinds")
-	f.StringVar(&o.host, "host", "", "show requests and drafts of this host and its subdomains, or of a pattern such as *.github.com")
+	f.BoolVar(&o.denied, "denied", false, "show denied requests and fence 2's drops only, or with --kind those and the other kinds")
+	f.StringVar(&o.host, "host", "", "show requests and drafts of this host and its subdomains, or of a pattern such as *.github.com, and drops of this address or network")
 	f.StringSliceVar(&o.kinds, "kind", nil, "show records of these kinds: "+strings.Join(audit.Kinds, ", "))
 	f.BoolVar(&o.summary, "summary", false, "list each endpoint reached per sandbox instead")
 	f.BoolVarP(&o.follow, "follow", "f", false, "go on printing records as they are written")
@@ -212,6 +223,11 @@ func runAudit(cmd *cobra.Command, args []string, o auditOptions, format outputFo
 		return printSummary(w, reach, len(all) > 1)
 	}
 	p := &timeline{w: w, json: format == "json", vms: len(all) > 1}
+	if !p.json && mayHoldDrops(q) {
+		if p.hints, err = audit.Hints(st, q); err != nil {
+			return err
+		}
+	}
 	n := 0
 	if err := st.Read(q, func(r audit.Record) bool { n++; return p.print(r) == nil }); err != nil {
 		return err
@@ -227,8 +243,28 @@ func runAudit(cmd *cobra.Command, args []string, o auditOptions, format outputFo
 	}
 	// Ctrl-C ends the command's context, which follows until then.
 	q.Since, q.Until = time.Time{}, time.Time{}
-	err = st.Follow(cmd.Context(), q, func(r audit.Record) { _ = p.print(r) })
+	if p.json || !mayHoldDrops(q) {
+		err = st.Follow(cmd.Context(), q, func(r audit.Record) { _ = p.print(r) })
+		return errors.Join(err, p.err)
+	}
+	// Follow the allowed requests too, which the drops' hints come from.
+	p.hints, p.hinter = nil, &audit.Hinter{}
+	err = st.Follow(cmd.Context(), audit.Query{VMs: q.VMs}, func(r audit.Record) {
+		p.hinter.Observe(r)
+		if r.Kind == audit.KindDrop {
+			p.hinter.Forget(r.T.Add(-time.Minute))
+		}
+		if q.Match(r) {
+			_ = p.print(r)
+		}
+	})
 	return errors.Join(err, p.err)
+}
+
+// mayHoldDrops reports whether q may select drops, which a sandbox's trail
+// has none of.
+func mayHoldDrops(q audit.Query) bool {
+	return q.Workspace == "" && q.Sandbox == "" && (len(q.Kinds) == 0 || slices.Contains(q.Kinds, audit.KindDrop))
 }
 
 // auditWorkspace is the workspace that brig audit reads: -w, else
@@ -247,7 +283,11 @@ type timeline struct {
 	// vms says that records of several VMs are printed, so each line
 	// names its VM.
 	vms bool
-	err error
+	// hints are the drops' hints by audit.DropKey, or hinter works them
+	// out as the records come.
+	hints  map[string]audit.Hint
+	hinter *audit.Hinter
+	err    error
 }
 
 func (p *timeline) print(r audit.Record) error {
@@ -272,16 +312,94 @@ func (p *timeline) print(r audit.Record) error {
 	if p.vms {
 		where = r.VM + " " + where
 	}
-	_, p.err = fmt.Fprintf(p.w, "%s  %-20s  %s\n", r.T.Local().Format(time.DateTime), termtext.Escape(where), termtext.Escape(audit.Describe(r)))
+	what := audit.Describe(r)
+	if r.Kind == audit.KindDrop {
+		hint, ok := p.hints[audit.DropKey(r)]
+		if p.hinter != nil {
+			hint, ok = p.hinter.Hint(r)
+		}
+		if ok {
+			what += " (" + hintText(hint) + ")"
+		}
+	}
+	_, p.err = fmt.Fprintf(p.w, "%s  %-20s  %s\n", r.T.Local().Format(time.DateTime), termtext.Escape(where), termtext.Escape(what))
 	return p.err
 }
 
-// printSummary prints what each sandbox reached.
+// sandboxName names a sandbox by its WORKSPACE/NAME, by its name alone in
+// the default workspace.
+func sandboxName(key string) string {
+	if name, ok := strings.CutPrefix(key, openshell.DefaultWorkspace+"/"); ok {
+		return name
+	}
+	return key
+}
+
+// hintText says which sandbox a drop likely came from.
+func hintText(h audit.Hint) string {
+	switch len(h.Sandboxes) {
+	case 0:
+		// OpenShell logs no connection that an L4 rule allows, so a
+		// sandbox's may match nothing either.
+		return "from the VM, or a sandbox's --l4 connection, which fence 1 does not log"
+	case 1:
+		return fmt.Sprintf("likely from %s: fence 1 allowed %s at %s", sandboxName(h.Sandboxes[0]),
+			net.JoinHostPort(h.Host, strconv.Itoa(h.Port)), h.At.Local().Format(time.TimeOnly))
+	}
+	names := make([]string, len(h.Sandboxes))
+	for i, k := range h.Sandboxes {
+		names[i] = sandboxName(k)
+	}
+	return "likely from one of " + strings.Join(names, ", ")
+}
+
+// printSummary prints what each sandbox reached, and then what the network
+// profiles dropped.
 func printSummary(w io.Writer, reach []audit.Reach, vms bool) error {
-	if len(reach) == 0 {
+	var drops []audit.Reach
+	reach = slices.DeleteFunc(reach, func(x audit.Reach) bool {
+		if x.Dropped > 0 {
+			drops = append(drops, x)
+		}
+		return x.Dropped > 0
+	})
+	if len(reach) == 0 && len(drops) == 0 {
 		_, err := fmt.Fprintln(w, "No requests match.")
 		return err
 	}
+	if len(reach) > 0 {
+		if err := printReach(w, reach, vms); err != nil {
+			return err
+		}
+	}
+	if len(drops) == 0 {
+		return nil
+	}
+	if len(reach) > 0 {
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintln(w, "Dropped by the network profile (fence 2):")
+	t := cliout.Table{Columns: columns("VM", "DESTINATION", "REASON", "DROPPED", "FIRST", "LAST", "LIKELY FROM")}
+	for _, x := range drops {
+		dest := strings.TrimSpace(x.Proto + " " + x.Endpoint)
+		if x.Endpoint == "" {
+			dest = "(counted only)"
+		}
+		var likely []string
+		for _, k := range x.Likely {
+			likely = append(likely, sandboxName(k))
+		}
+		if x.FromVM > 0 {
+			likely = append(likely, "the VM itself, or an --l4 rule")
+		}
+		t.Add(x.VM, dest, fence2.Explain(x.Reason), strconv.Itoa(x.Dropped),
+			x.First.Local().Format("02 Jan 15:04"), x.Last.Local().Format("02 Jan 15:04"), orDash(strings.Join(likely, ", ")))
+	}
+	return t.Write(w, false)
+}
+
+// printReach prints what each sandbox reached.
+func printReach(w io.Writer, reach []audit.Reach, vms bool) error {
 	t := cliout.Table{Columns: columns("SANDBOX", "ENDPOINT", "ALLOWED", "DENIED", "FIRST", "LAST", "BINARIES", "RULE")}
 	for _, x := range reach {
 		where := x.Sandbox
@@ -323,9 +441,14 @@ func newAuditStatusCmd() *cobra.Command {
 		Use:   "status [VM]",
 		Short: "Show the audit collectors and the space their history takes",
 		Long: `status shows, for each VM with an audit trail, whether its collector
-runs, since when, the time of its latest record, the gaps of the last day
-and the space its history takes. With a VM, it adds how that space splits
-by sandbox, kind and month.
+runs, since when, the time of its latest record, the gaps of the last day,
+how fully fence 2 records drops, and the space its history takes. With a
+VM, it adds how that space splits by sandbox, kind and month.
+
+FENCE 2 is itemised when each drop is recorded with its address and port,
+counts only when the host's kernel lets brig count drops per reason but
+not log them, and off when it records none; the line below the table says
+why. brig doctor checks it too.
 
 A collector that failed, or does not run while its VM does, makes the
 exit status 1: the VM's traffic is not being recorded.`,
@@ -453,16 +576,17 @@ func ago(t, now time.Time) string {
 
 func printAuditStatus(w io.Writer, s auditStatusJSON) error {
 	now := time.Now()
-	t := cliout.Table{Columns: columns("VM", "COLLECTOR", "SINCE", "LAST EVENT", "GAPS 24H", "ON DISK")}
+	t := cliout.Table{Columns: columns("VM", "COLLECTOR", "SINCE", "LAST EVENT", "GAPS 24H", "FENCE 2", "ON DISK")}
 	for _, v := range s.VMs {
-		state, since, gaps := v.Collector, "–", "–"
+		state, since, gaps, fence := v.Collector, "–", "–", "–"
 		if v.Collector == audit.StateVMDeleted && !v.Deleted.IsZero() {
 			state += " " + v.Deleted.Local().Format("2 Jan")
 		}
 		if v.Collector == audit.UnitRunning {
 			since, gaps = v.Since.Local().Format("2 Jan 15:04"), fmt.Sprint(v.Gaps24h)
+			fence = cmp.Or(string(v.Fence2), "–")
 		}
-		t.Add(v.VM, state, since, ago(v.LastEvent, now), gaps, diskSize(v.Disk))
+		t.Add(v.VM, state, since, ago(v.LastEvent, now), gaps, fence, diskSize(v.Disk))
 	}
 	if err := t.Write(w, false); err != nil {
 		return err
@@ -470,6 +594,9 @@ func printAuditStatus(w io.Writer, s auditStatusJSON) error {
 	for _, v := range s.VMs {
 		if v.Error != "" {
 			fmt.Fprintf(w, "%s: %s\n", termtext.Escape(v.VM), termtext.Escape(v.Error))
+		}
+		if v.Collector == audit.UnitRunning && v.Fence2Why != "" {
+			fmt.Fprintf(w, "%s: fence 2 %s: %s\n", termtext.Escape(v.VM), v.Fence2, termtext.Escape(v.Fence2Why))
 		}
 	}
 	oldest := ""

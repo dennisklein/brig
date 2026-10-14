@@ -558,6 +558,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 	case state == libvirt.StateMissing || state == libvirt.StateShutoff:
 		stopAudit(ctx, v.Name)
 		vmnet.Stop(ctx, v.Name)
+		a.drainAudit(ctx, v.Name)
 		a.pruneUpgradeSnapshots(ctx, v)
 		return nil
 	case force:
@@ -580,7 +581,24 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 		// The collector reads the last lines of the logs before it ends.
 		stopAudit(ctx, v.Name)
 		vmnet.Stop(ctx, v.Name)
+		a.drainAudit(ctx, v.Name)
 		a.pruneUpgradeSnapshots(ctx, v)
 	}
 	return err
+}
+
+// drainAudit records the drops that the VM's network wrote after its
+// collector had stopped, as it does when it stops last; see
+// audit.Collector.Drain. A failure shows as a skipped step.
+func (a *app) drainAudit(ctx context.Context, vm string) {
+	var j *audit.Journal
+	if mode := a.cfg.Audit.Journal; mode != audit.JournalOff {
+		j, _ = audit.OpenJournal(audit.JournalSocket, mode == audit.JournalAll)
+		defer func() { _ = j.Close() }()
+	}
+	c := &audit.Collector{VM: vm, Store: a.auditStore(), Journal: j}
+	if err := c.Drain(); err != nil {
+		_, span := progress.Start(ctx, progress.KindStep, "record the last drops of fence 2")
+		span.Skip(err.Error())
+	}
 }
