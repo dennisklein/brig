@@ -25,6 +25,7 @@ where it has one:
 | Kind | What it records |
 | --- | --- |
 | `request` | a request that a sandbox's proxy allowed or denied: method, host, port, path without its query, program, the rule that allowed it or the reason it was denied |
+| `drop` | packets that the VM's network profile, fence 2, dropped within a few seconds: protocol, address, port, how many, and the setting that dropped them |
 | `policy` | each revision of a sandbox's policy, with the rules it added, removed and changed, and who made it |
 | `draft` | the rules OpenShell drafted from denied requests, and the decisions on them |
 | `sandbox` | sandboxes created and deleted, with image and providers |
@@ -46,6 +47,37 @@ later, but only from what the client sends. So:
 - **Anything else is "unknown (openshell CLI or another client)"**, such as a
   hand-run `openshell policy set`.
 
+## Drops at fence 2
+
+Fence 2 is the VM's [network profile](../reference/network-profiles.md),
+enforced by nftables on the host, outside the VM. Each packet it drops goes
+through a chain for its reason, which counts it and logs it, up to 20 packets
+a second. A listener beside passt, in the VM's network namespace, sums them
+up per destination every 5 seconds into a spool in the VM's audit directory,
+and the collector reads the spool into `drop` records. `brig stop` reads the
+rest once the VM's network is down.
+
+| Reason | Dropped because |
+| --- | --- |
+| `internet` | internet is off |
+| `lan` | lan is off |
+| `host` | host is off |
+| `host-port` | the port is not in host_ports |
+| `ipv6` | ipv6 is off |
+| `dns` | only plain DNS goes to the resolver |
+| `udp-flows` | too many UDP flows at once |
+
+- **Fence 2 sees packets from the VM, not from sandboxes**, so a drop names
+  no sandbox. `brig audit` and brig ui match it with the requests that fence 1
+  allowed to the same port just before, and name the sandbox it likely came
+  from, or say that it came from the VM itself.
+- **What it cannot itemise, it counts.** Packets over the logging rate are
+  recorded as one drop per reason with how many, without their addresses.
+  Without the kernel's `nft_log` and `nfnetlink_log` modules, fence 2 only
+  counts; when it cannot count either, it records nothing, and a `gap`
+  record says so. `brig audit status` and the Host page of brig ui show
+  which, and `brig doctor` checks it.
+
 ## Gaps
 
 A collector that restarts resumes from the last record it wrote, filling in
@@ -63,7 +95,9 @@ Changes, but not allowed requests, also go to the user journal
 
 ## What it does not cover
 
-- Drops by a VM's network profile, fence 2, are not recorded yet.
+- Which sandbox or program sent a packet that fence 2 dropped: that would
+  need code inside the VM. The trail names the likely sandbox only.
+- Packets that fence 2 lets through; fence 1's requests cover them.
 - The trail lives in your home directory and is not tamper-evident: it guards
   against what happens in the VM, not against your own user account.
 
