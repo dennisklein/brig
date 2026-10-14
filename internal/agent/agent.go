@@ -4,8 +4,8 @@
 // Package agent holds the files that brig agent init writes: an image
 // definition for a coding agent (Claude Code, Pi or opencode) that runs in an
 // OpenShell sandbox, with the provider profile, provider and default policy
-// that go with it. The files are the ones the guide (docs/openshell.md)
-// shows; a test keeps the two in step.
+// that go with it. The files are the ones that docs/how-to/agents.md shows;
+// a test keeps the two in step.
 package agent
 
 import (
