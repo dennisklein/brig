@@ -13,11 +13,18 @@ brig audit [VM] [SANDBOX]
 ## Description
 
 audit reads the audit trail that brig keeps of each VM: every request that
-a sandbox's proxy allowed or denied, sandboxes created and deleted, each
-revision of a sandbox's policy with the rules it added, removed and changed
-and who made it, the rules OpenShell drafted and the decisions on them,
-the brig commands that worked on the VM, and gaps where records may be
-missing.
+a sandbox's proxy allowed or denied (fence 1), what the VM's network
+profile dropped (fence 2), sandboxes created and deleted, each revision of
+a sandbox's policy with the rules it added, removed and changed and who
+made it, the rules OpenShell drafted and the decisions on them, the brig
+commands that worked on the VM, and gaps where records may be missing.
+
+Fence 2 sees packets from the VM, not from sandboxes: a drop records the
+address, port and protocol the VM tried to reach and the profile setting
+that dropped it, summed up over a few seconds. Where a sandbox's request
+that fence 1 allowed to the same port lies just before, the timeline
+names that sandbox as the likely source; this is a guess, never stored.
+Drops belong to the VM, so a sandbox's trail has none.
 
 While a VM runs, a collector on the host, the systemd user unit
 brig-audit-VM.service, writes the trail to
@@ -35,8 +42,9 @@ openshell policy set, is "unknown".
 With a VM, audit reads that VM's trail; with no VM, the one that [`brig use`](brig-use.md) selected, else every VM's. A single argument that is no VM names a
 sandbox of the selected VM. The output is a timeline, oldest first;
 --summary lists per sandbox each endpoint reached, with allowed and
-denied counts and the rule that allowed it. -o json prints the records
-as stored, one per line. Denials do not change the exit status.
+denied counts and the rule that allowed it, and then what each VM's
+network profile dropped. -o json prints the records as stored, one per
+line. Denials and drops do not change the exit status.
 
 --since and --until take a duration back from now (30m, 24h, 7d, 2w), a
 date (2026-10-13) or a time (2026-10-13 08:00 or RFC 3339); --since all
@@ -46,9 +54,9 @@ reads the whole trail.
 
 | Option | Description |
 | --- | --- |
-| `--denied` | show denied requests only, or with --kind those and the other kinds |
+| `--denied` | show denied requests and fence 2's drops only, or with --kind those and the other kinds |
 | `-f, --follow` | go on printing records as they are written |
-| `--host string` | show requests and drafts of this host and its subdomains, or of a pattern such as \*.github.com |
+| `--host string` | show requests and drafts of this host and its subdomains, or of a pattern such as \*.github.com, and drops of this address or network |
 | `--kind stringSlice` | show records of these kinds: request, drop, policy, draft, sandbox, action, gap |
 | `-o, --output format` | output format: table or json (default `table`) |
 | `--since string` | show records from this time on: a duration back, a date or time, or all (default `24h`) |
