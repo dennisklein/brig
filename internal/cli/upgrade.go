@@ -48,8 +48,9 @@ func newUpgradeCmd() *cobra.Command {
 			fmt.Fprintf(resultWriter(cmd, format), "VM %s already uses image %s.\n", v.Name, v.Image)
 			return a.printVM(ctx, cmd, v, format)
 		}
-		if current, err := a.images.Get(v.Image); err == nil && !allowMinor &&
-			!openshell.CompatibleVersions(current.OpenShellVersion, target.OpenShellVersion) {
+		current, err := a.images.Get(v.Image)
+		minor := err == nil && !openshell.CompatibleVersions(current.OpenShellVersion, target.OpenShellVersion)
+		if minor && !allowMinor {
 			return fmt.Errorf("image %s moves OpenShell from %s to %s; minor version changes may need sandboxes to be recreated, so pass --allow-minor to upgrade anyway",
 				target.ID, current.OpenShellVersion, target.OpenShellVersion)
 		}
@@ -73,6 +74,13 @@ func newUpgradeCmd() *cobra.Command {
 			return err
 		}
 		wasRunning := state != libvirt.StateShutoff && state != libvirt.StateMissing
+		// The new OpenShell may need sandboxes recreated: keep what each
+		// one's /sandbox holds.
+		if minor && wasRunning {
+			if err := snapshotAllSandboxes(ctx, a, v, w); err != nil {
+				return fmt.Errorf("%w; nothing was upgraded", err)
+			}
+		}
 		if wasRunning {
 			fmt.Fprintf(w, "Stopping %s...\n", v.Name)
 			if err := a.stop(ctx, conn, v, false); err != nil {
@@ -86,7 +94,7 @@ func newUpgradeCmd() *cobra.Command {
 		return a.printVM(ctx, cmd, v, format)
 	})
 	cmd.Flags().StringVar(&imageID, "image", "", "base image ID (default: newest)")
-	cmd.Flags().BoolVar(&allowMinor, "allow-minor", false, "allow an OpenShell minor version change")
+	cmd.Flags().BoolVar(&allowMinor, "allow-minor", false, "allow an OpenShell minor version change, taking a snapshot of every sandbox first")
 	// The flag's old name, from when --force was the only way to say it.
 	cmd.Flags().BoolVar(&allowMinor, "force", false, "allow an OpenShell minor version change")
 	_ = cmd.Flags().MarkDeprecated("force", "use --allow-minor")
@@ -227,4 +235,41 @@ func (a *app) rollback(ctx context.Context, conn domains, v *vm.VM, oldImage, sn
 		return fmt.Errorf("%w (the data disk was restored but keeps the snapshot %s)", err, snapshot)
 	}
 	return a.define(conn, v)
+}
+
+// snapshotAllSandboxes takes a snapshot of every ready or stopped sandbox
+// of v, as brig upgrade --allow-minor does before an upgrade that may need
+// the sandboxes recreated; tests replace it.
+var snapshotAllSandboxes = func(ctx context.Context, a *app, v *vm.VM, w io.Writer) error {
+	s, err := a.snapshots(ctx, v, w)
+	if err != nil {
+		return err
+	}
+	defer s.close()
+	return s.all(ctx)
+}
+
+// all snapshots every ready or stopped sandbox; programs in ready ones
+// end, as the VM's stop would end them anyway.
+func (s *snapshots) all(ctx context.Context) error {
+	list, err := s.gw.Sandboxes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, x := range list {
+		if x.Phase != "Ready" && x.Phase != "Stopped" {
+			fmt.Fprintf(s.errw, "Warning: sandbox %s (workspace %s) is %s, so it gets no snapshot\n", termtext.Escape(x.Name), termtext.Escape(x.Workspace), strings.ToLower(x.Phase))
+			continue
+		}
+		r, err := s.get(ctx, x.Workspace, x.Name)
+		if err != nil {
+			return err
+		}
+		sn, err := s.create(ctx, r, createOpts{})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(s.errw, "Took snapshot %s of sandbox %s (workspace %s).\n", termtext.Escape(sn.Name()), termtext.Escape(x.Name), termtext.Escape(x.Workspace))
+	}
+	return nil
 }
