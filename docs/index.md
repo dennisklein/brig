@@ -1,7 +1,7 @@
 # brig documentation
 
-brig runs coding agents in OpenShell sandboxes inside VMs on your Fedora
-laptop. These pages are grouped by what you want: to get started, to get
+brig runs coding agents in OpenShell sandboxes inside VMs on your own
+machine. These pages are grouped by what you want: to get started, to get
 something done, to understand how it works, or to look something up.
 
 ## Start

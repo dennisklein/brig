@@ -1,7 +1,6 @@
 # brig
 
-`brig` manages the lifecycle of agent-sandbox VMs on a Fedora laptop. Each VM
-runs headless Fedora with an [NVIDIA
+`brig` manages the lifecycle of agent-sandbox VMs. Each VM runs an [NVIDIA
 OpenShell](https://github.com/NVIDIA/OpenShell) gateway, so autonomous agents
 are contained by a VM boundary in addition to OpenShell's own sandboxing. Your
 host's `openshell` CLI drives each VM's gateway; brig registers it as
