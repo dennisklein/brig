@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -166,5 +167,37 @@ func TestGatewaySandboxPerWorkspace(t *testing.T) {
 	}
 	if _, ok := g.Sandbox("other", "webapp"); ok {
 		t.Error("found a sandbox in a workspace that has none")
+	}
+}
+
+func TestAddDrops(t *testing.T) {
+	s := New()
+	t0 := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	s.AddDrops("dev", []Drop{{Time: t0, Last: t0.Add(2 * time.Second), Reason: "lan", Proto: "tcp", Addr: "192.168.1.20", Port: 445, Hits: 3}})
+	before := s.Snapshot()
+	s.AddDrops("dev", []Drop{{Time: t0.Add(time.Minute), Reason: "ipv6", Proto: "udp", Addr: "fd00::1", Port: 53, Hits: 1}})
+	dev := s.Snapshot().TrafficOf("dev")
+	if len(dev.Drops) != 2 || dev.Drops[1].VM != "dev" || dev.Drops[1].Target() != "[fd00::1]:53" || len(before.TrafficOf("dev").Drops) != 1 {
+		t.Errorf("drops %+v", dev.Drops)
+	}
+	for _, tc := range []struct {
+		r    Request
+		want bool
+	}{
+		{Request{Verdict: VerdictAllow, Host: "nas.lan", Port: 445, Time: t0.Add(-time.Second)}, true},
+		{Request{Verdict: VerdictAllow, Host: "nas.lan", Port: 445, Time: t0.Add(2 * time.Second)}, true},
+		{Request{Verdict: VerdictAllow, Host: "nas.lan", Port: 445, Time: t0.Add(-3 * time.Second)}, false},
+		{Request{Verdict: VerdictAllow, Host: "nas.lan", Port: 445, Time: t0.Add(3 * time.Second)}, false},
+		{Request{Verdict: VerdictAllow, Host: "nas.lan", Port: 139, Time: t0}, false},
+		{Request{Verdict: VerdictDeny, Host: "nas.lan", Port: 445, Time: t0}, false},
+	} {
+		if _, got := dev.DropFor(tc.r, 2*time.Second); got != tc.want {
+			t.Errorf("DropFor(%+v) = %v", tc.r, got)
+		}
+	}
+	// The oldest go beyond MaxDrops.
+	s.AddDrops("dev", make([]Drop, MaxDrops))
+	if dev := s.Snapshot().TrafficOf("dev"); len(dev.Drops) != MaxDrops || dev.Drops[0].Port != 0 {
+		t.Errorf("%d drops, the oldest %+v", len(dev.Drops), dev.Drops[0])
 	}
 }

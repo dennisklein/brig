@@ -4,6 +4,7 @@
 package store
 
 import (
+	"net"
 	"path"
 	"slices"
 	"strconv"
@@ -154,6 +155,9 @@ type Traffic struct {
 	Requests []Request
 	// Drafts are the pending drafted rules, by sandbox and rule.
 	Drafts []Draft
+	// Drops are what fence 2 dropped, oldest first, as the audit trail
+	// recorded them.
+	Drops []Drop
 }
 
 // Draft returns the pending drafted rule of the sandbox with the chunk ID
@@ -337,4 +341,81 @@ func (sn Snapshot) TrafficOf(vm string) Traffic {
 		}
 	}
 	return Traffic{VM: vm}
+}
+
+// MaxDrops is how many drops the store keeps per VM; older ones go first.
+const MaxDrops = 2000
+
+// Drop is what fence 2, the VM's network profile, dropped of the packets
+// to a destination in a few seconds, as the audit trail records it. It
+// tells of the VM, not of a sandbox: fence 2 sees packets from the VM.
+type Drop struct {
+	VM string
+	// Time is when the first packet was dropped, Last the last one, if
+	// later.
+	Time, Last time.Time
+	// Reason is the profile setting that dropped them, one of
+	// fence2.Reasons.
+	Reason string
+	// Proto, Addr and Port are the destination; empty when fence 2 only
+	// counted the packets, which Why says.
+	Proto string
+	Addr  string
+	Port  int
+	Hits  int
+	Why   string
+}
+
+// Target is the drop's destination, as addr:port, or empty when fence 2
+// only counted it.
+func (d Drop) Target() string {
+	if d.Addr == "" || d.Port == 0 {
+		return d.Addr
+	}
+	return net.JoinHostPort(d.Addr, strconv.Itoa(d.Port))
+}
+
+// End is the time of the drop's last packet.
+func (d Drop) End() time.Time {
+	if d.Last.After(d.Time) {
+		return d.Last
+	}
+	return d.Time
+}
+
+// AddDrops adds drops of fence 2 of the VM named vm. The oldest go when
+// there are more than MaxDrops.
+func (s *Store) AddDrops(vm string, ds []Drop) {
+	if len(ds) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ts := slices.Clone(s.snap.Traffic)
+	t := &ts[trafficIndex(&ts, vm)]
+	all := slices.Concat(t.Drops, ds)
+	for i := len(t.Drops); i < len(all); i++ {
+		all[i].VM = vm
+	}
+	t.Drops = all[max(0, len(all)-MaxDrops):]
+	s.snap.Traffic = ts
+	s.notify(TopicTraffic)
+}
+
+// DropFor returns the drop of fence 2 that likely stopped the allowed
+// request r: one to the request's port, whose first packet came at most
+// before after the request, and whose last packet came after it.
+// Fence 2 sees addresses, not host names, nor which sandbox sent a packet,
+// so this is a guess.
+func (t Traffic) DropFor(r Request, before time.Duration) (Drop, bool) {
+	if r.Verdict != VerdictAllow || r.Port == 0 {
+		return Drop{}, false
+	}
+	for i := len(t.Drops) - 1; i >= 0; i-- {
+		d := t.Drops[i]
+		if d.Port == r.Port && !r.Time.Before(d.Time.Add(-before)) && !r.Time.After(d.End()) {
+			return d, true
+		}
+	}
+	return Drop{}, false
 }
