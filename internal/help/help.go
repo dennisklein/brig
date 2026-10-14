@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/dennisklein/brig/internal/docs"
 )
 
 //go:embed concepts tasks pages.yaml actions.yaml
@@ -58,6 +60,9 @@ type Topic struct {
 	// Show is where a task's Show me goes: a page, and the action whose
 	// button it points at there.
 	Show *Show
+	// Doc is the page of brig's docs that tells the whole story, as a path
+	// under docs/ with an optional #heading.
+	Doc string
 	// Body is the text after the header: paragraphs, and a task's steps.
 	Body []Block
 }
@@ -172,6 +177,7 @@ type header struct {
 	Commands []string `yaml:"commands"`
 	UI       string   `yaml:"ui"`
 	Show     *Show    `yaml:"show"`
+	Doc      string   `yaml:"doc"`
 }
 
 var stepRE = regexp.MustCompile(`^\d+\. `)
@@ -193,7 +199,7 @@ func parseTopic(k Kind, id string, data []byte) (*Topic, error) {
 	}
 	t := &Topic{
 		Kind: k, ID: id, Title: hd.Title, Summary: oneLine(hd.Summary), Aliases: hd.Aliases, See: hd.See,
-		Concepts: hd.Concepts, Commands: hd.Commands, UI: hd.UI, Show: hd.Show,
+		Concepts: hd.Concepts, Commands: hd.Commands, UI: hd.UI, Show: hd.Show, Doc: hd.Doc,
 	}
 	for _, para := range strings.Split(strings.TrimSpace(string(body)), "\n\n") {
 		lines := strings.Split(strings.TrimSpace(para), "\n")
@@ -216,6 +222,9 @@ func parseTopic(k Kind, id string, data []byte) (*Topic, error) {
 	}
 	return t, nil
 }
+
+// DocURL returns the URL of the topic's page in brig's docs.
+func (t *Topic) DocURL() string { return docs.URL(t.Doc) }
 
 // oneLine joins the lines of s with spaces.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -360,6 +369,9 @@ func (h *Help) Check() []error {
 		}
 		if t.Kind == Task && (len(t.Body) == 0 || len(t.Body[0].Steps) == 0) {
 			errs = append(errs, fmt.Errorf("%s: a task starts with numbered steps", where))
+		}
+		if strings.HasPrefix(t.Doc, "/") || strings.Contains(t.Doc, "..") || strings.Contains(t.Doc, "://") {
+			errs = append(errs, fmt.Errorf("%s: its doc %q is not a page under docs/", where, t.Doc))
 		}
 		if t.Show != nil {
 			if _, ok := h.actions[t.Show.Action]; !ok && t.Show.Action != "" {
