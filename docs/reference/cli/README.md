@@ -34,6 +34,12 @@ Every command of brig, as [`brig`](brig.md) lists them. Run `brig COMMAND --help
 | [`brig sandbox list`](brig-sandbox-list.md) | List the sandboxes of a VM, or of every running VM |
 | [`brig sandbox logs`](brig-sandbox-logs.md) | Show a sandbox's logs, such as the requests its policy denied |
 | [`brig sandbox run`](brig-sandbox-run.md) | Run a command in a new sandbox, with files in and out, and delete it |
+| [`brig sandbox snapshot`](brig-sandbox-snapshot.md) | Keep copies of a sandbox's /sandbox in its VM, and bring them back |
+| [`brig sandbox snapshot create`](brig-sandbox-snapshot-create.md) | Take a snapshot of a sandbox's /sandbox |
+| [`brig sandbox snapshot delete`](brig-sandbox-snapshot-delete.md) | Delete snapshots |
+| [`brig sandbox snapshot list`](brig-sandbox-snapshot-list.md) | List the snapshots in a VM, with the space they take |
+| [`brig sandbox snapshot prune`](brig-sandbox-snapshot-prune.md) | Delete the snapshots of deleted sandboxes and old snapshots |
+| [`brig sandbox snapshot restore`](brig-sandbox-snapshot-restore.md) | Replace a sandbox's /sandbox with a snapshot |
 | [`brig sandbox start`](brig-sandbox-start.md) | Start a stopped sandbox |
 | [`brig sandbox stop`](brig-sandbox-stop.md) | Stop a sandbox, keeping its /sandbox |
 | [`brig secret`](brig-secret.md) | Store the secrets that providers in the config directories refer to |
