@@ -12,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"sync/atomic"
-	"time"
 
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/help"
@@ -171,7 +170,7 @@ func csrfFrom(ctx context.Context) string {
 // newView returns the view of a request, from the current snapshot.
 func (s *Server) newView(r *http.Request, page, title string) *view {
 	return &view{
-		Page: page, Title: title, Snap: s.st.Snapshot(), Now: time.Now(), Demo: s.demo,
+		Page: page, Title: title, Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo,
 		CSRF: csrfFrom(r.Context()), Asset: s.assets.url,
 	}
 }

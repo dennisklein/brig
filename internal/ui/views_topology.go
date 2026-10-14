@@ -174,7 +174,7 @@ func topologyOf(v *view, vm, sel string) topology {
 		}
 		return e
 	}
-	since := time.Now().Add(-recentWindow)
+	since := clock().Add(-recentWindow)
 	for _, g := range sn.Gateways {
 		if vm != "" && g.VM != vm {
 			continue
@@ -349,7 +349,7 @@ func topoDetailOf(v *view, n topoNode, edges []topoEdge) *topoDetail {
 			d.Profile = &p
 		}
 	case "ep":
-		since := time.Now().Add(-recentWindow)
+		since := clock().Add(-recentWindow)
 		for _, t := range sn.Traffic {
 			for _, r := range t.Requests {
 				if r.Time.Before(since) || r.Endpoint() != rest {

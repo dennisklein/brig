@@ -93,7 +93,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-timer:
 		}
 		timer = nil
-		v := &view{Snap: s.st.Snapshot(), Now: time.Now(), Demo: s.demo, CSRF: csrf, Asset: s.assets.url, Tab: tab(q.Get("tab"))}
+		v := &view{Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo, CSRF: csrf, Asset: s.assets.url, Tab: tab(q.Get("tab"))}
 		if vmName != "" {
 			v.VM, _ = v.Snap.VM(vmName)
 		}

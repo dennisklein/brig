@@ -328,7 +328,7 @@ func busyVM(sn store.Snapshot, name string) bool {
 		}
 	}
 	for _, r := range sn.Activity {
-		if r.Done() || time.Since(r.Start) > staleRun {
+		if r.Done() || clock().Sub(r.Start) > staleRun {
 			continue
 		}
 		if f := strings.Fields(r.Title); len(f) >= 3 && f[0] == "brig" && vmCommands[f[1]] && f[2] == name {

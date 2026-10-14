@@ -4,7 +4,9 @@
 package cli
 
 import (
+	"errors"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -26,9 +28,20 @@ Only you can open it: it prints a URL with a token that is new each run,
 and it refuses other users' connections. A second brig ui opens the
 running one instead.
 
---demo serves made-up VMs and touches nothing on this host.`,
+--demo serves made-up VMs and touches nothing on this host. With --still the
+demo also stands at a fixed time, in UTC, and its meters and requests stay,
+so that the pages look the same on every run; the screenshots in the docs
+are taken that way.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if o.Still {
+				if !o.Demo {
+					return errors.New("--still needs --demo")
+				}
+				// The pages show local times; the screenshots must not
+				// depend on the zone of the host that takes them.
+				time.Local = time.UTC
+			}
 			dirs, err := paths.Default()
 			if err != nil {
 				return err
@@ -46,6 +59,7 @@ running one instead.
 	f.IntVar(&o.Port, "port", 0, "port on 127.0.0.1 to listen on (default: a free one)")
 	f.BoolVar(&o.NoOpen, "no-open", false, "print the URL without opening a browser")
 	f.BoolVar(&o.Demo, "demo", false, "serve made-up VMs, for a look around or screenshots")
+	f.BoolVar(&o.Still, "still", false, "with --demo, stop the clock and the meters, so that the pages look the same on every run")
 	f.StringVar(&o.DevAssets, "dev-assets", "", "serve templates and static files from this directory (internal/ui/web), for working on them")
 	_ = f.MarkHidden("dev-assets")
 	hideDefaults(cmd, "port")

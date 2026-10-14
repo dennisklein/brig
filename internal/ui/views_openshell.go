@@ -374,7 +374,7 @@ func gatewayNeeds(sn store.Snapshot) []need {
 		link := "/gateways/" + g.VM
 		switch {
 		case g.State == store.GatewayUnreachable:
-			if v, ok := sn.VM(g.VM); ok && v.Running() && !v.Up.IsZero() && time.Since(v.Up) < gatewayGrace {
+			if v, ok := sn.VM(g.VM); ok && v.Running() && !v.Up.IsZero() && clock().Sub(v.Up) < gatewayGrace {
 				// It may still be starting.
 				continue
 			}

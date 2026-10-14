@@ -25,6 +25,20 @@ import (
 // tickEvery is how often the demo's CPU and memory meters move.
 const tickEvery = 3 * time.Second
 
+// Epoch is the time a still demo stands at: a fixed instant, in UTC, so that
+// the pages of brig ui --demo --still read the same on every run.
+var Epoch = time.Date(2026, time.October, 12, 9, 15, 0, 0, time.UTC)
+
+// What a still demo says about itself: the version of brig and the address
+// it serves on.
+const (
+	stillVersion = "v0.6.0"
+	stillAddr    = "127.0.0.1:7878"
+)
+
+// seed seeds the demo's traffic, so that it repeats from run to run.
+const seed = 20261012
+
 // Host is the demo host. It serves the fixtures, moves the meters, and
 // plays out the commands of dialogs instead of running them.
 type Host struct {
@@ -43,6 +57,8 @@ type Host struct {
 	running atomic.Int32
 
 	traffic *traffic
+	// still stops the clock at Epoch: the meters stay and no request comes.
+	still bool
 }
 
 // New returns a demo host that writes to st.
@@ -50,10 +66,23 @@ func New(st *store.Store) *Host {
 	return &Host{st: st, quit: make(chan struct{}), keyringLocked: true, traffic: newTraffic(st)}
 }
 
+// Still makes h stand at Epoch, with its meters fixed and no new requests,
+// for pages that look the same on every run. Call it before Run.
+func (h *Host) Still() { h.still = true }
+
 // Run fills the store with the demo host and moves its meters until ctx ends.
 func (h *Host) Run(ctx context.Context, addr string) {
 	now := time.Now()
-	h.st.SetHost(store.Host{Name: "zeta", BrigVersion: version.Version(), OpenShellCLI: "0.1.2", Addr: addr})
+	if h.still {
+		now = Epoch
+	}
+	host := store.Host{Name: "zeta", BrigVersion: version.Version(), OpenShellCLI: "0.1.2", Addr: addr}
+	if h.still {
+		// The version of the build and the port it found are not part of a
+		// page that repeats.
+		host.BrigVersion, host.Addr = stillVersion, stillAddr
+	}
+	h.st.SetHost(host)
 	for _, g := range Gateways(now) {
 		h.st.UpdateGateway(g.VM, func(gw *store.Gateway) bool { *gw = g; return true })
 	}
@@ -65,6 +94,10 @@ func (h *Host) Run(ctx context.Context, addr string) {
 	h.st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
 	h.st.SetAudit(Audit(now))
 	h.traffic.backfill(now, VMs(now))
+	if h.still {
+		<-ctx.Done()
+		return
+	}
 	tick := time.NewTicker(tickEvery)
 	defer tick.Stop()
 	requests := time.NewTicker(trafficEvery)

@@ -112,19 +112,24 @@ type traffic struct {
 	allowed map[string]allowedBy
 	// drafts are the pending drafts by vm/workspace/sandbox.
 	drafts map[string][]store.Draft
+	// rng picks the requests; it is seeded, so that they repeat.
+	rng *rand.Rand
 }
 
 type allowedBy struct{ rule, program string }
 
 func newTraffic(st *store.Store) *traffic {
-	return &traffic{st: st, allowed: map[string]allowedBy{}, drafts: map[string][]store.Draft{}}
+	return &traffic{
+		st: st, allowed: map[string]allowedBy{}, drafts: map[string][]store.Draft{},
+		rng: rand.New(rand.NewPCG(seed, seed)), //nolint:gosec // G404: made-up traffic
+	}
 }
 
 // backfill makes the last hour's requests of the running sandboxes, with a
 // line brig ui cannot read and a gap.
 func (t *traffic) backfill(now time.Time, vms []store.VM) {
 	for i := 70; i > 0; i-- {
-		at := now.Add(-time.Duration(i)*50*time.Second - time.Duration(rand.IntN(40))*time.Second) //nolint:gosec // G404: made-up times
+		at := now.Add(-time.Duration(i)*50*time.Second - time.Duration(t.intn(40))*time.Second)
 		t.tick(at, vms)
 	}
 	t.st.AddRequests("dev", []store.Request{{Workspace: store.DefaultWorkspace, Sandbox: "kit-dev", Time: now.Add(-41 * time.Minute), Gap: "The gateway dropped lines of the log: 12 lines dropped, buffer full"}})
@@ -151,8 +156,8 @@ func (t *traffic) tick(at time.Time, vms []store.VM) {
 	if len(sandboxes) == 0 {
 		return
 	}
-	sb := sandboxes[rand.IntN(len(sandboxes))] //nolint:gosec // G404: made-up traffic
-	p := pick(patterns[sb.sandbox])
+	sb := sandboxes[t.intn(len(sandboxes))]
+	p := t.pick(patterns[sb.sandbox])
 	t.mu.Lock()
 	rule := p.rule
 	if a, ok := t.allowed[sb.vm+"/"+sb.workspace+"/"+sb.sandbox+"/"+p.endpoint()]; rule == "" && ok && a.program == p.program {
@@ -229,12 +234,19 @@ func (t *traffic) draft(vm, ws, sandbox, id string) (store.Draft, bool) {
 	return t.drafts[key][i], true
 }
 
-func pick(ps []pattern) pattern {
+// intn returns a random number in [0, n).
+func (t *traffic) intn(n int) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.rng.IntN(n)
+}
+
+func (t *traffic) pick(ps []pattern) pattern {
 	total := 0
 	for _, p := range ps {
 		total += p.weight
 	}
-	n := rand.IntN(total) //nolint:gosec // G404: made-up traffic
+	n := t.intn(total)
 	for _, p := range ps {
 		if n -= p.weight; n < 0 {
 			return p
