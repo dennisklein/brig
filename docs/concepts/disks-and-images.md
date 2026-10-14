@@ -25,12 +25,20 @@ gateway.
 - **Data disk.** Everything that must survive lives on a separate disk
   mounted at `/home/agent`: OpenShell's state, the providers' secrets, the
   sandbox images in the VM's Podman and every sandbox's workspace. `brig
-  upgrade` keeps it, `brig delete` deletes it.
+  upgrade` keeps it, `brig delete` deletes it. It is formatted btrfs at
+  first boot, with zstd compression, which shrinks checkouts and
+  `node_modules` at little CPU cost. The root disk stays ext4.
 
 The data disk fills up over time: `df -h /home/agent` in `brig ssh dev` shows
 how full it is, and `brig update dev --data-disk 80GiB` grows it at the next
-boot. After a host crash or disk error, the VM's boot repairs the data disk;
-see [troubleshooting](../troubleshooting.md#files-missing-after-a-crash).
+boot. btrfs shares blocks between copies of a file, so `du` can add up to more
+than the disk holds; `df` and `btrfs filesystem df /home/agent` show the real
+use. After a host crash, btrfs recovers by replaying its log when it mounts the
+disk; see [troubleshooting](../troubleshooting.md#files-missing-after-a-crash).
+
+A VM created before the data disk became btrfs keeps its ext4 disk. brig does
+not convert it: copy out what you need, then `brig delete dev && brig create
+dev`.
 
 ## Sandbox images
 

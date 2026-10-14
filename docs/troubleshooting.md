@@ -47,10 +47,12 @@ and passt silently.
 
 ### Files missing after a crash
 
-**Files in `~` are missing after a host crash or disk error.** The VM's boot
-repaired its data disk and moved what it could not place. Look in
-`/home/agent/lost+found` (`brig ssh dev -- ls -la lost+found`) and in the boot
-log (`brig ssh dev --root -- journalctl -b -u 'systemd-fsck@*'`).
+**Files in `~` are missing after a host crash or disk error.** The data disk
+is btrfs, which replays its log at mount and drops writes that had not
+completed. Files written just before the crash may be missing or empty. The
+boot log shows what the mount found (`brig ssh dev --root -- journalctl -b -k
+| grep -i btrfs`). On a VM from before the btrfs data disk (ext4), the boot
+also repairs the disk: look in `/home/agent/lost+found`.
 
 ## Sandboxes and agents
 
