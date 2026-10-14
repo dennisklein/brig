@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/dennisklein/brig/internal/docs"
 )
 
 func TestHelpIsConsistent(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHelpIsConsistent(t *testing.T) {
 
 func TestParseTopic(t *testing.T) {
 	fsys := fstest.MapFS{
-		"concepts/a.md": {Data: []byte("---\ntitle: A\nsummary: The\n  letter a.\nsee: [b]\n---\nFirst\nparagraph.\n\nSecond.\n")},
+		"concepts/a.md": {Data: []byte("---\ntitle: A\nsummary: The\n  letter a.\nsee: [b]\ndoc: concepts/a.md#the-letter\n---\nFirst\nparagraph.\n\nSecond.\n")},
 		"concepts/b.md": {Data: []byte("---\ntitle: B\nsummary: The letter b.\n---\n")},
 		"tasks/do.md":   {Data: []byte("---\ntitle: Do it\nconcepts: [a]\n---\n1. One\n   more.\n2. Two.\n\nAfter.\n")},
 		"pages.yaml":    {Data: []byte("home:\n  title: Home\n  summary: Start.\n  concepts: [a]\n  tasks: [do]\n  tabs:\n    x: [b]\n")},
@@ -40,6 +42,9 @@ func TestParseTopic(t *testing.T) {
 	a, _ := h.Topic("a")
 	if a.Summary != "The letter a." || len(a.Body) != 2 || a.Body[0].Text != "First paragraph." {
 		t.Errorf("a = %+v", a)
+	}
+	if want := "More in brig's docs:\n  " + docs.URL("concepts/a.md#the-letter") + "\n"; !strings.Contains(h.Text(a), want) {
+		t.Errorf("Text(a) lacks %q:\n%s", want, h.Text(a))
 	}
 	do, _ := h.Topic("do")
 	if do.Kind != Task || len(do.Body) != 2 || len(do.Body[0].Steps) != 2 || do.Body[0].Steps[0] != "One more." || do.Body[1].Text != "After." {
@@ -92,7 +97,7 @@ func TestText(t *testing.T) {
 		}
 	}
 	for _, l := range strings.Split(text, "\n") {
-		if len(l) > width && !strings.HasPrefix(l, "  brig") && !strings.HasPrefix(l, "  secret-tool") {
+		if len(l) > width && !strings.HasPrefix(l, "  brig") && !strings.HasPrefix(l, "  secret-tool") && !strings.HasPrefix(l, "  https://") {
 			t.Errorf("line longer than %d: %q", width, l)
 		}
 	}

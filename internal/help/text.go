@@ -38,6 +38,9 @@ func (h *Help) Text(t *Topic) string {
 	if t.UI != "" {
 		fmt.Fprintf(&b, "\nIn brig ui: %s\n", t.UI)
 	}
+	if t.Doc != "" {
+		fmt.Fprintf(&b, "\nMore in brig's docs:\n  %s\n", t.DocURL())
+	}
 	if see := append(append([]string(nil), t.Concepts...), t.See...); len(see) > 0 {
 		b.WriteString("\nSee also:\n")
 		for _, id := range see {

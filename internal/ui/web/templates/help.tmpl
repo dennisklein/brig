@@ -48,6 +48,7 @@
 {{with .UI}}<div><h4>In brig ui</h4><a href="{{.}}">Open the page</a></div>{{end}}
 {{with .Concepts}}<div><h4>Words</h4><div class="hp-chips">{{range .}}{{template "help-chip" .}}{{end}}</div></div>{{end}}
 {{with .See}}<div><h4>Related</h4><div class="hp-chips">{{range .}}{{template "help-chip" .}}{{end}}</div></div>{{end}}
+{{if .Doc}}<p class="hp-more"><a href="{{.DocURL}}" target="_blank" rel="noopener noreferrer">More in brig's docs ↗</a></p>{{end}}
 <p class="hp-src">In a terminal: <code>brig help {{.ID}}</code></p>
 {{end}}
 {{with .Action}}
