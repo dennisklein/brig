@@ -74,8 +74,9 @@ one repository.
 ## Next
 
 - [Agents](../how-to/agents.md) explains the files `brig agent init` wrote and
-  how to change them; run `brig agent build dev NAME` after each change.
+  how to change them; run `brig agent build dev NAME` after each change, then
+  `brig agent update dev NAME` to move the agent's sandboxes to the new image.
 - [Daily workflow](../how-to/daily-workflow.md): start of day, during, end.
 - [Unblock an agent](../how-to/unblock.md) when a request is denied.
-- [Keep agent state](../how-to/keep-agent-state.md) before you delete a
-  sandbox.
+- [Keep agent state](../how-to/keep-agent-state.md) and move it to new
+  images.

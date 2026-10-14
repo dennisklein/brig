@@ -143,9 +143,9 @@ configuration and the docs against what brig relies on:
   not stream them; see whether `WatchSandbox` sends `DraftPolicyUpdate` now.
 - **Sandbox workspaces and replacement**: OpenShell cannot change a sandbox's
   image, so moving a sandbox to a new image means recreating it, which loses
-  `/sandbox` (`docs/how-to/keep-agent-state.md`). brig's planned sandbox
-  snapshots and recreate keep it by copying the Podman driver's workspace
-  volume, and so will depend on the driver's internals. Check `git diff PREV
+  `/sandbox`. brig's sandbox snapshots and recreate (`internal/guest/snapshot.go`,
+  `internal/cli/recreate.go`) keep it by copying the Podman driver's workspace
+  volume, and so depend on the driver's internals. Check `git diff PREV
   TAG -- crates/openshell-driver-podman proto/openshell.proto` and the release
   notes for changes to what that relies on: the volume name
   `openshell-sandbox-<id>-workspace` (`volume_name` in `src/container.rs`),

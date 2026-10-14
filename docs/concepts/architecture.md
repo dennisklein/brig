@@ -16,7 +16,7 @@ flowchart LR
   subgraph vm["brig VM dev"]
     direction TB
     gateway["OpenShell gateway<br/>profiles, policies, templates<br/>providers hold the secrets"]
-    vmpodman["Podman, rootless<br/>images, sandboxes,<br/>workspace volumes"]
+    vmpodman["Podman, rootless<br/>images, sandboxes,<br/>workspace volumes, snapshots"]
     subgraph sandbox["Sandbox webapp"]
       direction TB
       agent["Agent container<br/>Pi or Claude Code<br/>writes only /sandbox, /tmp<br/>GH_TOKEN is a placeholder"]

@@ -5,7 +5,7 @@ The VM's base image and the sandbox image move independently:
 | Image | Contains | Rebuild | Roll out | Existing sandboxes |
 | --- | --- | --- | --- | --- |
 | VM base image | Fedora, OpenShell gateway, Podman | `brig image build` | `brig upgrade dev` | kept, with their workspaces |
-| Sandbox image | Pi and your kit, or Claude Code and your skills; gh, glab, git | `podman build --pull` | `brig image push dev IMAGE` | keep their old image until recreated |
+| Sandbox image | Pi and your kit, or Claude Code and your skills; gh, glab, git | `podman build --pull` | `brig image push dev IMAGE` | kept until `brig agent update` moves them |
 | OpenShell CLI on the host | `openshell` | `sudo dnf upgrade openshell` | immediate | unaffected |
 
 ## VM and OpenShell
@@ -19,7 +19,9 @@ Upgrade in this order:
    not answer, or on Ctrl-C. The data disk, and with it every provider, template, image and
    workspace, stays. If OpenShell's minor version changes, brig refuses
    without `--allow-minor`: read the release notes first, since sandboxes may need
-   to be recreated and the profile or policy schema may have changed.
+   to be recreated and the profile or policy schema may have changed. With
+   `--allow-minor`, brig takes a [snapshot](keep-agent-state.md#snapshots) of
+   every sandbox before it stops the VM.
 3. `sudo dnf upgrade openshell` on the host. `brig start` warns when the CLI's
    and the gateway's minor versions differ.
 
@@ -50,9 +52,20 @@ has it already, and deletes and creates the template `pi` for the new tag:
 OpenShell can only create and delete templates. `--no-pull` keeps the base
 image, `--tag` sets the tag.
 
-New sandboxes get the new image. Move an existing one when you are at a good
-point, following the [habits above](keep-agent-state.md#habits-that-make-deletes-safe); nothing
-forces a move.
+New sandboxes get the new image; existing ones keep the old one until you
+move them, when you are at a good point. Check first, then move:
+
+```sh
+brig agent update dev pi --dry-run
+brig agent update dev pi
+```
+
+The dry run names what each move would stop, such as a running agent, and the
+policy rules a sandbox has that its policy file lacks; the sandbox keeps them.
+Each sandbox is recreated on the new image with its `/sandbox` and keeps a
+[snapshot](keep-agent-state.md#snapshots) from before the move. If a step
+fails, brig puts the sandbox back as it was. `brig sandbox recreate dev webapp
+--image REF` moves one sandbox to any image.
 
 Old images stay in the VM until you remove them, in `brig ssh dev`: `podman
 images`, then `podman rmi localhost/pi-agent:OLD` for tags no sandbox uses.
