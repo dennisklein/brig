@@ -35,6 +35,21 @@ manager, or user namespaces turned off, and prints passt's and pasta's log.
 `sudo ausearch -m AVC -ts recent` shows SELinux denials, which also end pasta
 and passt silently.
 
+### Fence 2 counts drops only
+
+`brig doctor`'s *fence 2 audit* check, `brig audit status` and the Host page
+of brig ui say whether the audit trail records what a VM's network profile
+drops with addresses (`itemised`), as counts only, or not at all (`off`), and
+why. Counts only usually means that the kernel's logging modules are not
+loaded:
+
+```sh
+sudo modprobe -a nft_log nfnetlink_log
+printf 'nft_log\nnfnetlink_log\n' | sudo tee /etc/modules-load.d/brig.conf
+```
+
+The change applies when a VM next starts. The VM's network works either way.
+
 ## VM and gateway
 
 | Symptom | Likely cause | Fix |
@@ -45,7 +60,7 @@ and passt silently.
 | `--driver-config-json` is rejected | The VM was last started by an older brig, so its gateway still has driver config off | `brig stop dev && brig start dev` |
 | Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --allow-minor` after reading the release notes, or `sudo dnf downgrade openshell` |
 | `brig start` gets no SSH connection; `brig console dev` shows emergency mode and a failed mount of `/home/agent` | brig 0.6 or earlier created the VM, with an ext4 data disk; newer brig mounts only btrfs | Copy out your data with brig 0.6, then delete and create the VM; see [disks](concepts/disks-and-images.md#disks) |
-| A host on the LAN or on this host is unreachable, though the policy allows it | The VM's network profile, fence 2, blocks it | `brig show dev`, then `brig update dev --profile NAME` and restart the VM; see [network profiles](reference/network-profiles.md) |
+| A host on the LAN or on this host is unreachable, though the policy allows it | The VM's network profile, fence 2, blocks it | `brig audit dev --kind drop` names the setting, then `brig update dev --profile NAME` and restart the VM; see [network profiles](reference/network-profiles.md) |
 
 ### Files missing after a crash
 

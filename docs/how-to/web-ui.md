@@ -36,8 +36,13 @@ the reason it was denied; a line brig ui cannot read shows as it came, and URL
 queries are cut, since they may hold tokens. Denials of the last hour show on
 the Overview, under Needs you and on the sandbox's Traffic tab. Topology draws
 the path from this host through each gateway and sandbox to the providers'
-endpoints and the hosts sandboxes reached or were denied. Drops by a VM's
-network profile are not logged yet.
+endpoints and the hosts sandboxes reached or were denied.
+
+Traffic also shows what each VM's network profile, fence 2, dropped, with a
+fence 2 badge: a drop belongs to the VM, so a sandbox's own table leaves it
+out. An allowed request that fence 2 likely dropped says so, with the setting;
+**Profile…** opens the VM's network profile with one that lets it through
+picked, and shows the `brig update --profile` it runs.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../images/traffic-dark.png">

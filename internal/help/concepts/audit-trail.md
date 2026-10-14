@@ -1,6 +1,6 @@
 ---
 title: "Audit trail"
-summary: "brig's own history of each VM: every request allowed or denied, policy revisions and who made them, drafts, sandboxes and brig commands."
+summary: "brig's own history of each VM: every request allowed or denied, drops at fence 2, policy revisions and who made them, drafts, sandboxes and brig commands."
 aliases: ["history", "audit log", "collector", "journal", "retention", "prune"]
 see: [verdict, draft, policies, activity]
 commands:

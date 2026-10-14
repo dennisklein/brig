@@ -91,7 +91,8 @@ A request leaves only if both fences allow it:
   enforced outside the VM, so even root in the VM cannot lift it: each VM's
   passt runs in a private network namespace, connected to the host by pasta,
   whose nftables rules brig sets up without root privileges. A change applies
-  when the VM next starts.
+  when the VM next starts. What it drops goes into the [audit
+  trail](audit-trail.md#drops-at-fence-2).
 
 [Network profiles](../reference/network-profiles.md) lists the built-in
 profiles, and [configuration](../reference/config.md) how to add your own.
