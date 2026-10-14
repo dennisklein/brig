@@ -7,6 +7,7 @@ commands:
   - "brig sandbox create dev --connect"
   - "brig sandbox connect dev webapp"
 ui: "/sandboxes"
+doc: "concepts/architecture.md#sandbox"
 ---
 A sandbox runs an image or a template, under a policy. Attached providers give
 it credentials it only ever sees as placeholders.

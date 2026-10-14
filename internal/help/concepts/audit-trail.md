@@ -8,6 +8,7 @@ commands:
   - "brig audit dev webapp --summary"
   - "brig audit status"
 ui: "/host"
+doc: "concepts/audit-trail.md"
 ---
 While a VM runs, a collector on the host, the user unit brig-audit-VM, writes
 it to files outside the VM, so the history stays after a sandbox or the VM is

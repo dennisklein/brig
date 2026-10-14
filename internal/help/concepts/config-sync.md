@@ -6,6 +6,7 @@ see: [config-dir, provider]
 commands:
   - "brig sync dev --dry-run"
   - "brig sync dev"
+doc: "concepts/openshell-config.md#what-a-sync-does"
 ---
 Preview it with --dry-run: it lists what would change and where each secret may
 be sent. A sync deletes nothing unless you pass --prune.

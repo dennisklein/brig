@@ -5,6 +5,7 @@ aliases: ["mount", "virtiofs", "share"]
 see: [sandbox-volume]
 commands:
   - "brig update dev --add-mount ~/src/kit:/srv/kit:ro"
+doc: "how-to/share-directories.md#into-the-vm"
 ---
 In the VM, user agent owns what you own on the host, and what it writes is
 yours.

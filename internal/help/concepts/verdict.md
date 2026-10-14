@@ -4,6 +4,7 @@ summary: "ALLOW means a rule let the request through. DENY means none did, and t
 aliases: ["allow", "deny", "policy_denied"]
 see: [fence-1, audit-mode, draft, audit-trail]
 ui: "/traffic"
+doc: "how-to/unblock.md#see-what-was-denied"
 ---
 The rule or reason column says which rule matched, or why the request was
 denied.

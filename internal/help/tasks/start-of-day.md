@@ -5,6 +5,7 @@ commands:
   - "brig up dev"
 show:
   href: "/"
+doc: "how-to/daily-workflow.md#start-of-day"
 ---
 1. Start the VM. Its gateway registers again and its config directories sync.
 2. Look at Needs you, and at drafted rules waiting in a sandbox's Traffic tab.

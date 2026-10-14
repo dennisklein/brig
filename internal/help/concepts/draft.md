@@ -5,6 +5,7 @@ aliases: ["drafts", "approve", "reject"]
 see: [fence-1, policy-file]
 commands:
   - "brig policy allow dev webapp HOST --draft ID"
+doc: "how-to/unblock.md#allow-it-for-this-sandbox"
 ---
 Drafts name the program's full path and the endpoints it tried. OpenShell
 checks whether a draft opens a new way for data to leave.

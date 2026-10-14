@@ -4,9 +4,13 @@
 package help
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"unicode"
 
 	"github.com/dennisklein/brig/internal/docs"
 )
@@ -91,7 +95,7 @@ func TestText(t *testing.T) {
 		t.Fatal("no fence-2")
 	}
 	text := h.Text(f2)
-	for _, want := range []string{"Fence 2, the network profile\n\n  The VM's network profile", "In a terminal:\n  brig update dev --profile default", "brig help fence-1"} {
+	for _, want := range []string{"Fence 2, the network profile\n\n  The VM's network profile", "In a terminal:\n  brig update dev --profile default", "brig help fence-1", "More in brig's docs:\n  https://"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("Text(fence-2) lacks %q:\n%s", want, text)
 		}
@@ -104,4 +108,56 @@ func TestText(t *testing.T) {
 	if !strings.Contains(h.Index(), "fence-2") {
 		t.Error("Index lacks fence-2")
 	}
+}
+
+// TestDocsExist checks that every topic links to a page of brig's docs, and
+// that the page and its heading exist.
+func TestDocsExist(t *testing.T) {
+	h, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []Kind{Concept, Task} {
+		for _, tp := range h.Topics(k) {
+			if tp.Doc == "" {
+				t.Errorf("%s %s: it needs a doc", k, tp.ID)
+				continue
+			}
+			page, heading, _ := strings.Cut(tp.Doc, "#")
+			data, err := os.ReadFile(filepath.Join("../../docs", page))
+			if err != nil {
+				t.Errorf("%s %s: %v", k, tp.ID, err)
+				continue
+			}
+			if heading != "" && !slices.Contains(headings(string(data)), heading) {
+				t.Errorf("%s %s: %s has no heading #%s", k, tp.ID, page, heading)
+			}
+		}
+	}
+}
+
+// headings returns the anchors that GitHub gives the headings of a
+// Markdown page, outside code blocks.
+func headings(md string) []string {
+	var out []string
+	inCode := false
+	for _, l := range strings.Split(md, "\n") {
+		if strings.HasPrefix(l, "```") {
+			inCode = !inCode
+		}
+		if inCode || !strings.HasPrefix(l, "#") {
+			continue
+		}
+		var b strings.Builder
+		for _, r := range strings.ToLower(strings.TrimSpace(strings.TrimLeft(l, "#"))) {
+			switch {
+			case r == ' ':
+				b.WriteRune('-')
+			case r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r):
+				b.WriteRune(r)
+			}
+		}
+		out = append(out, b.String())
+	}
+	return out
 }

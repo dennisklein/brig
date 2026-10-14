@@ -7,6 +7,7 @@ commands:
   - "brig image build"
   - "brig upgrade dev"
 ui: "/images"
+doc: "concepts/disks-and-images.md#base-images"
 ---
 Upgrade moves a VM onto the newest base image and keeps its data disk. If the
 gateway does not answer afterwards, brig rolls back.

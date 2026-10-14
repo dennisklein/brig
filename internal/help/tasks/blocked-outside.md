@@ -7,6 +7,7 @@ commands:
 show:
   href: "/vms"
   action: profile
+doc: "how-to/unblock.md#when-the-policy-allows-it"
 ---
 1. Open the VM, then Network. Fence 2 blocks for the whole VM, outside it, and
    its drops are not logged.

@@ -7,6 +7,7 @@ commands:
 show:
   href: "/images"
   action: image-build
+doc: "how-to/upgrade.md#vm-and-openshell"
 ---
 1. Build a base image if Images has none newer than the VM's.
 2. Open the VM and press Upgrade. The data disk stays; the root disk is

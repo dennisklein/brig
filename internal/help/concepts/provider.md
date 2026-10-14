@@ -8,6 +8,7 @@ commands:
   - "brig secret set dev github"
   - "brig sync dev"
 ui: "/gateway?tab=providers"
+doc: "concepts/openshell-config.md#providers-and-sandboxes"
 ---
 Providers come from your config directories on sync, with their secrets read
 from your keyring or a BRIG_SECRET_ variable, or are created by hand with openshell provider create.

@@ -6,6 +6,7 @@ see: [gateway, sandboxes]
 commands:
   - "brig use dev -w team"
   - "brig sandbox list dev"
+doc: "concepts/workspaces.md"
 ---
 Commands that work in one take -w. `brig use dev -w team` makes team the
 default for that shell, also for plain openshell commands.

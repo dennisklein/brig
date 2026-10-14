@@ -5,6 +5,7 @@ aliases: ["volume"]
 see: [mount, sandboxes]
 commands:
   - "brig sandbox create dev --mount ~/src/kit:/usr/local/share/kit -- --name kit"
+doc: "how-to/share-directories.md#into-a-sandbox"
 ---
 `brig sandbox create --mount` does both steps: it gives the VM the mount if it
 lacks it, then creates the sandbox with the volume attached.

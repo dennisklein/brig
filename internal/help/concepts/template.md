@@ -6,4 +6,5 @@ see: [sandbox-image, sandboxes]
 commands:
   - "openshell sandbox template list"
 ui: "/gateway?tab=templates"
+doc: "how-to/agents.md#start-it"
 ---
