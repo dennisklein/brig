@@ -103,6 +103,14 @@ func (a *auth) middleware(next http.Handler) http.Handler {
 			forbidden(w, "")
 			return
 		}
+		// The session cookie goes also to pages on other ports of
+		// 127.0.0.1, which count as the same site. A browser says where a
+		// request comes from, so only own pages and plain navigations get
+		// through.
+		if !fetchAllowed(r) {
+			forbidden(w, "The request came from another page.")
+			return
+		}
 		if !safeMethod(r.Method) {
 			if r.Header.Get("Origin") != "http://"+r.Host {
 				forbidden(w, "The request came from another site.")
@@ -115,6 +123,28 @@ func (a *auth) middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(withCSRF(r.Context(), csrf)))
 	})
+}
+
+// fetchAllowed reports whether the browser's fetch metadata lets in r: its
+// request starts at one of our own pages, or is a navigation of the whole
+// page, as when the user follows a link. A request without the metadata
+// does not come from a browser that supports it, or is no attack through
+// one, so it passes.
+func fetchAllowed(r *http.Request) bool {
+	site := r.Header.Get("Sec-Fetch-Site")
+	if site == "" || site == "same-origin" || site == "none" {
+		return true
+	}
+	return safeMethod(r.Method) && r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document"
+}
+
+// sameOriginFetch reports whether r starts at one of our own pages, as the
+// requests of the live parts of a page do. It is stricter than fetchAllowed
+// and guards the requests that do work, so that no navigation from another
+// page starts it.
+func sameOriginFetch(r *http.Request) bool {
+	site := r.Header.Get("Sec-Fetch-Site")
+	return site == "" || site == "same-origin"
 }
 
 // safeMethod reports whether requests of method m never change state.

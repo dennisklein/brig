@@ -392,3 +392,56 @@ func TestWriteEvent(t *testing.T) {
 		t.Errorf("got %q\nwant %q", b.String(), want)
 	}
 }
+
+// A GET changes nothing: the first visit to the host page does not start
+// the checks, it asks for them with a POST.
+func TestHostGetStartsNoCheck(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	snap := ts.st.Snapshot()
+	if snap.Doctor != nil {
+		t.Fatal("the test store holds a host check already")
+	}
+	body := ts.get("/host").Body.String()
+	if !strings.Contains(body, `hx-post="/host/check"`) || !strings.Contains(body, `hx-trigger="load"`) {
+		t.Errorf("the empty host page does not ask for the checks:\n%s", body)
+	}
+	if ts.srv.checking.Load() || ts.checks.Load() != 0 || ts.st.Snapshot().Doctor != nil {
+		t.Error("GET /host started the host checks")
+	}
+}
+
+// The cookie also goes to pages on other ports of 127.0.0.1. A browser
+// marks such requests, and they get no further than a plain navigation.
+func TestFetchMetadata(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	for _, c := range []struct {
+		name, method, target, site, mode, dest string
+		want                                   int
+	}{
+		{"no metadata", "GET", "/vms", "", "", "", http.StatusOK},
+		{"own page", "GET", "/vms", "same-origin", "cors", "empty", http.StatusOK},
+		{"typed address", "GET", "/vms", "none", "navigate", "document", http.StatusOK},
+		{"link from another port", "GET", "/vms", "same-site", "navigate", "document", http.StatusOK},
+		{"link from another site", "GET", "/vms", "cross-site", "navigate", "document", http.StatusOK},
+		{"image of another port", "GET", "/vms", "same-site", "no-cors", "image", http.StatusForbidden},
+		{"fetch of another site", "GET", "/vms", "cross-site", "cors", "empty", http.StatusForbidden},
+		{"form post of another port", "POST", "/host/check", "same-site", "navigate", "document", http.StatusForbidden},
+		{"files by link", "GET", "/sandboxes/dev/default/webapp/files?path=/sandbox", "same-site", "navigate", "document", http.StatusForbidden},
+		{"files of own page", "GET", "/sandboxes/dev/default/webapp/files?path=/sandbox", "same-origin", "cors", "empty", http.StatusOK},
+	} {
+		r := request(c.method, c.target)
+		r.AddCookie(ts.cookie)
+		r.Header.Set("Origin", "http://127.0.0.1:7878")
+		r.Header.Set(csrfHeader, ts.csrf)
+		for k, v := range map[string]string{"Sec-Fetch-Site": c.site, "Sec-Fetch-Mode": c.mode, "Sec-Fetch-Dest": c.dest} {
+			if v != "" {
+				r.Header.Set(k, v)
+			}
+		}
+		if got := ts.do(r).Code; got != c.want {
+			t.Errorf("%s: %d, want %d", c.name, got, c.want)
+		}
+	}
+}
