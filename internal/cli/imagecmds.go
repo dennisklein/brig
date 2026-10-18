@@ -319,7 +319,10 @@ func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, cmd *cobra.Co
 	save.Stdout, save.Stderr = pw, stderr
 	load := a.sshTarget(v, false).Command(ctx, "podman", "load")
 	load.Stdin = pr
-	load.Stdout, load.Stderr = result, stderr
+	// podman load runs in the VM, which must not reach the terminal.
+	loadOut, loadErrOut := newEscWriter(result), newEscWriter(stderr)
+	defer func() { _, _ = loadOut.Close(), loadErrOut.Close() }()
+	load.Stdout, load.Stderr = loadOut, loadErrOut
 	if err = save.Start(); err != nil {
 		err = fmt.Errorf("podman save %s: %w (is podman installed?)", ref, err)
 	} else if err = load.Start(); err != nil {
