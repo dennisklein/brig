@@ -10,10 +10,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
@@ -314,6 +316,62 @@ func TestTrafficRows(t *testing.T) {
 	}
 }
 
+// After a watch lost its place, older lines follow newer ones. The counts
+// of denials look at every line.
+func TestDenialsOutOfOrder(t *testing.T) {
+	now := time.Now()
+	sn := store.Snapshot{Traffic: []store.Traffic{{VM: "dev", Requests: []store.Request{
+		{Seq: 1, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-5 * time.Minute), Verdict: "deny", Host: "a.example", Port: 443},
+		{Seq: 2, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-3 * time.Hour), Verdict: "deny", Host: "old.example", Port: 443},
+		{Seq: 3, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "deny", Host: "b.example", Port: 443},
+		{Seq: 4, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-2 * time.Minute), Verdict: "deny", Host: "c.example", Port: 443},
+	}}}}
+	if n := denialCount(sn, "dev", "default", "webapp", now.Add(-time.Hour)); n != 3 {
+		t.Errorf("%d denials in the last hour, want 3", n)
+	}
+	if got := oldestShown(sn, trafficQuery{}); !got.Equal(now.Add(-3 * time.Hour)) {
+		t.Errorf("oldest shown %v", got)
+	}
+	needs := trafficNeeds(sn)
+	if len(needs) != 1 || !strings.HasPrefix(needs[0].Title, "3 denied requests") || !strings.Contains(needs[0].Detail, "b.example") {
+		t.Errorf("needs: %+v", needs)
+	}
+}
+
+// The History tab lists the newest records and the most denied endpoints,
+// and says how many more there are.
+func TestHistoryLimits(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	now := time.Now()
+	var recs audit.Records
+	for i := range historyMaxRecords + 50 {
+		recs = append(recs, audit.Record{
+			V: audit.Version, T: now.Add(time.Duration(i-1000) * time.Second), VM: "dev", Workspace: "default", Sandbox: "big",
+			Kind: audit.KindDraft, Chunk: "c-" + strconv.Itoa(i), Status: "pending", Rule: "r" + strconv.Itoa(i),
+		})
+	}
+	for i := range historyMaxReach + 30 {
+		recs = append(recs, audit.Record{
+			V: audit.Version, T: now.Add(-time.Hour), VM: "dev", Workspace: "default", Sandbox: "big", Kind: audit.KindRequest,
+			Verdict: audit.VerdictDeny, Host: "h" + strconv.Itoa(i) + ".example", Port: 443,
+		})
+	}
+	ts.srv.history = recs
+	body := ts.get("/sandboxes/dev/default/big/history").Body.String()
+	for _, want := range []string{"50 older changes are not shown", "30 more endpoints are not shown", "c-" + strconv.Itoa(historyMaxRecords+49)} {
+		if !strings.Contains(body, want) {
+			t.Errorf("history lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "c-0<") || strings.Contains(body, ">c-0 ") {
+		t.Error("the oldest record is listed")
+	}
+	if n := strings.Count(body, "<tr>"); n > historyMaxRecords+historyMaxReach+8 {
+		t.Errorf("%d rows", n)
+	}
+}
+
 // Many requests of a sandbox to one endpoint make one edge.
 func TestTopologyEdges(t *testing.T) {
 	ts := newTestServer(t)
@@ -338,27 +396,5 @@ func TestTopologyEdges(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("%d edges to the endpoint, want 1", n)
-	}
-}
-
-// After a watch lost its place, older lines follow newer ones. The counts
-// of denials look at every line.
-func TestDenialsOutOfOrder(t *testing.T) {
-	now := time.Now()
-	sn := store.Snapshot{Traffic: []store.Traffic{{VM: "dev", Requests: []store.Request{
-		{Seq: 1, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-5 * time.Minute), Verdict: "deny", Host: "a.example", Port: 443},
-		{Seq: 2, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-3 * time.Hour), Verdict: "deny", Host: "old.example", Port: 443},
-		{Seq: 3, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "deny", Host: "b.example", Port: 443},
-		{Seq: 4, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-2 * time.Minute), Verdict: "deny", Host: "c.example", Port: 443},
-	}}}}
-	if n := denialCount(sn, "dev", "default", "webapp", now.Add(-time.Hour)); n != 3 {
-		t.Errorf("%d denials in the last hour, want 3", n)
-	}
-	if got := oldestShown(sn, trafficQuery{}); !got.Equal(now.Add(-3 * time.Hour)) {
-		t.Errorf("oldest shown %v", got)
-	}
-	needs := trafficNeeds(sn)
-	if len(needs) != 1 || !strings.HasPrefix(needs[0].Title, "3 denied requests") || !strings.Contains(needs[0].Detail, "b.example") {
-		t.Errorf("needs: %+v", needs)
 	}
 }

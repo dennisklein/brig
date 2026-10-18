@@ -43,11 +43,13 @@
 <div class="tw"><table><thead><tr><th>Time</th><th>Kind</th><th>What</th></tr></thead><tbody>
 {{range .Records}}<tr><td class="mono small"><span title="{{stamp .T}}">{{stamp .T}}</span></td><td><span class="chip">{{.Kind}}</span></td><td class="small">{{describe .}}</td></tr>
 {{else}}<tr><td colspan="3" class="empty">The audit trail holds no changes of {{.Name}}.</td></tr>{{end}}
+{{if .MoreRecords}}<tr><td colspan="3" class="empty">{{.MoreRecords}} older changes are not shown. brig audit shows all of them.</td></tr>{{end}}
 </tbody></table></div></section>
 <section class="panel gap-above"><div class="ph"><h2>Reached</h2><span class="faint small">Endpoints in the last {{.ReachDays}} days</span></div>
 <div class="tw"><table><thead><tr><th>Endpoint</th><th class="num">Allowed</th><th class="num">Denied</th><th>Programs</th><th>Rules</th><th>Last</th></tr></thead><tbody>
 {{range .Reach}}<tr><td class="mono small">{{.Endpoint}}</td><td class="num">{{.Allowed}}</td><td class="num">{{if .Denied}}<span class="verdict deny">{{.Denied}}</span>{{else}}0{{end}}</td><td class="mono small">{{range $i, $b := .Binaries}}{{if $i}}, {{end}}{{$b}}{{end}}</td><td class="mono small">{{range $i, $r := .Rules}}{{if $i}}, {{end}}{{$r}}{{end}}</td><td class="small"><span title="{{stamp .Last}}">{{rel .Last}}</span></td></tr>
 {{else}}<tr><td colspan="6" class="empty">No requests of {{.Name}} in the last {{.ReachDays}} days.</td></tr>{{end}}
+{{if .MoreReach}}<tr><td colspan="6" class="empty">{{.MoreReach}} more endpoints are not shown. brig audit shows all of them.</td></tr>{{end}}
 </tbody></table></div></section>
 <div class="stack gap-above">{{template "cmd" (cmd "The whole history from your terminal" (printf "brig audit %s %s -w %s --since all" .VMName .Name .Workspace))}}</div>
 {{end}}
