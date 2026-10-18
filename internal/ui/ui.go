@@ -116,10 +116,14 @@ func Run(ctx context.Context, o Options) error {
 	url := "http://" + addr + "/?token=" + token
 
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	st := store.New()
 	var wg sync.WaitGroup
-	defer wg.Wait()
+	// The goroutines end with ctx, so cancel comes before the wait. This
+	// holds on every return, the failing ones too.
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
 	goRun := func(f func()) {
 		wg.Add(1)
 		go func() { defer wg.Done(); f() }()
@@ -185,6 +189,7 @@ func Run(ctx context.Context, o Options) error {
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: token, Port: port, Demo: o.Demo, Home: home,
 		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, History: history, Log: log,
+		Go: goRun,
 	})
 	if err != nil {
 		return err
