@@ -250,6 +250,8 @@ func TestSigningKeyRotation(t *testing.T) {
 	first := keys()
 	if out, err := run("--next"); err != nil {
 		t.Fatalf("--next: %v\n%s", err, out)
+	} else if !strings.Contains(out, "Tag a brig release") {
+		t.Errorf("--next output does not ask for a brig release:\n%s", out)
 	}
 	both := keys()
 	if len(first) != 1 || len(both) != 2 || both[0] != first[0] {

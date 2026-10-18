@@ -27,14 +27,19 @@
 #
 # RPM-GPG-KEY-brig lists every key that clients trust, and publish.sh signs
 # with one of them, re-signing the packages it restores that another listed
-# key signed. A planned rotation therefore takes three steps, each committed
-# with a new brig-release Version, so that clients get the new key from a
-# package signed by one they trust:
+# key signed. brig embeds the file and checks the packages it installs into
+# VM images against it, so a brig release that lacks the new key cannot
+# build images from packages signed with it. A planned rotation therefore
+# takes four steps:
 # 1. --next generates a key, adds it to RPM-GPG-KEY-brig and backs it up as
-#    above, without signing with it yet.
-# 2. Once clients have updated brig-release, --switch with that backup makes
-#    the next publish sign everything with the new key.
-# 3. After that publish, --retire removes the old key.
+#    above, without signing with it yet. Bump brig-release's Version, commit,
+#    push, and tag a brig release, which embeds both keys.
+# 2. Once clients have updated brig-release and that brig release, --switch
+#    with that backup makes the next publish sign everything with the new
+#    key. Clients with an older brig cannot build images until they update.
+# 3. After that publish, --retire removes the old key. Bump brig-release's
+#    Version, commit, push, and tag a brig release, so that it stops trusting
+#    the old key. Older brig releases keep trusting it.
 #
 # Env: BRIG_SIGNING_UID  key user ID (default: brig package signing <d.klein@gsi.de>)
 #      BRIG_REPO         GitHub repository (default: dennisklein/brig)
@@ -103,7 +108,9 @@ Added key $fpr ($uid) to ${pubkey#"$root"/}; packages are still signed
 with the current key.
 
 - Bump brig-release's Version, then commit and push.
-- Once clients have updated brig-release, run
+- Tag a brig release, so that brig embeds the new key. Without it, brig
+  cannot build images from packages that the new key signs.
+- Once clients have updated brig-release and brig, run
   $0 --switch $backup/$fpr.secret.asc
 - Backups of the secret key and revocation certificate are in $backup.
   Move them to offline storage and delete them from this machine.
@@ -120,8 +127,9 @@ MSG
     cat <<MSG
 
 $secret now holds key $fpr. The next publish signs every package with it,
-re-signing those that another listed key signed. Once it has, retire the
-old key with $0 --retire OLD-FINGERPRINT.
+re-signing those that another listed key signed. A brig release that does
+not embed this key cannot build images from these packages. Once the publish
+has run, retire the old key with $0 --retire OLD-FINGERPRINT.
 MSG
     exit 0 ;;
   --retire)
@@ -142,9 +150,10 @@ MSG
     cat <<MSG
 
 Removed key $2 from ${pubkey#"$root"/}. Bump brig-release's Version,
-then commit and push. publish.sh refuses to publish while $secret still
-holds that key. Clients keep trusting it until they delete it with
-sudo rpmkeys --delete ${id,,}
+then commit and push, and tag a brig release so that brig stops trusting
+the key; earlier brig releases keep trusting it. publish.sh refuses to
+publish while $secret still holds that key. Clients keep trusting it until
+they delete it with sudo rpmkeys --delete ${id,,}
 MSG
     exit 0 ;;
 esac
