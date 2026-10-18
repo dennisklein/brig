@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -132,5 +133,51 @@ fi
 	}
 	if v.Image != "f44-openshell0.1.3-20261008T120000Z" || conn.state != wantState {
 		t.Errorf("image = %s, state = %s after the upgrade", v.Image, conn.state)
+	}
+}
+
+// TestFailedRollbackKeepsTheSnapshot fails the check boot and the restore
+// of the data disk, and checks that the snapshot, the only copy of the data
+// disk from before the upgrade, survives the next start or stop.
+func TestFailedRollbackKeepsTheSnapshot(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	for _, f := range []string{rootDiskFile, dataDiskFile, clientKeyFile + ".pub"} {
+		if err := os.WriteFile(a.vmFile(v, f), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Without pasta on PATH, the network of the check boot does not start.
+	bin := t.TempDir()
+	log, snapshots := filepath.Join(bin, "log"), filepath.Join(bin, "snapshots")
+	qemuImg := `echo "$*" >>` + log + `
+if [ "$1" = snapshot ]; then
+  case "$4" in -c) echo "$5" >` + snapshots + ` ;; -a) exit 1 ;; esac; exit 0
+fi
+if [ "$1" = info ] && [ -s ` + snapshots + ` ]; then
+  read -r name < ` + snapshots + `
+  echo '{"virtual-size": 4294967296, "format": "qcow2", "snapshots": [{"name": "'$name'"}]}'; exit 0
+fi
+` + qemuImgInfo
+	if err := os.WriteFile(filepath.Join(bin, "qemu-img"), []byte("#!/bin/sh\n"+qemuImg+"\n"), 0o700); err != nil { //nolint:gosec // G306: scripts must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	var out bytes.Buffer
+	err := a.upgrade(t.Context(), &fakeDomains{state: libvirt.StateShutoff}, v, "f44-openshell0.1.3-20261008T120000Z", false, &out)
+	if err == nil || !strings.Contains(err.Error(), "rolling back failed too") {
+		t.Fatalf("upgrade: %v\n%s", err, &out)
+	}
+	rec, err := a.vms.Load("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.KeptSnapshots) != 1 || !strings.HasPrefix(rec.KeptSnapshots[0], upgradeSnapshotPrefix) || !slices.Equal(v.KeptSnapshots, rec.KeptSnapshots) {
+		t.Fatalf("kept snapshots %q, in memory %q", rec.KeptSnapshots, v.KeptSnapshots)
+	}
+	a.pruneUpgradeSnapshots(t.Context(), rec)
+	if b, _ := os.ReadFile(log); strings.Contains(string(b), " -d ") {
+		t.Errorf("deleted the kept snapshot:\n%s", b)
 	}
 }

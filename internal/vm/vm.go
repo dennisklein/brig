@@ -47,6 +47,10 @@ type VM struct {
 	// DataDiskReady records that the VM booted with its data disk mounted,
 	// so the disk has a file system and must not be formatted again.
 	DataDiskReady bool `json:"data_disk_ready,omitempty"`
+	// KeptSnapshots are the data disk snapshots of upgrades that failed to
+	// roll back. They may hold the only copy of the data from before the
+	// upgrade, so brig does not delete them.
+	KeptSnapshots []string `json:"kept_snapshots,omitempty"`
 }
 
 // Ports are the host loopback ports forwarded into the VM.

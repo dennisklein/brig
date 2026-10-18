@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -172,8 +173,8 @@ func (a *app) upgrade(ctx context.Context, conn domains, v *vm.VM, id string, ke
 const upgradeSnapshotPrefix = "brig-upgrade-"
 
 // pruneUpgradeSnapshots deletes the snapshots that upgrades left on the data
-// disk of the VM, which must not be running. Failures are ignored: the next
-// stop or start tries again.
+// disk of the VM, which must not be running, except the kept ones. Failures
+// are ignored: the next stop or start tries again.
 func (a *app) pruneUpgradeSnapshots(ctx context.Context, v *vm.VM) {
 	data := a.vmFile(v, dataDiskFile)
 	if _, err := os.Stat(data); err != nil {
@@ -184,7 +185,7 @@ func (a *app) pruneUpgradeSnapshots(ctx context.Context, v *vm.VM) {
 		return
 	}
 	for _, name := range info.Snapshots {
-		if !strings.HasPrefix(name, upgradeSnapshotPrefix) {
+		if !strings.HasPrefix(name, upgradeSnapshotPrefix) || slices.Contains(v.KeptSnapshots, name) {
 			continue
 		}
 		_ = inSpan(ctx, progress.KindStep, "delete the data disk snapshot", func(ctx context.Context) error {
@@ -206,9 +207,18 @@ func (a *app) restartAfter(ctx context.Context, conn domains, v *vm.VM, keepRunn
 }
 
 // rollback puts the VM back onto oldImage, with its old root disk and its
-// data disk as of snapshot. Its errors say what is left to restore by hand.
-func (a *app) rollback(ctx context.Context, conn domains, v *vm.VM, oldImage, snapshot string) error {
+// data disk as of snapshot. Its errors say what is left to restore by hand;
+// until the data disk is restored, they also mark the snapshot kept.
+func (a *app) rollback(ctx context.Context, conn domains, v *vm.VM, oldImage, snapshot string) (err error) {
 	root, prev, data := a.vmFile(v, rootDiskFile), a.vmFile(v, rootDiskFile+".prev"), a.vmFile(v, dataDiskFile)
+	restored := false
+	defer func() {
+		if err != nil && !restored {
+			if kerr := a.keepSnapshot(v, snapshot); kerr != nil {
+				err = fmt.Errorf("%w; marking the snapshot kept failed, so the next start or stop of %s deletes it unless you copy %s first: %w", err, v.Name, data, kerr)
+			}
+		}
+	}()
 	// The record names the new image until the rollback saves it again, and
 	// the domain backs the root disk with the image the record names.
 	kept := fmt.Sprintf("the old root disk is %s, an overlay of image %s, which the VM's record must name again before that disk is used; the data disk keeps the snapshot %s", prev, oldImage, snapshot)
@@ -231,10 +241,28 @@ func (a *app) rollback(ctx context.Context, conn domains, v *vm.VM, oldImage, sn
 	if err := qemuimg.ApplySnapshot(ctx, data, snapshot); err != nil {
 		return fmt.Errorf("%w (the data disk keeps the snapshot %s of its state before the upgrade)", err, snapshot)
 	}
+	restored = true
 	if err := qemuimg.DeleteSnapshot(ctx, data, snapshot); err != nil {
 		return fmt.Errorf("%w (the data disk was restored but keeps the snapshot %s)", err, snapshot)
 	}
 	return a.define(conn, v)
+}
+
+// keepSnapshot marks the data disk snapshot of v kept in v's record, which
+// it reads again: v may differ from the record halfway through a rollback.
+func (a *app) keepSnapshot(v *vm.VM, snapshot string) error {
+	rec, err := a.vms.Load(v.Name)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(rec.KeptSnapshots, snapshot) {
+		rec.KeptSnapshots = append(rec.KeptSnapshots, snapshot)
+	}
+	if err := a.vms.Save(rec); err != nil {
+		return err
+	}
+	v.KeptSnapshots = rec.KeptSnapshots
+	return nil
 }
 
 // snapshotAllSandboxes takes a snapshot of every ready or stopped sandbox
