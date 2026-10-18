@@ -282,6 +282,42 @@ func TestSandboxRunLeavesASandboxCreatedMeanwhileAlone(t *testing.T) {
 	}
 }
 
+// TestSandboxRunDeletesTheSandboxOfAnInterruptedCreate has Ctrl-C kill
+// openshell sandbox create before the gateway stores the sandbox.
+func TestSandboxRunDeletesTheSandboxOfAnInterruptedCreate(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	g := &fakeRunGateway{}
+	fakeRun(t, g)
+	origSettle := createSettle
+	createSettle = 5 * time.Second
+	t.Cleanup(func() { createSettle = origSettle })
+	ctx, cancel := context.WithCancelCause(t.Context())
+	create := runOpenShell
+	runOpenShell = func(ctx context.Context, argv []string, w io.Writer) error {
+		cancel(errors.New("interrupt signal received"))
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			_ = create(ctx, argv, w)
+		}()
+		return context.Canceled
+	}
+	cmd := newRootCmd(&progressRun{})
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"sandbox", "run", "dev", "--template", "pi", "--name", "fix", "--", "true"})
+	var exit exitError
+	if err := cmd.ExecuteContext(ctx); !errors.As(err, &exit) || exit.code != 130 {
+		t.Fatalf("err %v, want exit status 130: %s", err, out.String())
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !slices.Equal(g.deleted, []string{"default/fix"}) {
+		t.Errorf("deleted %q: %s", g.deleted, out.String())
+	}
+}
+
 func TestSandboxRunStdin(t *testing.T) {
 	a := testApp(t)
 	testVM(t, a, "dev")
