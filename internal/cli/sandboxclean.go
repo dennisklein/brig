@@ -27,8 +27,8 @@ func newSandboxCleanCmd() *cobra.Command {
 		Short: "Delete the expired sandboxes that brig sandbox run left",
 		Long: `With --runs, delete the sandboxes of a VM that brig sandbox run kept, or left
 behind when it was killed, once their brig.dev/expires label has passed. A
-run's sandbox expires a day after the run started, or with --timeout, an
-hour past the timeout. -w deletes only those of that workspace;
+run's sandbox expires a day after brig created it, or with --timeout, an
+hour plus the timeout after that. -w deletes only those of that workspace;
 BRIG_WORKSPACE does not narrow it.`,
 		Example: `  brig sandbox clean dev --runs
   brig sandbox clean --runs -o json`,

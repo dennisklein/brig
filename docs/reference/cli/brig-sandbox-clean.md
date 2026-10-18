@@ -14,8 +14,8 @@ brig sandbox clean [VM] --runs
 
 With --runs, delete the sandboxes of a VM that [`brig sandbox run`](brig-sandbox-run.md) kept, or left
 behind when it was killed, once their brig.dev/expires label has passed. A
-run's sandbox expires a day after the run started, or with --timeout, an
-hour past the timeout. -w deletes only those of that workspace;
+run's sandbox expires a day after brig created it, or with --timeout, an
+hour plus the timeout after that. -w deletes only those of that workspace;
 BRIG\_WORKSPACE does not narrow it.
 
 ## Examples
