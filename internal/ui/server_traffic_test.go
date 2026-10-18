@@ -340,3 +340,25 @@ func TestTopologyEdges(t *testing.T) {
 		t.Errorf("%d edges to the endpoint, want 1", n)
 	}
 }
+
+// After a watch lost its place, older lines follow newer ones. The counts
+// of denials look at every line.
+func TestDenialsOutOfOrder(t *testing.T) {
+	now := time.Now()
+	sn := store.Snapshot{Traffic: []store.Traffic{{VM: "dev", Requests: []store.Request{
+		{Seq: 1, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-5 * time.Minute), Verdict: "deny", Host: "a.example", Port: 443},
+		{Seq: 2, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-3 * time.Hour), Verdict: "deny", Host: "old.example", Port: 443},
+		{Seq: 3, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "deny", Host: "b.example", Port: 443},
+		{Seq: 4, VM: "dev", Workspace: "default", Sandbox: "webapp", Time: now.Add(-2 * time.Minute), Verdict: "deny", Host: "c.example", Port: 443},
+	}}}}
+	if n := denialCount(sn, "dev", "default", "webapp", now.Add(-time.Hour)); n != 3 {
+		t.Errorf("%d denials in the last hour, want 3", n)
+	}
+	if got := oldestShown(sn, trafficQuery{}); !got.Equal(now.Add(-3 * time.Hour)) {
+		t.Errorf("oldest shown %v", got)
+	}
+	needs := trafficNeeds(sn)
+	if len(needs) != 1 || !strings.HasPrefix(needs[0].Title, "3 denied requests") || !strings.Contains(needs[0].Detail, "b.example") {
+		t.Errorf("needs: %+v", needs)
+	}
+}

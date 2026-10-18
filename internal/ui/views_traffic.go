@@ -183,8 +183,10 @@ func denialCount(sn store.Snapshot, vm, ws, sandbox string, since time.Time) int
 		if vm != "" && t.VM != vm {
 			continue
 		}
-		for i := len(t.Requests) - 1; i >= 0 && !t.Requests[i].Time.Before(since); i-- {
-			if r := t.Requests[i]; r.Denied() && (sandbox == "" || (r.Workspace == ws && r.Sandbox == sandbox)) {
+		// Requests are in arrival order, not in time order: after a watch
+		// lost its place, older lines follow newer ones.
+		for _, r := range t.Requests {
+			if r.Denied() && !r.Time.Before(since) && (sandbox == "" || (r.Workspace == ws && r.Sandbox == sandbox)) {
 				n++
 			}
 		}
@@ -197,9 +199,12 @@ func denialCount(sn store.Snapshot, vm, ws, sandbox string, since time.Time) int
 func oldestShown(sn store.Snapshot, q trafficQuery) time.Time {
 	var oldest time.Time
 	for _, t := range sn.Traffic {
-		if (q.VM == "" || t.VM == q.VM) && len(t.Requests) > 0 {
-			if first := t.Requests[0].Time; oldest.IsZero() || first.Before(oldest) {
-				oldest = first
+		if q.VM != "" && t.VM != q.VM {
+			continue
+		}
+		for _, r := range t.Requests {
+			if oldest.IsZero() || r.Time.Before(oldest) {
+				oldest = r.Time
 			}
 		}
 	}
@@ -219,13 +224,13 @@ func trafficNeeds(sn store.Snapshot) []need {
 	latest := map[key]store.Request{}
 	since := clock().Add(-recentWindow)
 	for _, t := range sn.Traffic {
-		for i := len(t.Requests) - 1; i >= 0 && !t.Requests[i].Time.Before(since); i-- {
-			r := t.Requests[i]
-			if !r.Denied() {
+		// In arrival order, not in time order, as for denialCount.
+		for _, r := range t.Requests {
+			if !r.Denied() || r.Time.Before(since) {
 				continue
 			}
 			k := key{t.VM, r.Workspace, r.Sandbox}
-			if counts[k] == 0 {
+			if counts[k] == 0 || r.Time.After(latest[k].Time) {
 				latest[k] = r
 			}
 			counts[k]++
