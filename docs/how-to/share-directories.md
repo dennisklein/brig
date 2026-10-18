@@ -22,7 +22,9 @@ later sandboxes; `brig show dev` lists it with its volume, and `brig update
 dev --remove-mount` removes it once no sandbox uses it. [Developing plugins
 without rebuilding](agents.md#developing-plugins-without-rebuilding) shows it
 at work. Mount under `/usr` to keep the directory readable under the default
-policy.
+policy. Sandbox mounts work only in the `default`
+[workspace](../concepts/workspaces.md): the VM offers its sandbox volumes to
+that workspace only, and `brig sandbox create -w team --mount` fails.
 
 In brig ui, open the VM, then Mounts, press Add mount and tick Offer to
 sandboxes; then pick the directory under Host directories when you create the

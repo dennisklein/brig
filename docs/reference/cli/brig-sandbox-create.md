@@ -18,7 +18,8 @@ sandbox. Arguments after -- go to openshell sandbox create as they are.
 Without NAME, the VM is the one that [`brig use`](brig-use.md) selected.
 
 The sandbox is created in workspace W of the gateway (-w), by default the one
-that $BRIG\_WORKSPACE names, else default.
+that $BRIG\_WORKSPACE names, else default. --mount works only in workspace
+default.
 
 A sandbox sees DIR through a read-only sandbox mount of the VM (see [`brig create`](brig-create.md) --help). brig uses the VM's sandbox mount of DIR, or adds one to the
 running VM, at /mnt/\<tag\> in the VM, which stays until [`brig update`](brig-update.md)
