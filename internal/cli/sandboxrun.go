@@ -29,6 +29,7 @@ import (
 
 	"github.com/dennisklein/brig/internal/osclient"
 	"github.com/dennisklein/brig/internal/ui/action"
+	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -55,6 +56,10 @@ var (
 	// denialSettle is how long a run waits after the command, for the log
 	// lines of its last requests.
 	denialSettle = time.Second
+	// createSettle is how long the cleanup of an interrupted run waits for
+	// its sandbox to appear: the gateway may store it after openshell
+	// sandbox create was killed.
+	createSettle = 10 * time.Second
 )
 
 // runGateway is what brig sandbox run and clean do through a gateway's gRPC
@@ -554,6 +559,7 @@ func (a *app) sandboxRun(cmd *cobra.Command, p runPlan, keep string, start bool,
 	// Clean up also after Ctrl-C.
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
+	interrupted := ctx.Err() != nil
 	failed := runErr != nil || r.ExitCode == nil || *r.ExitCode != 0
 	r.Kept = keep == "always" || keep == "failed" && failed
 	stderr := cmd.ErrOrStderr()
@@ -562,14 +568,14 @@ func (a *app) sandboxRun(cmd *cobra.Command, p runPlan, keep string, start bool,
 		// The gateway answers once the sandbox's container is gone, which
 		// can take a minute.
 		fmt.Fprintf(stderr, "Deleting sandbox %s...\n", p.name)
-		if delErr = deleteRun(cctx, gw, p); delErr != nil {
+		if delErr = deleteRun(cctx, gw, p, interrupted); delErr != nil {
 			r.Kept = true
 		}
 	}
 	if r.Kept {
 		// A failed create may have left no sandbox to keep, or found one of
 		// the same name that another command created after the check above.
-		s, err := findSandbox(cctx, v, p.target.workspace, p.name)
+		s, err := findRun(cctx, p, interrupted)
 		r.Kept = exitStatus(err) != exitNotFound && (err != nil || s.Labels[runLabel] == p.id)
 		if !r.Kept {
 			delErr = nil
@@ -675,9 +681,10 @@ func uploadAndExec(ctx context.Context, cmd *cobra.Command, gw runGateway, p run
 }
 
 // deleteRun deletes p's sandbox if it is there and is the run's: a sandbox
-// of the same name that another command created stays.
-func deleteRun(ctx context.Context, gw runGateway, p runPlan) error {
-	s, err := findSandbox(ctx, p.target.vm, p.target.workspace, p.name)
+// of the same name that another command created stays. With settle, it
+// waits for the sandbox as findRun does.
+func deleteRun(ctx context.Context, gw runGateway, p runPlan, settle bool) error {
+	s, err := findRun(ctx, p, settle)
 	switch {
 	case exitStatus(err) == exitNotFound:
 		return nil
@@ -690,6 +697,23 @@ func deleteRun(ctx context.Context, gw runGateway, p runPlan) error {
 		return fmt.Errorf("deleting sandbox %s: %w", p.name, err)
 	}
 	return nil
+}
+
+// findRun finds p's sandbox. With settle, it waits up to createSettle for
+// a sandbox that is not there yet, as after an interrupted create.
+func findRun(ctx context.Context, p runPlan, settle bool) (store.Sandbox, error) {
+	deadline := time.Now().Add(createSettle)
+	for {
+		s, err := findSandbox(ctx, p.target.vm, p.target.workspace, p.name)
+		if !settle || exitStatus(err) != exitNotFound || !time.Now().Before(deadline) {
+			return s, err
+		}
+		select {
+		case <-ctx.Done():
+			return s, err
+		case <-time.After(createSettle / 10):
+		}
+	}
 }
 
 // treeSize returns the size of the regular files at or under p.
