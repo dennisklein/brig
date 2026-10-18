@@ -247,6 +247,41 @@ func TestSandboxRunSaysWhyItCouldNotDelete(t *testing.T) {
 	}
 }
 
+// TestSandboxRunLeavesASandboxCreatedMeanwhileAlone has another command
+// create a sandbox of the run's name after the run found the name free.
+func TestSandboxRunLeavesASandboxCreatedMeanwhileAlone(t *testing.T) {
+	for _, keep := range []string{"never", "failed"} {
+		t.Run(keep, func(t *testing.T) {
+			a := testApp(t)
+			testVM(t, a, "dev")
+			g := &fakeRunGateway{}
+			fakeRun(t, g)
+			var created bool
+			runOpenShell = func(context.Context, []string, io.Writer) error {
+				created = true
+				return errors.New("sandbox fix already exists")
+			}
+			gatewaySandboxes = func(context.Context, *vm.VM) ([]store.Sandbox, error) {
+				if !created {
+					return nil, nil
+				}
+				return []store.Sandbox{{Workspace: "default", Name: "fix", Phase: "Ready", Labels: map[string]string{runLabel: "other"}}}, nil
+			}
+			result := filepath.Join(t.TempDir(), "run.json")
+			out, err := run(t, "sandbox", "run", "dev", "--template", "pi", "--name", "fix", "--keep", keep, "--result", result, "--", "true")
+			if err == nil || !strings.Contains(err.Error(), "already exists") {
+				t.Fatalf("err %v: %s", err, out)
+			}
+			if len(g.deleted) != 0 || strings.Contains(strings.ToLower(out), "delete it with") {
+				t.Errorf("deleted %q: %s", g.deleted, out)
+			}
+			if r := readResult(t, result); r.Kept || strings.Contains(r.Error, "is not this run's") {
+				t.Errorf("result %+v", r)
+			}
+		})
+	}
+}
+
 func TestSandboxRunStdin(t *testing.T) {
 	a := testApp(t)
 	testVM(t, a, "dev")
