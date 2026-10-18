@@ -142,12 +142,22 @@ type historyView struct {
 	// Reach is what it reached in the last ReachDays days.
 	Reach     []audit.Reach
 	ReachDays int
-	Err       string
+	// MoreRecords and MoreReach count the records and endpoints left out
+	// of the lists, which show the newest and the most denied.
+	MoreRecords, MoreReach int
+	Err                    string
 }
 
 // historyReachDays is how far back a History tab sums up what a sandbox
 // reached.
 const historyReachDays = 7
+
+// The most that a History tab lists. A sandbox writes the records and
+// reaches the endpoints, so it sets how many there are.
+const (
+	historyMaxRecords = 200
+	historyMaxReach   = 100
+)
 
 // sandboxHistory renders a sandbox's History tab, for a sandbox that is
 // gone too.
@@ -164,11 +174,28 @@ func (s *Server) sandboxHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := audit.Query{VMs: []string{vmName}, Workspace: ws, Sandbox: name, Kinds: []string{audit.KindPolicy, audit.KindDraft, audit.KindSandbox}}
-	err := s.history.Read(q, func(rec audit.Record) bool { h.Records = append(h.Records, rec); return true })
+	total := 0
+	err := s.history.Read(q, func(rec audit.Record) bool {
+		// Oldest first, so the newest are the last to keep. Dropping the
+		// older half at twice the limit keeps the copying small.
+		total++
+		if h.Records = append(h.Records, rec); len(h.Records) >= 2*historyMaxRecords {
+			h.Records = h.Records[:copy(h.Records, h.Records[len(h.Records)-historyMaxRecords:])]
+		}
+		return true
+	})
 	if err == nil {
+		if len(h.Records) > historyMaxRecords {
+			h.Records = h.Records[len(h.Records)-historyMaxRecords:]
+		}
+		h.MoreRecords = total - len(h.Records)
 		slices.Reverse(h.Records)
 		q.Kinds, q.Since = nil, clock().AddDate(0, 0, -historyReachDays)
 		h.Reach, err = audit.Summarize(s.history, q)
+		if len(h.Reach) > historyMaxReach {
+			h.MoreReach = len(h.Reach) - historyMaxReach
+			h.Reach = h.Reach[:historyMaxReach]
+		}
 	}
 	if err != nil {
 		s.log.Warn("reading the audit trail", "vm", vmName, "workspace", ws, "sandbox", name, "err", err)
