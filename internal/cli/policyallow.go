@@ -68,7 +68,8 @@ By default the rule inspects HTTP requests and allows the methods that
 --access names: read-only (GET, HEAD, OPTIONS), read-write (also POST, PUT,
 PATCH) or full. --l4 allows the whole connection instead, without looking at
 the requests, and --audit only logs what the access level would deny. The rule
-is named allow_HOST_PORT, or --rule says how.
+is named allow_HOST_PORT, such as allow_registry_npmjs_org_443, with ANY for a
+wildcard (allow_ANY_example_com_443 for *.example.com), or --rule says how.
 
 brig refuses a wildcard that stands directly above a top-level domain or
 another public suffix, such as *.com, *.co.uk or *.github.io, and * or **. It

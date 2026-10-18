@@ -103,7 +103,7 @@ func TestPolicyAllowArguments(t *testing.T) {
 		{
 			"a wildcard below a domain",
 			[]string{"dev", "webapp", "*.npmjs.org", "--binary", "/usr/bin/node"},
-			"dev {ws}/webapp add allow_wildcard_npmjs_org_443 *.npmjs.org:443:read-only:rest:enforce for /usr/bin/node by policy-allow", "",
+			"dev {ws}/webapp add allow_ANY_npmjs_org_443 *.npmjs.org:443:read-only:rest:enforce for /usr/bin/node by policy-allow", "",
 		},
 		{"no binary", []string{"dev", "webapp", "pypi.org"}, "", "--binary"},
 		{"relative binary", []string{"dev", "webapp", "pypi.org", "--binary", "pip"}, "", "full path"},
