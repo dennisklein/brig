@@ -13,6 +13,15 @@ import (
 	"unicode/utf8"
 )
 
+// ValidSource reports whether src can be a mount's source. The source
+// reaches libvirt as XML and the VM record as JSON, and both replace what
+// they cannot encode, so virtiofsd would share another path.
+func ValidSource(src string) bool {
+	return utf8.ValidString(src) && !strings.ContainsFunc(src, func(r rune) bool {
+		return unicode.IsControl(r) || r == '\uFFFE' || r == '\uFFFF'
+	})
+}
+
 // ParseMount parses a --mount argument of the form
 //
 //	SOURCE[:TARGET][:OPTIONS]
@@ -33,11 +42,7 @@ func ParseMount(arg string) (Mount, error) {
 	if err != nil {
 		return Mount{}, err
 	}
-	// The source reaches libvirt as XML and the VM record as JSON, and both
-	// replace what they cannot encode, so virtiofsd would share another path.
-	if !utf8.ValidString(src) || strings.ContainsFunc(src, func(r rune) bool {
-		return unicode.IsControl(r) || r == '￾' || r == '￿'
-	}) {
+	if !ValidSource(src) {
 		return Mount{}, fmt.Errorf("invalid mount %q: source must be valid UTF-8 without control characters", arg)
 	}
 	m := Mount{Source: src, ReadOnly: true}

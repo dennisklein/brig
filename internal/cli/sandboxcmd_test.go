@@ -127,6 +127,8 @@ func TestSandboxCreateRejects(t *testing.T) {
 		{[]string{"dev", "-m", "/src:/a:ro"}, "want DIR:TARGET"},
 		{[]string{"dev", "-m", "/src:a"}, "clean absolute path"},
 		{[]string{"dev", "-m", "/src:/"}, "clean absolute path"},
+		{[]string{"dev", "-m", "/src\xff:/a"}, "valid UTF-8"},
+		{[]string{"dev", "-m", "/src\x1b]52;c;:/a"}, "without control characters"},
 		{[]string{"dev", "--", "-g", "brig-web"}, "picks the gateway"},
 		{[]string{"dev", "--", "--gateway=brig-web"}, "picks the gateway"},
 		{[]string{"dev", "--", "--driver-config-json", "{}"}, "sets it from --mount"},

@@ -196,6 +196,9 @@ func parseMount(arg string) (vm.Mount, error) {
 // could otherwise point the mount anywhere.
 func checkMounts(mounts []vm.Mount) error {
 	for _, m := range mounts {
+		if !vm.ValidSource(m.Source) {
+			return fmt.Errorf("mount source %q must be valid UTF-8 without control characters", m.Source)
+		}
 		if fi, err := os.Stat(m.Source); err != nil || !fi.IsDir() {
 			return fmt.Errorf("mount source %s is not a directory", m.Source)
 		}
