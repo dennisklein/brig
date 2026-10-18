@@ -44,7 +44,9 @@ type Server struct {
 	home    string
 	// ctx ends the live update streams when the server stops.
 	ctx context.Context
-	mux *http.ServeMux
+	// goRun starts a goroutine that the owner of the server waits for.
+	goRun func(func())
+	mux   *http.ServeMux
 }
 
 // serverConfig configures a Server.
@@ -66,6 +68,9 @@ type serverConfig struct {
 	// History reads the audit trail; nil reads none.
 	History audit.Reader
 	Log     *slog.Logger
+	// Go starts the goroutines of the server, which end with the context.
+	// Nil starts them without a wait.
+	Go func(func())
 }
 
 func newServer(ctx context.Context, c serverConfig) (*Server, error) {
@@ -85,8 +90,13 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	goRun := c.Go
+	if goRun == nil {
+		goRun = func(f func()) { go f() }
+	}
 	s := &Server{
-		st: c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a, help: h,
+		goRun: goRun,
+		st:    c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a, help: h,
 		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
@@ -272,10 +282,10 @@ func (s *Server) startCheck() {
 	}
 	running.Running = true
 	s.st.SetDoctor(running)
-	go func() {
+	s.goRun(func() {
 		defer s.checking.Store(false)
 		s.checkHost(s.ctx, s.st)
-	}()
+	})
 }
 
 func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
