@@ -95,8 +95,8 @@ func TestBuildAllow(t *testing.T) {
 		{"a whole top-level domain", rule("host", "*.com", "port", "1", "binary", "/bin/sh", "protocol", ""), "", "Host: a wildcard needs a domain", ""},
 		{
 			"a wildcard below a domain", rule("host", "*.npmjs.org"),
-			"brig policy allow dev webapp '*.npmjs.org:443' --workspace default --binary /usr/bin/node --rule allow_wildcard_npmjs_org_443 --access read-only",
-			"", "vm dev workspace default sandbox webapp rule allow_wildcard_npmjs_org_443",
+			"brig policy allow dev webapp '*.npmjs.org:443' --workspace default --binary /usr/bin/node --rule allow_ANY_npmjs_org_443 --access read-only",
+			"", "vm dev workspace default sandbox webapp rule allow_ANY_npmjs_org_443",
 		},
 		{"host with a path", rule("host", "a.example/x"), "", "Host", ""},
 		{"bad port", rule("port", "0"), "", "Port", ""},

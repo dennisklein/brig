@@ -63,26 +63,25 @@ func isPublicSuffix(domain string) bool {
 }
 
 // RuleName returns the key that a rule for host and port gets when the user
-// names none: allow_HOST_PORT, after the host that the rule is for. A
-// wildcard host is named after the domain below its wildcard, with
-// "wildcard" in front, so that *.example.com does not take the name of the
-// rule for example.com or come out as allow__example_com_443.
+// names none: allow_HOST_PORT, after the host that the rule is for, such as
+// allow_registry_npmjs_org_443. The dots of the host become _, a * becomes
+// ANY and a _ becomes U, so that each host and port has a key of its own:
+// a-b.example.com, a.b.example.com and a_b.example.com do not share a rule,
+// nor do *.example.com (allow_ANY_example_com_443) and
+// any.example.com. Host names are in lower case, so the capitals cannot
+// stand for a letter of one.
 func RuleName(host string, port int) string {
-	labels := strings.Split(host, ".")
-	wild := false
-	for i := len(labels) - 1; i >= 0; i-- {
-		if strings.Contains(labels[i], "*") {
-			labels, wild = labels[i+1:], true
-			break
-		}
-	}
 	var b strings.Builder
 	b.WriteString("allow_")
-	if wild {
-		b.WriteString("wildcard_")
-	}
-	for _, r := range strings.NewReplacer(".", "_", "-", "_").Replace(strings.Join(labels, ".")) {
-		if r == '_' || ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9') {
+	for _, r := range host {
+		switch {
+		case r == '.':
+			b.WriteByte('_')
+		case r == '*':
+			b.WriteString("ANY")
+		case r == '_':
+			b.WriteByte('U')
+		case r == '-' || ('a' <= r && r <= 'z') || ('0' <= r && r <= '9'):
 			b.WriteRune(r)
 		}
 	}

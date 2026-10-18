@@ -3,7 +3,10 @@
 
 package policy
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestCheckHost(t *testing.T) {
 	for host, ok := range map[string]bool{
@@ -49,16 +52,42 @@ func TestCheckHost(t *testing.T) {
 func TestRuleName(t *testing.T) {
 	for host, want := range map[string]string{
 		"registry.npmjs.org": "allow_registry_npmjs_org_443",
-		"my-host.example":    "allow_my_host_example_443",
-		"*.example.com":      "allow_wildcard_example_com_443",
-		"**.example.com":     "allow_wildcard_example_com_443",
-		"api-*.example.com":  "allow_wildcard_example_com_443",
-		"*.eu.example.com":   "allow_wildcard_eu_example_com_443",
+		"my-host.example":    "allow_my-host_example_443",
+		"my_host.example":    "allow_myUhost_example_443",
+		"*.example.com":      "allow_ANY_example_com_443",
+		"**.example.com":     "allow_ANYANY_example_com_443",
+		"api-*.example.com":  "allow_api-ANY_example_com_443",
+		"*.eu.example.com":   "allow_ANY_eu_example_com_443",
 		"10.0.2.2":           "allow_10_0_2_2_443",
 	} {
 		if got := RuleName(host, 443); got != want {
 			t.Errorf("RuleName(%q) = %q, want %q", host, got, want)
 		}
+	}
+	// Different hosts and ports get different keys.
+	seen := map[string]string{}
+	for _, hp := range []struct {
+		host string
+		port int
+	}{
+		{"a-b.example.com", 443},
+		{"a.b.example.com", 443},
+		{"a_b.example.com", 443},
+		{"*.example.com", 443},
+		{"any.example.com", 443},
+		{"wildcard.example.com", 443},
+		{"**.example.com", 443},
+		{"api-*.example.com", 443},
+		{"example.com", 443},
+		{"a.example.com", 1443},
+		{"a.example.com_1", 443},
+		{"a.example.com", 443},
+	} {
+		key := RuleName(hp.host, hp.port)
+		if other, ok := seen[key]; ok {
+			t.Errorf("RuleName gives %s to %s:%d and %s", key, hp.host, hp.port, other)
+		}
+		seen[key] = fmt.Sprintf("%s:%d", hp.host, hp.port)
 	}
 }
 
