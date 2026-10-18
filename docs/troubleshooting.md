@@ -41,6 +41,7 @@ and passt silently.
 | --- | --- | --- |
 | `brig sync` says a secret is missing | No keyring entry with exactly those attributes | `brig secret list dev` on the host; `brig secret set dev github` stores it again |
 | `brig start` says it held back a profile change | The change can send a credential already in the gateway elsewhere or in another way | Review with `brig sync dev --dry-run`, then `brig sync dev` |
+| `brig start` says it held back a provider | The provider is new, brig did not create it, or its file looks a credential up elsewhere | Review with `brig sync dev --dry-run`, then `brig sync dev` |
 | `--driver-config-json` is rejected | The VM was last started by an older brig, so its gateway still has driver config off | `brig stop dev && brig start dev` |
 | Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --allow-minor` after reading the release notes, or `sudo dnf downgrade openshell` |
 | `brig start` gets no SSH connection; `brig console dev` shows emergency mode and a failed mount of `/home/agent` | brig 0.6 or earlier created the VM, with an ext4 data disk; newer brig mounts only btrfs | Copy out your data with brig 0.6, then delete and create the VM; see [disks](concepts/disks-and-images.md#disks) |

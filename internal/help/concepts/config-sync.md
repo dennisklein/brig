@@ -12,4 +12,6 @@ Preview it with --dry-run: it lists what would change and where each secret may
 be sent. A sync deletes nothing unless you pass --prune.
 
 brig start syncs too, but holds back a change to a profile whose credential the
-gateway already has, unless it only renames or describes the profile.
+gateway already has, unless it only renames or describes the profile. Once the
+gateway has credentials, it also holds back new providers and credentials
+looked up elsewhere.

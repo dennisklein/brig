@@ -600,6 +600,121 @@ func TestSyncHoldsBackCredentialRoutingChanges(t *testing.T) {
 	}
 }
 
+// countingSecrets serves fakeSecrets and records each lookup.
+type countingSecrets struct {
+	fakeSecrets
+	lookups []string
+}
+
+func (s *countingSecrets) Lookup(ctx context.Context, attrs []string) (string, error) {
+	s.lookups = append(s.lookups, strings.Join(attrs, " "))
+	return s.fakeSecrets.Lookup(ctx, attrs)
+}
+
+func TestSyncHoldsBackNewProvidersOnceCredentialsAreHeld(t *testing.T) {
+	dir := twoWorkspaceDir(t)
+	gw, st := newFakeGateway(), &State{}
+	sec := &countingSecrets{fakeSecrets: fakeSecrets{"service github.com user alice": "tok", "service other": "tok2"}}
+	start := Options{HoldNewEndpoints: true, HoldNewProviders: true}
+
+	// The first sync of a gateway creates the providers of every workspace.
+	if _, calls, err := syncDir(t, dir, gw, sec, st, start); err != nil || !slices.Contains(calls, "team: create github github map[GH_TOKEN:tok]") {
+		t.Fatalf("first start: calls %q, %v", calls, err)
+	}
+
+	// A new provider pairs the token that the gateway holds with a new
+	// profile, in a new workspace too.
+	evil := "id: evil\nendpoints:\n  - host: collector.example.net\n    port: 443\n"
+	evilProvider := "name: evil\ntype: evil\ncredentials:\n  T:\n    secret_tool: {lookup: [service, github.com, user, alice]}\n"
+	for _, base := range []string{dir, filepath.Join(dir, "workspaces", "other")} {
+		writeFile(t, filepath.Join(base, "profiles", "evil.yaml"), evil)
+		writeFile(t, filepath.Join(base, "providers", "evil.yaml"), evilProvider)
+	}
+	sec.lookups = nil
+	_, calls, err := syncDir(t, dir, gw, sec, st, start)
+	if err == nil || strings.Count(err.Error(), "provider evil: held back: brig start creates no provider") != 2 {
+		t.Errorf("new provider: %v", err)
+	}
+	// Only the two github providers look their secret up.
+	if slices.ContainsFunc(calls, func(c string) bool { return strings.Contains(c, "create evil") }) || len(sec.lookups) != 2 {
+		t.Errorf("new provider: calls %q, lookups %q", calls, sec.lookups)
+	}
+	// An explicit sync creates it.
+	if _, calls, err := syncDir(t, dir, gw, sec, st, Options{}); err != nil || !slices.Contains(calls, "create evil evil map[T:tok]") {
+		t.Errorf("explicit sync: calls %q, %v", calls, err)
+	}
+
+	// A rotated secret is still applied at start.
+	sec.fakeSecrets["service github.com user alice"] = "tok-new"
+	if _, calls, err := syncDir(t, dir, gw, sec, st, start); err != nil || !slices.Contains(calls, "update github map[GH_TOKEN:tok-new] remove []") {
+		t.Errorf("rotated secret: calls %q, %v", calls, err)
+	}
+
+	// Looking a credential up elsewhere is held back.
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), "name: github\ntype: github\ncredentials:\n  GH_TOKEN:\n    secret_tool: {lookup: [service, other]}\n")
+	sec.lookups = nil
+	_, calls, err = syncDir(t, dir, gw, sec, st, start)
+	if err == nil || !strings.Contains(err.Error(), "provider github: held back: it would look GH_TOKEN up elsewhere") || slices.Contains(calls, "update github map[GH_TOKEN:tok2] remove []") {
+		t.Errorf("new source: calls %q, %v", calls, err)
+	}
+	if slices.Contains(sec.lookups, "service other") {
+		t.Errorf("new source looked up: %q", sec.lookups)
+	}
+	if _, calls, err := syncDir(t, dir, gw, sec, st, Options{}); err != nil || !slices.Contains(calls, "update github map[GH_TOKEN:tok2] remove []") {
+		t.Errorf("explicit sync: calls %q, %v", calls, err)
+	}
+
+	// A provider that brig did not create gets no secrets at start.
+	gw.in("team").providers["byhand"] = &fakeProvider{typ: "github", creds: map[string]string{}}
+	writeFile(t, filepath.Join(dir, "workspaces", "team", "providers", "byhand.yaml"), strings.Replace(githubProvider, "name: github", "name: byhand", 1))
+	if _, _, err := syncDir(t, dir, gw, sec, st, start); err == nil || !strings.Contains(err.Error(), "provider byhand: held back: brig start gives no secrets") {
+		t.Errorf("provider by hand: %v", err)
+	}
+}
+
+func TestSyncRetriesAFailedCreateAtStart(t *testing.T) {
+	dir := twoWorkspaceDir(t)
+	gw, st := newFakeGateway(), &State{}
+	gw.in("team").failOn = "create"
+	if _, _, err := syncDir(t, dir, gw, teamSecrets, st, Options{}); err == nil {
+		t.Fatal("the create in team did not fail")
+	}
+	gw.in("team").failOn = ""
+	start := Options{HoldNewEndpoints: true, HoldNewProviders: true}
+	if _, calls, err := syncDir(t, dir, gw, teamSecrets, st, start); err != nil || !slices.Contains(calls, "team: create github github map[GH_TOKEN:tok-default]") {
+		t.Errorf("retry: calls %q, %v", calls, err)
+	}
+}
+
+func TestSyncRecordsSourcesOfAnOlderState(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profiles", "github.yaml"), githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	gw, st := newFakeGateway(), &State{}
+	sec := fakeSecrets{"service github.com user alice": "tok"}
+	start := Options{HoldNewEndpoints: true, HoldNewProviders: true}
+	if _, _, err := syncDir(t, dir, gw, sec, st, start); err != nil {
+		t.Fatal(err)
+	}
+	forget := func() {
+		ps := dflt(st).Providers["github"]
+		ps.Sources = nil
+		dflt(st).Providers["github"] = ps
+	}
+
+	// Up to date: the sources give what the gateway holds.
+	forget()
+	if _, _, err := syncDir(t, dir, gw, sec, st, start); err != nil || dflt(st).Providers["github"].Sources["GH_TOKEN"] != `secret_tool:["service","github.com","user","alice"]` {
+		t.Errorf("up to date: %+v, %v", dflt(st).Providers["github"], err)
+	}
+	// Changed: brig cannot tell whether the source moved.
+	forget()
+	sec["service github.com user alice"] = "tok-new"
+	if _, calls, err := syncDir(t, dir, gw, sec, st, start); err == nil || !strings.Contains(err.Error(), "no record of where its credentials were looked up") || len(calls) != 0 {
+		t.Errorf("changed: calls %q, %v", calls, err)
+	}
+}
+
 func TestRouting(t *testing.T) {
 	route := func(body string) map[string]string {
 		t.Helper()

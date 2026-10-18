@@ -96,6 +96,22 @@ type ProviderState struct {
 	// Created is set when brig created the provider, rather than taking over
 	// one that existed; only those does brig ever delete.
 	Created bool `json:"created,omitempty"`
+	// Sources maps each credential brig set to where it was looked up, as
+	// Provider.sources gives it.
+	Sources map[string]string `json:"sources,omitempty"`
+}
+
+// holdsCredentials reports whether the gateway holds credentials that brig
+// set, in any workspace.
+func (st *State) holdsCredentials() bool {
+	for _, ws := range st.Workspaces {
+		for _, p := range ws.Providers {
+			if len(p.Credentials) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Record is the outcome of a sync.

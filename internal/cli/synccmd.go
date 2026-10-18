@@ -117,8 +117,11 @@ A provider's credentials may be sent to the endpoints of its profile.
 brig start keeps back a change of a profile whose credentials the gateway
 holds already, unless it changes only the profile's name, description or
 category: credentials, endpoints, rules and binaries decide where and how
-the credentials are sent. brig sync applies it and says what it changes.
-Check shared profiles with --dry-run first.`
+the credentials are sent. Once the gateway holds credentials that brig
+set, brig start also keeps back new providers, providers that brig did not
+create, and credentials that a provider file now looks up elsewhere, since
+each could send a secret to other endpoints. brig sync applies them and
+says what it changes. Check shared profiles with --dry-run first.`
 	cmd.Example = `  brig sync dev --dry-run
   brig sync dev --prune
   brig sync dev --workspace team`

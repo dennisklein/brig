@@ -473,7 +473,7 @@ func (a *app) connectGateway(ctx context.Context, v *vm.VM, w io.Writer, ready r
 			// for long.
 			ctx, cancel := context.WithTimeout(ctx, startSyncTimeout)
 			defer cancel()
-			return a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true}, "")
+			return a.syncOpenShell(ctx, cli, v, ocsync.Options{Out: w, HoldNewEndpoints: true, HoldNewProviders: true}, "")
 		})
 		if err != nil && ready >= readySynced {
 			return syncFailed(fmt.Errorf("applying the OpenShell config directories failed; fix it and run `brig sync %s`: %w", v.Name, err))
