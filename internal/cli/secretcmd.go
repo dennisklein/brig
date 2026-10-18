@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"unicode/utf8"
@@ -28,6 +29,11 @@ import (
 // maxSecretInput bounds the secret that brig secret set reads, as
 // ocsync.SecretTool.Lookup bounds the one it reads back.
 const maxSecretInput = 1 << 20
+
+// maxTerminalLine is the most that a read from a Linux terminal in
+// canonical mode returns, newline included. The terminal cuts a longer line
+// to this without an error.
+const maxTerminalLine = 4096
 
 func newSecretCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -61,6 +67,9 @@ long it was. Otherwise it is read from standard input, so
   claude setup-token | brig secret set dev claude-code
 works. One trailing newline is removed. It is never taken from an argument
 or an environment variable, so it is not in your shell history or in ps.
+
+The terminal takes one line of less than ` + strconv.Itoa(maxTerminalLine-1) + ` bytes. Give a longer
+secret, or one of more lines, on standard input.
 
 brig stores it by running the program set as openshell.secret_tool in
 config.yaml (default secret-tool) as
@@ -316,6 +325,7 @@ func checkSecret(s string) (string, error) {
 
 // readSecretFromTerminal prompts on w and reads a line from the terminal f
 // with echo off. It prints how long the line was, and nothing else of it.
+// It refuses a line that the terminal may have cut, and more than one line.
 func readSecretFromTerminal(ctx context.Context, f *os.File, w io.Writer, prompt string) (string, error) {
 	fd := int(f.Fd())
 	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
@@ -324,10 +334,13 @@ func readSecretFromTerminal(ctx context.Context, f *os.File, w io.Writer, prompt
 	}
 	silent := *old
 	silent.Lflag &^= unix.ECHO
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &silent); err != nil {
+	// TCSETSF discards input not yet read: what was typed ahead before
+	// the prompt, and after the secret, the rest of a paste of more lines,
+	// which would go to the shell, and to its history, after brig ends.
+	if err := unix.IoctlSetTermios(fd, unix.TCSETSF, &silent); err != nil {
 		return "", err
 	}
-	defer func() { _ = unix.IoctlSetTermios(fd, unix.TCSETS, old) }()
+	defer func() { _ = unix.IoctlSetTermios(fd, unix.TCSETSF, old) }()
 	fmt.Fprint(w, prompt)
 	type result struct {
 		line string
@@ -348,6 +361,12 @@ func readSecretFromTerminal(ctx context.Context, f *os.File, w io.Writer, prompt
 	fmt.Fprintln(w)
 	if r.err != nil && !errors.Is(r.err, io.EOF) {
 		return "", r.err
+	}
+	if len(r.line) >= maxTerminalLine {
+		return "", fmt.Errorf("the secret is too long for the terminal, which cuts a line at %d bytes; give it on standard input", maxTerminalLine-1)
+	}
+	if n, err := unix.IoctlGetInt(fd, unix.TIOCINQ); err == nil && n > 0 {
+		return "", errors.New("more than one line entered; give a secret of more lines on standard input")
 	}
 	secret, err := checkSecret(r.line)
 	if err != nil {

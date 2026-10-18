@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,5 +301,46 @@ func TestReadSecretFromTerminalDoesNotEcho(t *testing.T) {
 	// Echo is back on.
 	if tio, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS); err != nil || tio.Lflag&unix.ECHO == 0 {
 		t.Errorf("echo is off after reading: %v", err)
+	}
+}
+
+// TestReadSecretFromTerminalRefusesWhatItCannotRead checks that a line the
+// terminal cuts, and a paste of more lines, are refused, and that the rest of
+// such a paste is not left for the shell to read.
+func TestReadSecretFromTerminalRefusesWhatItCannotRead(t *testing.T) {
+	for _, tc := range []struct{ typed, want string }{
+		{strings.Repeat("x", 6000) + "\n", "too long for the terminal"},
+		{strings.Repeat("x", maxTerminalLine-1) + "\n", "too long for the terminal"},
+		{"first\nrm -rf ~\nthird\n", "more than one line"},
+	} {
+		master, slave := openPTY(t)
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				if _, err := master.Read(buf); err != nil {
+					return
+				}
+			}
+		}()
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_, _ = master.WriteString(tc.typed)
+		}()
+		secret, err := readSecretFromTerminal(context.Background(), slave, io.Discard, "Secret: ")
+		if err == nil || !strings.Contains(err.Error(), tc.want) || secret != "" {
+			t.Errorf("%.20q: readSecretFromTerminal() = %.20q, %v; want %q", tc.typed, secret, err, tc.want)
+		}
+		if n, err := unix.IoctlGetInt(int(slave.Fd()), unix.TIOCINQ); err != nil || n != 0 {
+			t.Errorf("%.20q: %d bytes left for the shell, %v", tc.typed, n, err)
+		}
+	}
+	// The longest line the terminal does not cut is taken.
+	master, slave := openPTY(t)
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		_, _ = master.WriteString(strings.Repeat("x", maxTerminalLine-2) + "\n")
+	}()
+	if secret, err := readSecretFromTerminal(context.Background(), slave, io.Discard, "Secret: "); err != nil || len(secret) != maxTerminalLine-2 {
+		t.Errorf("longest line: %d bytes, %v", len(secret), err)
 	}
 }

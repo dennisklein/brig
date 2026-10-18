@@ -31,6 +31,9 @@ claude setup-token | brig secret set dev claude-code
 works. One trailing newline is removed. It is never taken from an argument
 or an environment variable, so it is not in your shell history or in ps.
 
+The terminal takes one line of less than 4095 bytes. Give a longer
+secret, or one of more lines, on standard input.
+
 brig stores it by running the program set as openshell.secret\_tool in
 config.yaml (default secret-tool) as
 
