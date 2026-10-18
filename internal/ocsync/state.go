@@ -81,6 +81,9 @@ type ProfileState struct {
 	// Created is set when brig imported the profile, rather than taking
 	// over one that existed; only those does brig ever delete.
 	Created bool `json:"created,omitempty"`
+	// Routing holds the digests of the profile's keys that decide where and
+	// how credentials are sent, as brig applied them (see routing).
+	Routing map[string]string `json:"routing,omitempty"`
 }
 
 // ProviderState records a provider brig created or updated.

@@ -535,6 +535,100 @@ func TestSyncHoldsBackNewEndpointsForExistingCredentials(t *testing.T) {
 	}
 }
 
+func TestSyncHoldsBackCredentialRoutingChanges(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "profiles", "github.yaml")
+	writeFile(t, profile, "description: &d GitHub\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n"+githubProfile)
+	writeFile(t, filepath.Join(dir, "providers", "github.yaml"), githubProvider)
+	gw, st := newFakeGateway(), &State{}
+	sec := fakeSecrets{"service github.com user alice": "t"}
+	if _, _, err := syncDir(t, dir, gw, sec, st, Options{HoldNewEndpoints: true}); err != nil {
+		t.Fatal(err)
+	}
+	gw.profiles["github"] = openshell.Profile{
+		ID: "github", Scope: openshell.ScopeWorkspace, ResourceVersion: gw.profiles["github"].ResourceVersion,
+		Endpoints: []openshell.Endpoint{{Host: "api.github.com", Port: 443}, {Host: "github.com", Port: 443}},
+	}
+	start := Options{HoldNewEndpoints: true}
+
+	// A new description is applied at start.
+	writeFile(t, profile, "description: &d GitHub (agents)\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n"+githubProfile)
+	if _, calls, err := syncDir(t, dir, gw, sec, st, start); err != nil || !slices.Contains(calls, "update-profile github") {
+		t.Errorf("new description: calls %q, %v", calls, err)
+	}
+
+	for name, body := range map[string]string{
+		"refresh token_url": "description: &d GitHub (agents)\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n    refresh: {token_url: 'https://collector.example.net/token'}\n" + githubProfile,
+		"endpoint rules":    "description: &d GitHub (agents)\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n" + githubProfile + "    rules: [{allow: {method: POST, path: '**'}}]\n",
+		"binaries":          "description: &d GitHub (agents)\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\nbinaries: [/usr/bin/curl]\n" + githubProfile,
+		// The credentials take the description's value by an alias.
+		"alias":     "description: &d https://collector.example.net\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n    header_name: *d\n" + githubProfile,
+		"new field": "description: &d GitHub (agents)\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n    ttl: 0x10\n" + githubProfile,
+	} {
+		writeFile(t, profile, body)
+		_, calls, err := syncDir(t, dir, gw, sec, st, start)
+		if err == nil || !strings.Contains(err.Error(), "held back") || slices.Contains(calls, "update-profile github") {
+			t.Errorf("%s: calls %q, %v", name, calls, err)
+		}
+	}
+	writeFile(t, profile, "description: &d GitHub (agents)\ncredentials:\n  - name: token\n    env_vars: [GH_TOKEN]\n    refresh: {token_url: 'https://collector.example.net/token'}\n"+githubProfile)
+	_, _, err := syncDir(t, dir, gw, sec, st, start)
+	if err == nil || !strings.Contains(err.Error(), "it changes credentials, which decide where and how the credentials of providers github are sent") {
+		t.Errorf("held back: %v", err)
+	}
+	out, calls, err := syncDir(t, dir, gw, sec, st, Options{DryRun: true})
+	if err != nil || len(calls) != 0 || !strings.Contains(out, "would update from "+profile+"; it changes credentials") {
+		t.Errorf("dry run: calls %q, report %q, %v", calls, out, err)
+	}
+	if _, calls, err := syncDir(t, dir, gw, sec, st, Options{}); err != nil || !slices.Contains(calls, "update-profile github") {
+		t.Errorf("explicit sync: calls %q, %v", calls, err)
+	}
+
+	// Without a record of the applied profile, as after an older brig,
+	// an up-to-date profile is recorded as it is.
+	ws := dflt(st)
+	ps := ws.Profiles["github"]
+	ps.Routing = nil
+	ws.Profiles["github"] = ps
+	if _, _, err := syncDir(t, dir, gw, sec, st, start); err != nil || dflt(st).Profiles["github"].Routing == nil {
+		t.Errorf("up to date: %v, %+v", err, dflt(st).Profiles["github"])
+	}
+	// A profile that overrides one brig did not apply is held back.
+	delete(dflt(st).Profiles, "github")
+	if _, calls, err := syncDir(t, dir, gw, sec, st, start); err == nil || !strings.Contains(err.Error(), "brig has no record") || slices.Contains(calls, "update-profile github") {
+		t.Errorf("unknown profile: calls %q, %v", calls, err)
+	}
+}
+
+func TestRouting(t *testing.T) {
+	route := func(body string) map[string]string {
+		t.Helper()
+		r, err := routing(ProfileFile{Path: "p.yaml", Data: []byte(body)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	base := route("id: x\ndisplay_name: X\nendpoints: [{host: a, port: 443}]\n")
+	if !maps.Equal(base, route("# comment\nid: x\ndisplay_name: Y\nendpoints:\n  - port: 443\n    host: a\n")) {
+		t.Error("layout, comments, key order or the name changed the routing")
+	}
+	if maps.Equal(base, route("id: x\nendpoints: [{host: a, port: '443'}]\n")) {
+		t.Error("a quoted port did not change the routing")
+	}
+	if got := changedKeys(base, route("id: x\nendpoints: [{host: a, port: 443}]\nbinaries: [/bin/sh]\n")); !slices.Equal(got, []string{"binaries"}) {
+		t.Errorf("changedKeys = %q", got)
+	}
+	// Ten to the ninth x once the aliases are resolved.
+	bomb := "id: x\nl0: &l0 [x, x, x, x, x, x, x, x, x, x]\n"
+	for i := 1; i < 9; i++ {
+		bomb += fmt.Sprintf("l%d: &l%[1]d [%s]\n", i, strings.Repeat(fmt.Sprintf("*l%d, ", i-1), 10))
+	}
+	if _, err := routing(ProfileFile{Path: "p.yaml", Data: []byte(bomb)}); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("alias bomb: %v", err)
+	}
+}
+
 func TestAddedEndpoints(t *testing.T) {
 	scoped := openshell.Endpoint{Host: "api.github.com", Port: 443, Path: "/repos/myorg/**"}
 	wide := openshell.Endpoint{Host: "api.github.com", Port: 443, Path: "/**"}

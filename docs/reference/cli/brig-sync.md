@@ -59,9 +59,11 @@ secrets changed. Profiles and providers that brig did not create are
 only touched when a config directory defines them, and never deleted.
 
 A provider's credentials may be sent to the endpoints of its profile.
-[`brig start`](brig-start.md) keeps back profile changes that would add endpoints for
-credentials the gateway holds already; brig sync applies them and says
-so. Check shared profiles with --dry-run first.
+[`brig start`](brig-start.md) keeps back a change of a profile whose credentials the gateway
+holds already, unless it changes only the profile's name, description or
+category: credentials, endpoints, rules and binaries decide where and how
+the credentials are sent. brig sync applies it and says what it changes.
+Check shared profiles with --dry-run first.
 
 ## Examples
 

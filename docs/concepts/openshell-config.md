@@ -184,10 +184,13 @@ sandboxes. Without `--prune`, brig never deletes anything.
 Two safety rules matter when you share a directory. A provider's secret may be
 sent to every endpoint in its profile, so read a shared profile's `endpoints`
 before pairing it with your token; `brig sync --dry-run` prints them. And `brig
-start` holds back a profile change that adds endpoints, changes an endpoint's
-path or removes all endpoints (so sandbox policies decide) for a credential the
-gateway already holds; only an explicit `brig sync` applies it, and it names
-the new endpoints.
+start` holds back a change of a profile whose credentials the gateway already
+holds, unless the change is only to `display_name`, `description` or
+`category`. Everything else can change where or how the credentials go: new
+endpoints, an endpoint's path or rules, no endpoints at all (so sandbox
+policies decide), a `credentials` entry such as a refresh `token_url`, or
+`binaries`. Only an explicit `brig sync` applies it, and it names the new
+endpoints and the keys that changed.
 
 Config directories cannot set the program that looks up secrets, so a shared
 one cannot run programs on your host; see [secrets](../how-to/secrets.md).
