@@ -476,7 +476,6 @@ func TestCommandsInHelpParse(t *testing.T) {
 // one in a page and remove it from here.
 var unmentioned = map[string]string{
 	"brig version": "prints the version; the guides have no reason to say more",
-	"brig console": "the serial console; the troubleshooting guide is to say when to use it",
 }
 
 // TestCommandsAreDocumented checks that each command, or the command it is
