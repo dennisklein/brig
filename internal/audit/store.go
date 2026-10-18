@@ -403,22 +403,44 @@ func (s Store) readDay(vm, day string, each func(Record) bool) error {
 		defer func() { _ = zr.Close() }()
 		r = zr
 	}
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), maxLine)
-	for sc.Scan() {
-		rec, ok := parseLine(sc.Bytes())
-		if ok && !each(rec) {
+	br := bufio.NewReaderSize(r, 64<<10)
+	for {
+		line, err := readLine(br)
+		if rec, ok := parseLine(line); ok && !each(rec) {
 			return nil
 		}
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
 	}
-	if err := sc.Err(); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return fmt.Errorf("%s: %w", p, err)
-	}
-	return nil
 }
 
-// maxLine bounds a record's line; the collector writes none longer.
+// maxLine bounds a record's line; the collector writes none longer, and
+// readers skip longer ones.
 const maxLine = 4 << 20
+
+// readLine reads br's next line. It returns nil for a line longer than
+// maxLine, which it reads to its end, so that one such line keeps no
+// reader from the lines after it.
+func readLine(br *bufio.Reader) ([]byte, error) {
+	var line []byte
+	long := false
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if !long && len(line)+len(chunk) > maxLine {
+			long, line = true, nil
+		}
+		if !long {
+			line = append(line, chunk...)
+		}
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return line, err
+		}
+	}
+}
 
 func parseLine(b []byte) (Record, bool) {
 	b = bytes.TrimSpace(b)

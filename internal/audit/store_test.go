@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -314,5 +315,61 @@ func TestRecordsAndSkippedDays(t *testing.T) {
 	_ = mem.Read(Query{VMs: []string{"dev"}}, func(r Record) bool { got = append(got, r); return true })
 	if len(got) != 1 || got[0].Kind != KindPolicy {
 		t.Errorf("in-memory read: %+v", got)
+	}
+}
+
+func TestLongRecords(t *testing.T) {
+	s := Store{Root: t.TempDir()}
+	w, err := s.OpenWriter("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.unlock()
+	w.Now = func() time.Time { return day1 }
+	// JSON escapes each < to six bytes: without a cap, this host's line
+	// is over maxLine.
+	host := strings.Repeat("<", 700<<10)
+	w.Add(
+		Record{T: day1, Workspace: "default", Sandbox: "webapp", Kind: KindRequest, Verdict: VerdictDeny, Host: host, Port: 443, Endpoints: []string{host}},
+		Record{T: day1.Add(time.Second), Workspace: "default", Sandbox: "webapp", Kind: KindDraft, Endpoints: slices.Repeat([]string{strings.Repeat("<", maxField)}, 200)},
+		Record{T: day1.Add(2 * time.Second), Workspace: "default", Sandbox: "webapp", Kind: KindRequest, Verdict: VerdictAllow, Host: "pypi.org", Port: 443},
+	)
+	if err := w.Flush(nil); err != nil {
+		t.Fatal(err)
+	}
+	// A line written before the cap, or by hand.
+	f, err := os.OpenFile(filepath.Join(s.Dir("dev"), "2026-10-11.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := `{"v":1,"t":"2026-10-11T12:00:03Z","vm":"dev","kind":"request","host":"` + strings.Repeat("x", maxLine) + `"}` + "\n"
+	ok := `{"v":1,"t":"2026-10-11T12:00:04Z","vm":"dev","workspace":"default","sandbox":"webapp","kind":"request","host":"example.com"}` + "\n"
+	if _, err := f.WriteString(long + ok); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	got := readAll(t, s, Query{})
+	if len(got) != 4 {
+		t.Fatalf("got %d records, want 4: the long line is skipped", len(got))
+	}
+	if got[0].Host != strings.Repeat("<", maxField) || got[0].Endpoints[0] != got[0].Host {
+		t.Errorf("host not capped: %d bytes", len(got[0].Host))
+	}
+	if got[1].Kind != KindGap || !strings.Contains(got[1].Why, "draft record") {
+		t.Errorf("too long a record: %+v", got[1])
+	}
+	if got[2].Host != "pypi.org" || got[3].Host != "example.com" {
+		t.Errorf("later records: %+v %+v", got[2], got[3])
+	}
+}
+
+func TestCapFieldsUTF8(t *testing.T) {
+	r := capFields(Record{Path: strings.Repeat("a", maxField-1) + "ü", Labels: map[string]string{"k": "v"}})
+	if r.Path != strings.Repeat("a", maxField-1) {
+		t.Errorf("cut inside a character: %q", r.Path[maxField-2:])
+	}
+	if r.Labels["k"] != "v" {
+		t.Errorf("labels: %v", r.Labels)
 	}
 }
