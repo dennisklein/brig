@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // TopicTraffic is the topic of the snapshot's traffic: the requests that
@@ -18,6 +19,13 @@ const TopicTraffic Topic = "traffic"
 // MaxRequests is how many requests the store keeps per gateway; older ones
 // go first.
 const MaxRequests = 10000
+
+// The most bytes of a text field that the store keeps of a request. A
+// sandbox writes the log lines the fields come from, so it sets their size.
+const (
+	maxField = 1024
+	maxRaw   = 4096
+)
 
 // The verdicts of a Request.
 const (
@@ -201,8 +209,33 @@ func trafficIndex(ts *[]Traffic, vm string) int {
 	return i
 }
 
+// clip returns a copy of s of at most n bytes, cut at a character and marked
+// when it was cut. The copy lets a long line the text came from go.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return strings.Clone(s)
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// bounded returns r with its text fields cut to their limits.
+func (r Request) bounded() Request {
+	r.VM = clip(r.VM, maxField)
+	r.Workspace, r.Sandbox = clip(r.Workspace, maxField), clip(r.Sandbox, maxField)
+	r.Verdict, r.Method = clip(r.Verdict, maxField), clip(r.Method, maxField)
+	r.Process, r.Host, r.Path = clip(r.Process, maxField), clip(r.Host, maxField), clip(r.Path, maxField)
+	r.Policy, r.Engine, r.Reason = clip(r.Policy, maxField), clip(r.Engine, maxField), clip(r.Reason, maxField)
+	r.Raw, r.Gap = clip(r.Raw, maxRaw), clip(r.Gap, maxField)
+	return r
+}
+
 // AddRequests adds requests of the gateway of the VM named vm, numbering
-// them. The oldest go when there are more than MaxRequests.
+// them, with their text fields cut to a limit. The oldest go when there are
+// more than MaxRequests.
 func (s *Store) AddRequests(vm string, rs []Request) {
 	if len(rs) == 0 {
 		return
@@ -221,6 +254,7 @@ func (s *Store) AddRequests(vm string, rs []Request) {
 		rs = rs[max(0, len(rs)-MaxRequests):]
 	}
 	for _, r := range rs {
+		r = r.bounded()
 		s.seq++
 		r.Seq, r.VM = s.seq, vm
 		// Earlier snapshots end before this index, so appending in place
