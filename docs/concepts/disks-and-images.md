@@ -36,9 +36,13 @@ than the disk holds; `df` and `btrfs filesystem df /home/agent` show the real
 use. After a host crash, btrfs recovers by replaying its log when it mounts the
 disk; see [troubleshooting](../troubleshooting.md#files-missing-after-a-crash).
 
-A VM created before the data disk became btrfs keeps its ext4 disk, which
-cannot hold snapshots. brig does not convert it: copy out what you need, then
-`brig delete dev && brig create dev`.
+brig mounts every data disk as btrfs. A VM that brig 0.6 or earlier created
+has an ext4 data disk, and newer brig cannot boot it: the mount of
+`/home/agent` fails, so the VM stops in emergency mode and `brig start` gets no
+SSH connection. brig does not convert the disk. Before you upgrade brig, copy
+out what you need from such a VM, then `brig delete dev`, upgrade, and `brig
+create dev`. If you upgraded first, `sudo dnf downgrade brig` back to 0.6, copy
+out what you need, delete the VM, and upgrade again.
 
 ## Snapshots
 
