@@ -300,6 +300,7 @@ func TestCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"/home/u/bin/brig", "net-helper", "watch", "--host-net", "/run/user/1000/brig/dev/host-net.json", "--",
 		"/usr/bin/pasta", "--config-net", "--quiet", "--dns-forward", "169.254.1.1",
 		"-t", "127.0.0.1/40022:2222", "-t", "127.0.0.1/40670:17671",
 		"-u", "none", "-T", "none", "-U", "none", "-4", "--",
@@ -308,6 +309,7 @@ func TestCommand(t *testing.T) {
 		"--guest-ssh-port", "22", "--guest-gateway-port", "17671",
 		"--profile", `{"internet":true,"host":false,"lan":false,"ipv6":false}`,
 		"--host-addr", "140.181.2.3/16", "--host-addr", "2001:db8:1::abcd/64",
+		"--host-net", "/run/user/1000/brig/dev/host-net.json",
 	}
 	if !reflect.DeepEqual(argv, want) {
 		t.Fatalf("Command() =\n%q\nwant\n%q", argv, want)

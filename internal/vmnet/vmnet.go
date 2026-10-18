@@ -10,8 +10,10 @@
 // forwards the VM's SSH and gateway ports from the host's loopback interface
 // into it. Inside the namespace, `brig net-helper` loads nftables rules that
 // enforce the VM's network profile and then becomes passt, which serves the
-// VM over a vhost-user socket. Everything runs unprivileged, in a transient
-// systemd user unit per VM.
+// VM over a vhost-user socket. Outside, `brig net-helper watch` runs pasta
+// and follows the host's addresses and routes, which the rules depend on;
+// see watch.go. Everything runs unprivileged, in a transient systemd user
+// unit per VM.
 package vmnet
 
 import (
@@ -59,12 +61,12 @@ type Config struct {
 	Profile config.NetworkProfile
 	// HostAddrs are the host's interface addresses with their prefix
 	// lengths, which Ruleset keeps the VM from reaching as the host and as
-	// the LAN. Start reads them from the host, so they are those of the
-	// networks the host is in when the VM starts.
+	// the LAN. Start reads them from the host when the VM starts, and the
+	// watcher follows their changes while it runs.
 	HostAddrs []netip.Prefix
 	// Routes are the destinations of the host's routes in all routing
 	// tables, which Ruleset also counts as the LAN. Start reads them when
-	// the VM starts.
+	// the VM starts, and the watcher follows their changes.
 	Routes []netip.Prefix
 }
 
@@ -150,11 +152,15 @@ func (c Config) helperArgs() ([]string, error) {
 	for _, p := range c.Routes {
 		args = append(args, "--route", p.String())
 	}
-	return args, nil
+	return append(args, "--host-net", c.hostNetPath()), nil
 }
 
-// Command returns the full command line of the VM's network unit: pasta,
-// which runs brig (at path brig) as net-helper in its namespace.
+// hostNetPath is the file that the watcher writes the host's network to.
+func (c Config) hostNetPath() string { return filepath.Join(filepath.Dir(c.Socket), hostNetFile) }
+
+// Command returns the full command line of the VM's network unit: brig (at
+// path brig) as the watcher of the host's network, which runs pasta, which
+// runs brig as net-helper in its namespace.
 func (c Config) Command(pasta, brig string) ([]string, error) {
 	if err := c.validate(); err != nil {
 		return nil, err
@@ -163,7 +169,7 @@ func (c Config) Command(pasta, brig string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	argv := append([]string{pasta}, c.pastaArgs()...)
+	argv := append([]string{brig, "net-helper", "watch", "--host-net", c.hostNetPath(), "--", pasta}, c.pastaArgs()...)
 	// pasta's SELinux policy runs shells unconfined but would keep a brig
 	// binary in the home directory (where mise installs it) confined to
 	// pasta's own domain, which may not manage nftables. Exec through the

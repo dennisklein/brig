@@ -40,7 +40,7 @@ Allows these TCP ports (1 to 65535) on the host's loopback interface even when h
 
 Type: boolean. Default: `false`.
 
-Allows private, shared, link-local and multicast address ranges, and the networks of the host's own addresses and routes, in any routing table, other than default ones, such as a VPN's intranet, when the VM starts.
+Allows private, shared, link-local and multicast address ranges, and the networks of the host's own addresses and routes, in any routing table, other than default ones, such as a VPN's intranet.
 
 ### ipv6
 

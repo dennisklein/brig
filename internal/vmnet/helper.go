@@ -22,10 +22,14 @@ type HelperOptions struct {
 	HostAddrs []string
 	// Routes are the host's route destinations, as in Config.Routes.
 	Routes []string
+	// HostNet is the file that the watcher writes the host's network to
+	// when it changes, empty for none.
+	HostNet string
 }
 
 // RunHelper runs inside pasta's namespace: it loads the firewall for the
-// profile and then replaces itself with passt. If the firewall cannot be
+// profile, starts the reloader that keeps it up to date with the host's
+// network, and then replaces itself with passt. If the firewall cannot be
 // loaded, passt never starts and the VM has no network.
 func RunHelper(o HelperOptions) error {
 	profile, err := decodeProfile(o.Profile)
@@ -59,6 +63,9 @@ func RunHelper(o HelperOptions) error {
 	nft.Stdin = strings.NewReader(Ruleset(profile, gateways, hostAddrs, routes))
 	if out, err := nft.CombinedOutput(); err != nil {
 		return fmt.Errorf("loading the firewall: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if o.HostNet != "" {
+		startReloader(o)
 	}
 	passt, err := lookPath("passt")
 	if err != nil {

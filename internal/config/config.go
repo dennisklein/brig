@@ -123,8 +123,7 @@ type NetworkProfile struct {
 	HostPorts []uint16 `yaml:"host_ports,omitempty" json:"host_ports,omitempty"`
 	// LAN allows private, shared, link-local and multicast address ranges,
 	// and the networks of the host's own addresses and routes, in any
-	// routing table, other than default ones, such as a VPN's intranet,
-	// when the VM starts.
+	// routing table, other than default ones, such as a VPN's intranet.
 	LAN bool `yaml:"lan" json:"lan"`
 	// IPv6 allows IPv6 traffic; otherwise the VM gets no IPv6 connectivity.
 	IPv6 bool `yaml:"ipv6" json:"ipv6"`
