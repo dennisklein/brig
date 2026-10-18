@@ -66,14 +66,14 @@ func SandboxVolumesScript(mounts []vm.Mount) (string, error) {
 const GatewayRestartNeeded = "brig: gateway restart needed"
 
 // VolumeUsersScript returns User's script that prints the names of the
-// running containers, such as OpenShell sandboxes, that use the volume of
-// sandbox mount m, one per line. Removing m from under them would leave
-// them a dead mount.
+// containers, such as OpenShell sandboxes, that use the volume of sandbox
+// mount m, one per line, running or not. Removing m from under them would
+// leave them a dead mount.
 func VolumeUsersScript(m vm.Mount) (string, error) {
 	if err := CheckMounts([]vm.Mount{m}); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("podman ps --filter volume=%s --format '{{.Names}}'\n", m.Tag), nil
+	return fmt.Sprintf("podman ps -a --filter volume=%s --format '{{.Names}}'\n", m.Tag), nil
 }
 
 func checkLive(mounts []vm.Mount, m vm.Mount) error {

@@ -128,7 +128,7 @@ func TestVolumeUsersScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := runScript(t, script, false), "podman\nps\n--filter\nvolume=brig2\n--format\n{{.Names}}\n\n"; got != want {
+	if got, want := runScript(t, script, false), "podman\nps\n-a\n--filter\nvolume=brig2\n--format\n{{.Names}}\n\n"; got != want {
 		t.Errorf("volume users script ran\n%s\nwant\n%s", got, want)
 	}
 }

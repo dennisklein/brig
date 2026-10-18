@@ -126,6 +126,26 @@ func TestApplyMountsRemovesAMountBeforeDetachingIt(t *testing.T) {
 	}
 }
 
+// TestApplyMountsLeavesAVolumeInUse has a sandbox attach the volume of a
+// sandbox mount after brig update checked that none uses it.
+func TestApplyMountsLeavesAVolumeInUse(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	box := vm.Mount{Source: "/src/b", Target: "/mnt/b", ReadOnly: true, Sandbox: true, Tag: "brig1"}
+	log := fakeSSH(t, "openshell-default--kit\n")
+	devs := &fakeDevices{}
+	if _, err := a.applyMounts(context.Background(), devs, v, []vm.Mount{box}); err == nil || !strings.Contains(err.Error(), "in use as volume brig1") {
+		t.Fatalf("applyMounts = %v", err)
+	}
+	users, _ := guest.VolumeUsersScript(box)
+	if got, want := readLog(t, log), "agent@127.0.0.1 "+users+"\n"; got != want {
+		t.Errorf("guest ran\n%s\nwant\n%s", got, want)
+	}
+	if len(devs.calls) != 0 {
+		t.Errorf("device calls = %q", devs.calls)
+	}
+}
+
 func TestApplyMountsStopsAtAFailedAttach(t *testing.T) {
 	a := testApp(t)
 	v := testVM(t, a, "dev")
