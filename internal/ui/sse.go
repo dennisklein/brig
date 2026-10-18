@@ -56,8 +56,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	changes, unsubscribe := s.st.Subscribe()
-	defer unsubscribe()
+	sub := s.st.Subscribe()
+	defer sub.Close()
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
@@ -78,8 +78,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-s.ctx.Done():
 			return
-		case t := <-changes:
-			pending[t] = true
+		case <-sub.Changed():
+			for t := range sub.Take() {
+				pending[t] = true
+			}
 			if timer == nil {
 				timer = time.After(coalesceEvery)
 			}

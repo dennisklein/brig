@@ -19,8 +19,8 @@ const auditEvery = 10 * time.Second
 // Audit keeps the store's audit state up to date until ctx ends, reading it
 // again when the VMs change.
 func Audit(ctx context.Context, st *store.Store, s audit.Store) {
-	changes, unsubscribe := st.Subscribe()
-	defer unsubscribe()
+	sub := st.Subscribe()
+	defer sub.Close()
 	tick := time.NewTicker(auditEvery)
 	defer tick.Stop()
 	for {
@@ -31,8 +31,8 @@ func Audit(ctx context.Context, st *store.Store, s audit.Store) {
 		select {
 		case <-ctx.Done():
 			return
-		case t := <-changes:
-			if t != store.TopicVMs {
+		case <-sub.Changed():
+			if !sub.Take()[store.TopicVMs] {
 				continue
 			}
 		case <-tick.C:

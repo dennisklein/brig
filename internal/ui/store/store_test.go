@@ -10,38 +10,47 @@ import (
 
 func TestSubscribe(t *testing.T) {
 	s := New()
-	ch, unsubscribe := s.Subscribe()
+	sub := s.Subscribe()
 	s.SetHost(Host{Name: "zeta"})
 	s.SetActivity([]Run{{ID: "a"}})
-	if got := <-ch; got != TopicHost {
-		t.Errorf("first notice %q", got)
+	select {
+	case <-sub.Changed():
+	default:
+		t.Fatal("no wake after a change")
 	}
-	if got := <-ch; got != TopicActivity {
-		t.Errorf("second notice %q", got)
+	if got := sub.Take(); len(got) != 2 || !got[TopicHost] || !got[TopicActivity] {
+		t.Errorf("topics %v", got)
+	}
+	if got := sub.Take(); len(got) != 0 {
+		t.Errorf("topics again: %v", got)
 	}
 	if sn := s.Snapshot(); sn.Host.Name != "zeta" || len(sn.Activity) != 1 {
 		t.Errorf("snapshot %+v", sn)
 	}
-	unsubscribe()
+	sub.Close()
 	s.SetHost(Host{})
 	select {
-	case got := <-ch:
-		t.Errorf("notified %q after unsubscribing", got)
+	case <-sub.Changed():
+		t.Error("woken after closing")
 	default:
 	}
 }
 
-// A subscriber that does not read misses notices, but never blocks the
-// writers, and the snapshot it reads has every change.
+// A subscriber that does not read never blocks the writers, and loses no
+// topic: the one change of a kind it has not taken yet stays pending, however
+// many others follow.
 func TestSlowSubscriber(t *testing.T) {
 	s := New()
-	_, unsubscribe := s.Subscribe()
-	defer unsubscribe()
+	sub := s.Subscribe()
+	defer sub.Close()
 	done := make(chan struct{})
 	go func() {
+		s.SetVMs(VMState{VMs: []VM{{State: "running"}}})
 		for i := range 100 {
-			s.SetVMs(VMState{VMs: []VM{{State: "running"}}})
 			s.SetActivity(make([]Run, i))
+		}
+		for i := range 100 {
+			s.SetHost(Host{Name: string(rune('a' + i%26))})
 		}
 		close(done)
 	}()
@@ -52,6 +61,10 @@ func TestSlowSubscriber(t *testing.T) {
 	}
 	if n := len(s.Snapshot().Activity); n != 99 {
 		t.Errorf("activity has %d runs, want 99", n)
+	}
+	got := sub.Take()
+	if !got[TopicVMs] || !got[TopicActivity] || !got[TopicHost] {
+		t.Errorf("topics %v, want vms, activity and host", got)
 	}
 }
 
@@ -69,8 +82,8 @@ func TestSnapshotVM(t *testing.T) {
 
 func TestTasks(t *testing.T) {
 	s := New()
-	ch, unsubscribe := s.Subscribe()
-	defer unsubscribe()
+	sub := s.Subscribe()
+	defer sub.Close()
 	s.AddTask(Task{ID: "t1", Status: TaskRunning})
 	s.AddTask(Task{ID: "t2", Status: TaskRunning})
 	before := s.Snapshot()
@@ -89,11 +102,8 @@ func TestTasks(t *testing.T) {
 	if t1, _ := before.Task("t1"); t1.Done() || t1.Status != TaskRunning {
 		t.Errorf("an earlier snapshot changed: %+v", t1)
 	}
-	want := []Topic{TopicTasks, TopicTasks, TopicTasks, TopicOutput, TopicTasks}
-	for i, w := range want {
-		if got := <-ch; got != w {
-			t.Errorf("notice %d is %q, want %q", i, got, w)
-		}
+	if got := sub.Take(); len(got) != 2 || !got[TopicTasks] || !got[TopicOutput] {
+		t.Errorf("topics %v, want tasks and output", got)
 	}
 	s.RemoveTask("t1")
 	if _, ok := s.Snapshot().Task("t1"); ok || len(s.Snapshot().Tasks) != 1 {
