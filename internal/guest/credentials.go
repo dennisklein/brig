@@ -81,6 +81,8 @@ func CheckMounts(mounts []vm.Mount) error {
 			return fmt.Errorf("mount %s: target must not hide %s, which brig writes at every boot", m, hidesProvisioned(t))
 		case !m.ReadOnly && tmpfilesManaged[t]:
 			return fmt.Errorf("mount %s: a read-write target must not be %s, which the image's tmpfiles rules chmod or clean", m, t)
+		case !m.ReadOnly && tmpfilesTree(t) != "":
+			return fmt.Errorf("mount %s: a read-write target must not be in %s, where the image's tmpfiles rules change and delete files", m, tmpfilesTree(t))
 		case m.Sandbox && !m.ReadOnly:
 			return fmt.Errorf("mount %s: sandbox mounts must be read-only", m)
 		case tags[m.Tag] || targets[t]:
@@ -129,6 +131,34 @@ var tmpfilesManaged = map[string]bool{
 	"/var/cache": true,
 	"/var/lib":   true,
 	"/var/spool": true,
+	// credstore.conf
+	"/etc/credstore":           true,
+	"/etc/credstore.encrypted": true,
+}
+
+// tmpfilesTrees are the directories in which the image's standard tmpfiles.d
+// rules (systemd.conf, systemd-pstore.conf, legacy.conf and others) create, chmod,
+// set ACLs on and delete files below the top directory, such as old core
+// dumps in /var/lib/systemd/coredump. A read-write mount in them would let
+// the stock image do so on the host through virtiofs.
+var tmpfilesTrees = []string{
+	"/run",
+	"/var/lib/systemd",
+	"/var/lib/private",
+	"/var/cache/private",
+	"/var/log/journal",
+	"/var/log/private",
+}
+
+// tmpfilesTree returns the directory of tmpfilesTrees that target is or is
+// in, or "".
+func tmpfilesTree(target string) string {
+	for _, d := range tmpfilesTrees {
+		if target == d || strings.HasPrefix(target, d+"/") {
+			return d
+		}
+	}
+	return ""
 }
 
 // Credentials returns the non-secret systemd credentials for one boot. The
