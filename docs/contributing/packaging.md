@@ -64,18 +64,25 @@ One-time setup for maintainers:
 
 `RPM-GPG-KEY-brig` lists every key that clients trust; the packages workflow
 signs with one of them and re-signs the published packages that another
-listed key signed. To replace the key, run `scripts/signing-key.sh` with
-each of these options in turn, and bump brig-release's `Version` with the
+listed key signed. brig embeds the file and checks the packages it installs
+into VM images against it, so a brig release without the new key cannot
+build images from packages that it signs. To replace the key, run
+`scripts/signing-key.sh` with each of these options in turn. Bump
+brig-release's `Version` and [tag a brig release](releasing.md) with the
 `--next` and `--retire` commits, so that clients get the new keys from a
 package that a key they trust signed:
 
 1. `--next` adds a new key beside the current one and backs it up.
-2. Once clients have updated brig-release, `--switch FILE` with that
-   backup makes the next publish sign everything with the new key.
-3. After that publish, `--retire FINGERPRINT` drops the old key.
+2. Once clients have updated brig-release and brig, `--switch FILE` with
+   that backup makes the next publish sign everything with the new key.
+   Clients that still run an older brig cannot build images until they
+   update.
+3. After that publish, `--retire FINGERPRINT` drops the old key. Older brig
+   releases keep trusting it.
 
 After a key compromise, instead run `--next`, `--switch` and `--retire` at
-once, then the packages workflow with *discard-published*, which publishes
-only what it rebuilds. Clients then need the new key by hand: `sudo rpm
+once, tag a brig release that embeds only the new key, then run the
+packages workflow with *discard-published*, which publishes only what it
+rebuilds. Clients then need the new key by hand: `sudo rpm
 --import https://dennisklein.github.io/brig/RPM-GPG-KEY-brig`, and `sudo
 rpmkeys --delete` with the old key's ID.
