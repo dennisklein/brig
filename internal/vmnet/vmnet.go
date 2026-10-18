@@ -62,8 +62,9 @@ type Config struct {
 	// the LAN. Start reads them from the host, so they are those of the
 	// networks the host is in when the VM starts.
 	HostAddrs []netip.Prefix
-	// Routes are the destinations of the host's routes, which Ruleset also
-	// counts as the LAN. Start reads them when the VM starts.
+	// Routes are the destinations of the host's routes in all routing
+	// tables, which Ruleset also counts as the LAN. Start reads them when
+	// the VM starts.
 	Routes []netip.Prefix
 }
 
@@ -185,10 +186,10 @@ func Start(ctx context.Context, c Config) error {
 	if c.HostAddrs, err = hostAddrs(); err != nil {
 		return err
 	}
-	if c.Routes, err = ReadRoutes(); err != nil {
+	if c.Routes, err = ReadRoutes("all"); err != nil {
 		return err
 	}
-	if err := checkIPv4Gateway(c.Routes); err != nil {
+	if err := checkIPv4Gateway(); err != nil {
 		return err
 	}
 	argv, err := c.Command(pasta, brig)
@@ -232,8 +233,13 @@ var ErrNoIPv4Gateway = errors.New("the host has no IPv4 default gateway, so the 
 // gateway, e.g. offline with a container bridge up or on a PPP link. pasta
 // then copies the routes into the namespace without a gateway, and passt
 // hands the VM no address, so it would never become reachable. Without any
-// IPv4 route, pasta uses a link-local network of its own instead.
-func checkIPv4Gateway(routes []netip.Prefix) error {
+// IPv4 route, pasta uses a link-local network of its own instead. pasta
+// copies only routes of the main table.
+func checkIPv4Gateway() error {
+	routes, err := ReadRoutes("main")
+	if err != nil {
+		return err
+	}
 	if !slices.ContainsFunc(routes, func(p netip.Prefix) bool { return p.Addr().Is4() }) {
 		return nil
 	}

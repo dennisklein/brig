@@ -260,7 +260,13 @@ func TestParseRoutes(t *testing.T) {
 		{"dst":"default","gateway":"192.0.2.1","dev":"eth0","metric":600},
 		{"dst":"192.0.2.0/24","dev":"eth0","protocol":"kernel","scope":"link"},
 		{"dst":"203.0.113.7","gateway":"192.0.2.1","dev":"eth0"},
-		{"type":"blackhole","dst":"198.18.0.0/15"}]`
+		{"type":"blackhole","dst":"198.18.0.0/15"},
+		{"type":"local","dst":"192.0.2.10","table":"local","dev":"eth0"},
+		{"type":"broadcast","dst":"192.0.2.255","table":"local","dev":"eth0"},
+		{"dst":"100.101.102.103","table":"52","dev":"tailscale0"},
+		{"dst":"10.20.0.0/16","table":"52","dev":"tailscale0"},
+		{"type":"throw","dst":"127.0.0.0/8","table":"52"},
+		{"type":"multicast","dst":"ff00::/8","table":"local","dev":"eth0"}]`
 	routes, err := parseRoutes([]byte(out))
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +280,7 @@ func TestParseRoutes(t *testing.T) {
 			prefixes = append(prefixes, p.String())
 		}
 	}
-	if want := []string{"192.0.2.0/24", "203.0.113.7/32"}; !reflect.DeepEqual(prefixes, want) {
+	if want := []string{"192.0.2.0/24", "203.0.113.7/32", "100.101.102.103/32", "10.20.0.0/16"}; !reflect.DeepEqual(prefixes, want) {
 		t.Errorf("prefixes = %v, want %v", prefixes, want)
 	}
 	if routes, err := parseRoutes([]byte("\n")); err != nil || routes != nil {

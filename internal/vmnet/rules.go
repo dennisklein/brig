@@ -43,8 +43,8 @@ const maxUDPFlows = 1024
 // p.Host, they are blocked. Their networks count as the LAN, besides the
 // special-purpose ranges, because LANs may use public addresses too, as
 // IPv6 LANs mostly do. So do routes, the destinations of the host's routes
-// other than default ones: pasta's connections follow them, for example
-// into a VPN's intranet.
+// other than default ones, in any routing table: pasta's connections follow
+// them, for example into a VPN's intranet.
 func Ruleset(p config.NetworkProfile, gateways Gateways, hostAddrs, routes []netip.Prefix) string {
 	addrs4, addrs6, nets4, nets6 := hostSets(hostAddrs, routes)
 	var b strings.Builder
@@ -205,12 +205,14 @@ func ReadGateways() (Gateways, error) {
 	return g, nil
 }
 
-// ReadRoutes reads the destinations of the caller's routes in the main
-// routing table, other than default routes and routes that drop traffic.
-func ReadRoutes() ([]netip.Prefix, error) {
+// ReadRoutes reads the destinations of the caller's routes in a routing
+// table, or in all of them with "all", other than default routes and
+// routes that do not deliver traffic. Policy routing, as Tailscale and
+// WireGuard use it, keeps routes in tables other than the main one.
+func ReadRoutes(table string) ([]netip.Prefix, error) {
 	var prefixes []netip.Prefix
 	for _, family := range []string{"-4", "-6"} {
-		routes, err := ipRoutes(family, "table", "main")
+		routes, err := ipRoutes(family, "table", table)
 		if err != nil {
 			return nil, err
 		}

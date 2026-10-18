@@ -40,7 +40,7 @@ A network profile restricts the network destinations a VM can reach. All destina
 | <a id="network_profiles.NAME.internet"></a>`network_profiles.NAME.internet` | boolean | `false` | Allows destinations outside the host, LAN and special-purpose address ranges. |
 | <a id="network_profiles.NAME.host"></a>`network_profiles.NAME.host` | boolean | `false` | Allows all services on the host's loopback interface. Without it, the host's own addresses are blocked too. |
 | <a id="network_profiles.NAME.host_ports"></a>`network_profiles.NAME.host_ports` | list of port numbers | `[]` | Allows these TCP ports (1 to 65535) on the host's loopback interface even when host is false, e.g. a local model server. |
-| <a id="network_profiles.NAME.lan"></a>`network_profiles.NAME.lan` | boolean | `false` | Allows private, shared, link-local and multicast address ranges, and the networks of the host's own addresses and routes other than default ones, such as a VPN's intranet, when the VM starts. |
+| <a id="network_profiles.NAME.lan"></a>`network_profiles.NAME.lan` | boolean | `false` | Allows private, shared, link-local and multicast address ranges, and the networks of the host's own addresses and routes, in any routing table, other than default ones, such as a VPN's intranet, when the VM starts. |
 | <a id="network_profiles.NAME.ipv6"></a>`network_profiles.NAME.ipv6` | boolean | `false` | Allows IPv6 traffic; otherwise the VM gets no IPv6 connectivity. |
 
 ## openshell
