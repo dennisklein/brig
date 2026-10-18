@@ -117,6 +117,7 @@ func TestPolicyAllowArguments(t *testing.T) {
 		{"draft", []string{"dev", "webapp", "--draft", "ch-1"}, "-g brig-dev --workspace {ws} rule approve webapp --chunk-id ch-1", ""},
 		{"draft with a rule of your own", []string{"dev", "webapp", "--draft", "ch-1", "--binary", "/usr/bin/pip"}, "", "--binary describes a rule of your own"},
 		{"draft saved without a rule", []string{"dev", "webapp", "--draft", "ch-1", "--save"}, "", "--save with --draft needs --rule"},
+		{"draft with a bad rule", []string{"dev", "webapp", "--draft", "ch-1", "--rule", "a b"}, "", "--rule: use letters"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_ = os.Remove(log)
@@ -272,6 +273,21 @@ func TestPolicyAllowApprovesAndSavesADraft(t *testing.T) {
 	}
 	if !strings.Contains(readPolicy(t, filepath.Join(dir, "webapp.yaml")), "  pip:\n") {
 		t.Error("the file lacks the rule")
+	}
+}
+
+func TestPolicyAllowDraftSavedUnderARuleThatDoesNotExist(t *testing.T) {
+	_, dir := allowFixture(t, allowBase+pipRule+`}}`)
+	before := readPolicy(t, filepath.Join(dir, "webapp.yaml"))
+	out, _, _, err := runSplit(t, "policy", "allow", "dev", "webapp", "--draft", "ch-9", "--rule", "nope", "--save")
+	if err == nil || !strings.Contains(err.Error(), "saving it failed") || !strings.Contains(err.Error(), "sandbox webapp has no rule nope") {
+		t.Fatalf("error = %v\n%s", err, out)
+	}
+	if strings.Contains(out, "Nothing to save") {
+		t.Errorf("output says nothing was to save:\n%s", out)
+	}
+	if readPolicy(t, filepath.Join(dir, "webapp.yaml")) != before {
+		t.Error("the file changed")
 	}
 }
 

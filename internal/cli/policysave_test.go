@@ -113,7 +113,8 @@ func TestPolicySaveRules(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"--rule", "nope"}, "rule nope of sandbox webapp does not differ"},
+		{[]string{"--rule", "nope"}, "sandbox webapp has no rule nope"},
+		{[]string{"--rule", "pip", "--rule", "nope"}, "sandbox webapp has no rule nope"},
 		{[]string{"--to", "default", "--rule", "npm"}, ""},
 	} {
 		_, _, _, err := runSplit(t, append([]string{"policy", "save", "dev", "webapp", "--dry-run"}, tc.args...)...)
