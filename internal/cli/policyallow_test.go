@@ -143,6 +143,75 @@ func TestPolicyAllowArguments(t *testing.T) {
 	}
 }
 
+func TestPolicyAllowRefusesAMergeThatGrantsMore(t *testing.T) {
+	log, _ := allowFixture(t, allowBase+`
+  "allow_api_example_com_443": {"endpoints": [{"host": "api-example.com", "port": 443, "protocol": "rest", "access": "read-only", "enforcement": "enforce"}], "binaries": [{"path": "/usr/bin/curl"}]},
+  "allow_registry_npmjs_org_443": {"endpoints": [{"host": "registry.npmjs.org", "port": 443, "protocol": "rest", "access": "read-only", "enforcement": "enforce"}], "binaries": [{"path": "/usr/bin/node"}]},
+  "wide": {"endpoints": [{"host": "github.com", "port": 443}], "binaries": [{"path": "/usr/bin/git"}]},
+  "tools": {"endpoints": [{"host": "pypi.org", "port": 443, "protocol": "rest", "access": "read-only", "enforcement": "enforce"}], "binaries": [{"path": "/usr/local/bin/*"}]}}}`)
+	for _, c := range []struct {
+		name string
+		args []string
+		ran  string // the rule added, or "" for none
+		err  string
+	}{
+		{
+			"a rule of the host's name for another host",
+			[]string{"api.example.com", "--binary", "/usr/bin/node"},
+			"",
+			"has a rule allow_api_example_com_443 for api-example.com:443 already, which /usr/bin/node would reach too",
+		},
+		{
+			"a rule of the host's name for another host, named",
+			[]string{"api.example.com", "--binary", "/usr/bin/node", "--rule", "allow_api_example_com_443", "--broad"},
+			"",
+			"name a rule of its own with --rule",
+		},
+		{
+			"a rule of the host's name for the host",
+			[]string{"registry.npmjs.org", "--binary", "/usr/bin/npm"},
+			"add allow_registry_npmjs_org_443 registry.npmjs.org:443:read-only:rest:enforce for /usr/bin/npm", "",
+		},
+		{
+			"a narrow request into a rule for the whole connection",
+			[]string{"github.com", "--binary", "/usr/bin/node", "--rule", "wide"},
+			"",
+			"adding to it is broad: the rule allows the whole connection to github.com:443",
+		},
+		{
+			"a narrow request into a rule for the whole connection, confirmed",
+			[]string{"github.com", "--binary", "/usr/bin/node", "--rule", "wide", "--broad"},
+			"add wide github.com:443:read-only:rest:enforce for /usr/bin/node", "",
+		},
+		{
+			"a program of the rule's whole connection",
+			[]string{"api.github.com", "--binary", "/usr/bin/git", "--rule", "wide"},
+			"add wide api.github.com:443:read-only:rest:enforce for /usr/bin/git", "",
+		},
+		{
+			"a rule for programs with a wildcard",
+			[]string{"files.pythonhosted.org", "--binary", "/usr/bin/pip", "--rule", "tools"},
+			"",
+			"the rule is for the programs /usr/local/bin/*",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_ = os.Remove(log)
+			_, _, _, err := runSplit(t, append([]string{"policy", "allow", "dev", "webapp"}, c.args...)...)
+			if c.err != "" {
+				if err == nil || !strings.Contains(err.Error(), c.err) {
+					t.Errorf("error = %v, want %q", err, c.err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if ran := openshellLog(t, log); !strings.Contains(ran, c.ran) || (c.ran == "") != (ran == "") {
+				t.Errorf("ran %q, want %q", ran, c.ran)
+			}
+		})
+	}
+}
+
 func TestPolicyAllowSavesTheRule(t *testing.T) {
 	// webapp came from webapp.yaml and has the pip rule after the update.
 	log, dir := allowFixture(t, allowBase+pipRule+`}}`)

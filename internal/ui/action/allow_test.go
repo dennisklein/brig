@@ -107,6 +107,12 @@ func TestBuildAllow(t *testing.T) {
 		{"full access", rule("access", "full"), "", "Broad rule: full access allows every HTTP method", ""},
 		{"whole connection unconfirmed", rule("protocol", ""), "", "Broad rule: the whole connection is allowed", ""},
 		{"program wildcard", rule("binary", "/usr/bin/*"), "", "Broad rule: the program path has a wildcard", ""},
+		{"into a rule for the whole connection", rule("host", "pypi.org", "rule", "pypi"), "", "Broad rule: the rule allows the whole connection to pypi.org:443", ""},
+		{
+			"into a rule for the whole connection, confirmed", rule("host", "pypi.org", "rule", "pypi", "broad", "on"),
+			"brig policy allow dev webapp pypi.org:443 --workspace default --binary /usr/bin/node --rule pypi --access read-only --broad",
+			"", "vm dev workspace default sandbox webapp rule pypi",
+		},
 		{"bad access", rule("access", "write-ish"), "", "Access", ""},
 		{"bad enforcement", rule("enforcement", "block"), "", "Mode", ""},
 		{"bad protocol", rule("protocol", "sql"), "", "Inspect", ""},
@@ -192,6 +198,34 @@ func TestBuildAllow(t *testing.T) {
 				t.Error("an OpenShell change locks the VM")
 			}
 		})
+	}
+}
+
+func TestBuildAllowRefusesARuleOfTheHostsNameForAnotherHost(t *testing.T) {
+	c := trafficContext()
+	for i, g := range c.Snap.Gateways {
+		for j, s := range g.Sandboxes {
+			if g.VM == "dev" && s.Workspace == "default" && s.Name == "webapp" {
+				c.Snap.Gateways[i].Sandboxes[j].Policy = &store.Policy{Base: `network_policies:
+  allow_api_example_com_443:
+    endpoints:
+      - {host: api-example.com, port: 443, protocol: rest, access: read-only, enforcement: enforce}
+    binaries:
+      - path: /usr/bin/curl
+`}
+			}
+		}
+	}
+	a, _ := action.Lookup("allow")
+	f := form("vm", "dev", "workspace", "default", "sandbox", "webapp", "mode", "rule", "host", "api.example.com", "port", "443",
+		"binary", "/usr/bin/node", "protocol", "rest", "access", "read-only", "enforcement", "enforce")
+	_, err := a.Build(f, c)
+	if err == nil || !strings.Contains(err.Error(), "Rule name: webapp has a rule allow_api_example_com_443 for api-example.com:443 already") {
+		t.Fatalf("error = %v", err)
+	}
+	f.Set("rule", "api")
+	if _, err := a.Build(f, c); err != nil {
+		t.Errorf("a rule of its own: %v", err)
 	}
 }
 
