@@ -228,11 +228,54 @@ func Run(ctx context.Context, o Options) error {
 	return hs.Shutdown(sctx)
 }
 
+// maxRecord bounds the size of a runtime record that running reads.
+const maxRecord = 4096
+
+// readRecord reads the runtime record at path. It takes the record only
+// when it is a regular file of the user that nobody else can access, because
+// the directory may be shared and the URL in it gets opened in a browser.
+func readRecord(path string) (runtimeRecord, bool) {
+	var r runtimeRecord
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return r, false
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o077 != 0 {
+		return r, false
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() {
+		return r, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxRecord))
+	if err != nil || json.Unmarshal(data, &r) != nil || r.PID <= 0 {
+		return r, false
+	}
+	return r, true
+}
+
+// recordURL parses the URL of a runtime record. brig ui prints only
+// http://127.0.0.1:PORT/?token=TOKEN, so no other URL is ours.
+func recordURL(raw string) (*neturl.URL, bool) {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Hostname() != "127.0.0.1" || u.Path != "/" || u.Fragment != "" {
+		return nil, false
+	}
+	if p, err := strconv.Atoi(u.Port()); err != nil || p < 1 || p > 65535 {
+		return nil, false
+	}
+	q := u.Query()
+	if len(q) != 1 || q.Get("token") == "" {
+		return nil, false
+	}
+	return u, true
+}
+
 // running returns the record of a brig ui that still runs.
 func running(path string) (runtimeRecord, bool) {
-	var r runtimeRecord
-	data, err := os.ReadFile(path)
-	if err != nil || json.Unmarshal(data, &r) != nil || r.PID <= 0 || r.URL == "" {
+	r, ok := readRecord(path)
+	if !ok {
 		return r, false
 	}
 	// Signal 0 checks that the process exists and is ours; a PID used
@@ -240,8 +283,8 @@ func running(path string) (runtimeRecord, bool) {
 	if syscall.Kill(r.PID, 0) != nil {
 		return r, false
 	}
-	u, err := neturl.Parse(r.URL)
-	if err != nil {
+	u, ok := recordURL(r.URL)
+	if !ok {
 		return r, false
 	}
 	c, err := net.DialTimeout("tcp4", u.Host, time.Second)
