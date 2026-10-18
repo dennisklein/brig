@@ -209,6 +209,37 @@ func TestTail(t *testing.T) {
 	}
 }
 
+// A writer that has the log open when it is rotated goes on writing to the
+// rotated copy. A poll after the rotation reads that too.
+func TestTailFinishesRotatedLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "activity.jsonl")
+	start := logRun(t, "start dev", startDev)
+	half := bytes.LastIndexByte(start[:len(start)-1], '\n') + 10
+	if err := os.WriteFile(path, start[:half], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tl := NewTail(path, NewReducer(200))
+	if !tl.Poll() || len(tl.red.Runs()) != 1 || tl.red.Runs()[0].Done() {
+		t.Fatalf("first part: %+v", tl.red.Runs())
+	}
+
+	// Rotate, then the old writer ends its run in the old file.
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, path+".1", start[half:])
+	if err := os.WriteFile(path, logRun(t, "stop dev", failingStop), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !tl.Poll() {
+		t.Fatal("no change after rotation")
+	}
+	runs := tl.red.Runs()
+	if len(runs) != 2 || runs[0].Title != "brig stop dev" || runs[1].Title != "brig start dev" || !runs[1].Done() {
+		t.Errorf("after rotation: %+v", runs)
+	}
+}
+
 func appendFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)

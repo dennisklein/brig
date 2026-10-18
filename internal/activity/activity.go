@@ -231,6 +231,11 @@ func (t *Tail) Poll() bool {
 	if s, ok := fi.Sys().(*syscall.Stat_t); ok {
 		ino = s.Ino
 	}
+	if ino != t.ino && t.ino != 0 {
+		// Rotated: writers that had the old file open went on writing to
+		// it, so it is read to its end before the new one.
+		t.finishRotated()
+	}
 	if ino != t.ino || fi.Size() < t.off {
 		// A new file: rotated, or truncated.
 		t.ino, t.off, t.partial = ino, 0, nil
@@ -251,6 +256,28 @@ func (t *Tail) Poll() bool {
 	t.off += n
 	t.partial = partial
 	return true
+}
+
+// finishRotated reads what the log that Poll followed gained before and
+// after its rotation to path.1.
+func (t *Tail) finishRotated() {
+	f, err := os.Open(t.path + ".1")
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return
+	}
+	// A second rotation moved the file on; then it is out of reach.
+	if s, ok := fi.Sys().(*syscall.Stat_t); !ok || s.Ino != t.ino || fi.Size() <= t.off {
+		return
+	}
+	if _, err := f.Seek(t.off, io.SeekStart); err != nil {
+		return
+	}
+	readLines(f, t.red, t.partial)
 }
 
 // readLines feeds the whole lines of r, after partial, to red. It returns
