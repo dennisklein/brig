@@ -9,7 +9,11 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 
 	"github.com/dennisklein/brig/internal/libvirt"
 )
@@ -111,5 +115,83 @@ func TestDeleteHasYes(t *testing.T) {
 	testVM(t, a, "dev")
 	if out, err := run(t, "delete", "--help"); err != nil || !strings.Contains(out, "-y, --yes") {
 		t.Errorf("delete --help: %v\n%s", err, out)
+	}
+}
+
+// TestAuditPruneAsksOnAPseudoTerminal runs brig audit prune through the root
+// command on a pseudo-terminal, with brig's own terminal check: the writer
+// of the progress display around standard error must not keep brig from
+// asking.
+func TestAuditPruneAsksOnAPseudoTerminal(t *testing.T) {
+	const prompt = "Delete it? [y/N]"
+	for _, tc := range []struct {
+		mode, answer string
+		deleted      bool
+	}{
+		{"tty", "y", true},
+		{"tty", "n", false},
+		{"plain", "y", true},
+		{"none", "n", false},
+	} {
+		t.Run(tc.mode+" "+tc.answer, func(t *testing.T) {
+			a := auditFixture(t)
+			master, slave := openPTY(t)
+			var mu sync.Mutex
+			var screen bytes.Buffer
+			go func() {
+				buf := make([]byte, 4096)
+				for {
+					n, err := master.Read(buf)
+					mu.Lock()
+					screen.Write(buf[:n])
+					mu.Unlock()
+					if err != nil {
+						return
+					}
+				}
+			}()
+			shown := func() string {
+				mu.Lock()
+				defer mu.Unlock()
+				return screen.String()
+			}
+			p := &progressRun{options: func(o *cliprogress.Options) {
+				o.Stderr, o.OnTerminal = slave, true
+				o.Size = func() (int, int, error) { return 80, 24, nil }
+				o.Foreground = func() bool { return true }
+			}}
+			cmd := newRootCmd(p)
+			var stdout bytes.Buffer
+			cmd.SetOut(&stdout)
+			cmd.SetErr(slave)
+			cmd.SetIn(slave)
+			cmd.SetArgs([]string{"audit", "prune", "--deleted-vms", "--progress", tc.mode, "--progress-log", ""})
+			done := make(chan error, 1)
+			go func() {
+				err := cmd.Execute()
+				p.end(err)
+				done <- err
+			}()
+			var err error
+			asked := false
+		wait:
+			for deadline := time.After(10 * time.Second); ; {
+				select {
+				case err = <-done:
+					break wait
+				case <-deadline:
+					t.Fatalf("brig did not end:\n%q", shown())
+				case <-time.After(20 * time.Millisecond):
+					if !asked && strings.Contains(shown(), prompt) {
+						asked = true
+						_, _ = master.WriteString(tc.answer + "\n")
+					}
+				}
+			}
+			vms, _ := a.auditStore().VMs()
+			if !asked || (err == nil) != tc.deleted || (len(vms) == 1) != tc.deleted {
+				t.Errorf("asked %v, %v, VMs left %v\n%q", asked, err, vms, shown())
+			}
+		})
 	}
 }
