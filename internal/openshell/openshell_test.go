@@ -473,7 +473,7 @@ func TestEnviron(t *testing.T) {
 
 func TestReplaceTemplate(t *testing.T) {
 	c, log := fakeCLI(t, "")
-	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "team", "pi", "localhost/pi-agent:2026-10-13"); err != nil {
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "team", "pi", "localhost/pi-agent:2026-10-13", ""); err != nil {
 		t.Fatal(err)
 	}
 	want := "-g brig-dev --workspace team sandbox template delete pi\n" +
@@ -484,24 +484,46 @@ func TestReplaceTemplate(t *testing.T) {
 
 	// A template that is not there is not an error; any other failure is.
 	c, log = fakeCLI(t, `case "$*" in *delete*) echo "template 'pi' not found" >&2; exit 1 ;; esac`)
-	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "img"); err != nil {
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "img", ""); err != nil {
 		t.Errorf("missing template: %v", err)
 	}
 	if got := readFile(t, log); strings.Count(got, "\n") != 2 {
 		t.Errorf("calls:\n%s", got)
 	}
 	c, log = fakeCLI(t, `case "$*" in *delete*) echo "permission denied" >&2; exit 1 ;; esac`)
-	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "img"); err == nil || !strings.Contains(err.Error(), "permission denied") {
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "img", ""); err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("delete failure: %v", err)
 	}
 	if got := readFile(t, log); strings.Contains(got, "create") {
 		t.Errorf("created after a failed delete:\n%s", got)
 	}
 
-	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "Bad_WS", "pi", "img"); err == nil {
+	// A failed create puts the old image back, or says that the template
+	// is gone.
+	c, log = fakeCLI(t, `case "$*" in *"--image new") echo "image not found" >&2; exit 1 ;; esac`)
+	err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "new", "old")
+	if err == nil || errors.Is(err, ErrTemplateDeleted) || !strings.Contains(err.Error(), "has image old again") {
+		t.Errorf("failed create: %v", err)
+	}
+	if got := readFile(t, log); !strings.HasSuffix(got, "sandbox template create pi --image old\n") {
+		t.Errorf("calls:\n%s", got)
+	}
+	c, _ = fakeCLI(t, `case "$*" in *create*) echo "gateway busy" >&2; exit 1 ;; esac`)
+	for _, old := range []string{"old", ""} {
+		if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "new", old); !errors.Is(err, ErrTemplateDeleted) || !strings.Contains(err.Error(), "gateway busy") {
+			t.Errorf("failed create and restore of %q: %v", old, err)
+		}
+	}
+	// A template that was not there is not lost.
+	c, _ = fakeCLI(t, `case "$*" in *delete*) echo "template 'pi' not found" >&2; exit 1 ;; *create*) exit 1 ;; esac`)
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "pi", "new", ""); err == nil || errors.Is(err, ErrTemplateDeleted) {
+		t.Errorf("failed create of a new template: %v", err)
+	}
+
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "Bad_WS", "pi", "img", ""); err == nil {
 		t.Error("invalid workspace accepted")
 	}
-	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "../x", "img"); err == nil {
+	if err := c.ReplaceTemplate(context.Background(), "brig-dev", "default", "../x", "img", ""); err == nil {
 		t.Error("invalid template name accepted")
 	}
 }

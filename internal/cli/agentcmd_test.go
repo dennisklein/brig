@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/dennisklein/brig/internal/vm"
 )
 
 func TestAgentInitWritesFilesWithoutAVM(t *testing.T) {
@@ -280,6 +282,8 @@ esac`,
 case "$*" in *"status -o json") echo '{"status": "connected", "version": "0.1.2"}' ;; esac`,
 	})
 
+	stubTemplateImage(t, "localhost/claude-agent:old")
+
 	out, err := run(t, "agent", "build", "dev", "claude")
 	if err != nil {
 		t.Fatalf("agent build: %v\n%s", err, out)
@@ -322,6 +326,48 @@ case "$*" in *"status -o json") echo '{"status": "connected", "version": "0.1.2"
 	}
 	if !strings.Contains(out, "has localhost/claude-agent:test already") {
 		t.Errorf("output:\n%s", out)
+	}
+}
+
+// stubTemplateImage makes image the one that the template of an agent has.
+func stubTemplateImage(t *testing.T, image string) {
+	t.Helper()
+	orig := templateImage
+	templateImage = func(context.Context, *vm.VM, string, string) (string, error) { return image, nil }
+	t.Cleanup(func() { templateImage = orig })
+}
+
+// TestAgentBuildWhenTheTemplateCannotBeCreated fails openshell sandbox
+// template create after the delete: the template gets its old image back,
+// or the error says that it is gone.
+func TestAgentBuildWhenTheTemplateCannotBeCreated(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	dir := t.TempDir()
+	if out, err := run(t, "agent", "init", "claude", "--dir", dir, "--secrets-dir", t.TempDir()); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	v.OpenShellConfigs = []string{dir}
+	if err := a.vms.Save(v); err != nil {
+		t.Fatal(err)
+	}
+	for old, want := range map[string]string{
+		"localhost/claude-agent:old": "template claude was not updated: ",
+		"":                           "template claude was deleted and not created again; create it with openshell -g brig-dev --workspace default sandbox template create claude --image localhost/claude-agent:new",
+	} {
+		stubTemplateImage(t, old)
+		fakeCommands(t, map[string]string{
+			"podman": `case "$*" in "image inspect"*) echo sha256:same ;; esac`,
+			"ssh":    `case "$*" in *"image inspect"*) echo sha256:same ;; esac`,
+			"openshell": `case "$*" in
+*"status -o json") echo '{"status": "connected", "version": "0.1.2"}' ;;
+*"--image localhost/claude-agent:new") echo "gateway busy" >&2; exit 1 ;;
+esac`,
+		})
+		_, err := run(t, "agent", "build", "dev", "claude", "--tag", "new")
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("old image %q: %v, want %q", old, err, want)
+		}
 	}
 }
 
