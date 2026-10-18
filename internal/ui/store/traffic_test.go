@@ -4,7 +4,9 @@
 package store
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestAddRequests(t *testing.T) {
@@ -42,6 +44,25 @@ func TestAddRequests(t *testing.T) {
 	s.RemoveTraffic(func(vm string) bool { return vm == "review" })
 	if sn := s.Snapshot(); len(sn.Traffic) != 1 || sn.Traffic[0].VM != "review" {
 		t.Errorf("after removing dev: %+v", sn.Traffic)
+	}
+}
+
+// A sandbox sets the size of the text fields, so the store cuts them.
+func TestAddRequestsCutsFields(t *testing.T) {
+	s := New()
+	long := strings.Repeat("ä", 3*maxRaw)
+	s.AddRequests("dev", []Request{{Sandbox: "webapp", Host: "a.example", Path: long, Process: long, Reason: long, Raw: long, Policy: "ok"}})
+	r := s.Snapshot().TrafficOf("dev").Requests[0]
+	for name, got := range map[string]string{"Path": r.Path, "Process": r.Process, "Reason": r.Reason} {
+		if len(got) > maxField+len("…") || !utf8.ValidString(got) || !strings.HasSuffix(got, "…") {
+			t.Errorf("%s: %d bytes, valid %v", name, len(got), utf8.ValidString(got))
+		}
+	}
+	if len(r.Raw) > maxRaw+len("…") || !utf8.ValidString(r.Raw) {
+		t.Errorf("Raw: %d bytes", len(r.Raw))
+	}
+	if r.Host != "a.example" || r.Policy != "ok" || r.Sandbox != "webapp" {
+		t.Errorf("short fields changed: %+v", r)
 	}
 }
 
