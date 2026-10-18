@@ -311,6 +311,9 @@ func parseSandboxMount(arg string) (sandboxMount, error) {
 	if resolved, err := filepath.EvalSymlinks(src); err == nil {
 		src = resolved
 	}
+	if !vm.ValidSource(src) {
+		return sandboxMount{}, fmt.Errorf("invalid mount %q: directory %q must be valid UTF-8 without control characters", arg, src)
+	}
 	return sandboxMount{Source: src, Target: target}, nil
 }
 

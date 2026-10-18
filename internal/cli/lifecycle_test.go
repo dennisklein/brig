@@ -60,6 +60,27 @@ func TestMountSourcesMustNotTurnIntoSymlinks(t *testing.T) {
 	}
 }
 
+// TestMountSourcesMustBeValidText checks the sources that libvirt XML and
+// the VM record cannot hold as they are, also when a symbolic link leads to
+// one.
+func TestMountSourcesMustBeValidText(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "kit\x7f")
+	if err := os.Mkdir(bad, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "kit")
+	if err := os.Symlink(bad, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseSandboxMount(link + ":/kit"); err == nil || !strings.Contains(err.Error(), "without control characters") {
+		t.Errorf("parseSandboxMount through a link = %v, want a refusal", err)
+	}
+	m := vm.Mount{Source: bad, Target: "/kit", ReadOnly: true, Sandbox: true, Tag: "brig0"}
+	if err := checkMounts([]vm.Mount{m}); err == nil || !strings.Contains(err.Error(), "without control characters") {
+		t.Errorf("checkMounts = %v, want a refusal", err)
+	}
+}
+
 func TestNestedMountPointMustExist(t *testing.T) {
 	home := t.TempDir()
 	proj, data := filepath.Join(home, "proj"), filepath.Join(home, "datasets")
