@@ -167,6 +167,11 @@ func TestCredentialsRejects(t *testing.T) {
 		"rw var tmp target":  mount(vm.Mount{Target: "/var/tmp", Tag: "brig9"}),
 		"rw srv target":      mount(vm.Mount{Target: "/srv", Tag: "brig9"}),
 		"rw var target":      mount(vm.Mount{Target: "/var", Tag: "brig9"}),
+		"rw credstore":       mount(vm.Mount{Target: "/etc/credstore", Tag: "brig9"}),
+		"rw coredump target": mount(vm.Mount{Target: "/var/lib/systemd/coredump", Tag: "brig9"}),
+		"rw systemd target":  mount(vm.Mount{Target: "/var/lib/systemd", Tag: "brig9"}),
+		"rw journal subdir":  mount(vm.Mount{Target: "/var/log/journal/x", Tag: "brig9"}),
+		"rw run subdir":      mount(vm.Mount{Target: "/run/x", Tag: "brig9"}),
 		"rw sandbox mount":   mount(vm.Mount{Target: "/x", Sandbox: true, Tag: "brig9"}),
 	} {
 		c := testBootConfig()
@@ -174,6 +179,18 @@ func TestCredentialsRejects(t *testing.T) {
 		if _, err := Credentials(c); err == nil {
 			t.Errorf("%s: Credentials succeeded", name)
 		}
+	}
+}
+
+func TestCredentialsAcceptsMountsBesideTmpfilesTrees(t *testing.T) {
+	c := testBootConfig()
+	c.Mounts = append(c.Mounts,
+		vm.Mount{Source: "/src/a", Target: "/var/lib/x", Tag: "brig5"},
+		vm.Mount{Source: "/src/b", Target: "/var/log/journalx", Tag: "brig6"},
+		vm.Mount{Source: "/src/c", Target: "/var/lib/systemd/coredump", ReadOnly: true, Tag: "brig7"},
+		vm.Mount{Source: "/src/d", Target: "/runx", Tag: "brig8"})
+	if _, err := Credentials(c); err != nil {
+		t.Errorf("Credentials: %v", err)
 	}
 }
 
