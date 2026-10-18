@@ -442,12 +442,18 @@ func (c *CLI) InSandbox(ctx context.Context, gateway, workspace, sandbox string,
 	return c.run(ctx, append(WorkspaceArgs(gateway, workspace), args...)...)
 }
 
+// ErrTemplateDeleted says that ReplaceTemplate deleted the template and
+// left none.
+var ErrTemplateDeleted = errors.New("the template was deleted")
+
 // ReplaceTemplate makes the sandbox template called name in workspace of
 // gateway use image. The CLI can create and delete templates but not change
 // them, so it deletes the template, if there is one, and creates it again.
 // That is safe for existing sandboxes, which copy their template when they
-// are created.
-func (c *CLI) ReplaceTemplate(ctx context.Context, gateway, workspace, name, image string) error {
+// are created. If the create fails, it creates the template again with old,
+// the image that it had, unless old is empty; when that fails too, the
+// error wraps ErrTemplateDeleted.
+func (c *CLI) ReplaceTemplate(ctx context.Context, gateway, workspace, name, image, old string) error {
 	if err := CheckWorkspace(workspace); err != nil {
 		return err
 	}
@@ -455,11 +461,26 @@ func (c *CLI) ReplaceTemplate(ctx context.Context, gateway, workspace, name, ima
 		return fmt.Errorf("invalid template name %q", name)
 	}
 	base := append(WorkspaceArgs(gateway, workspace), "sandbox", "template")
-	if _, err := c.run(ctx, append(slices.Clone(base), "delete", name)...); err != nil && !templateGone(err) {
+	if _, err := c.run(ctx, append(slices.Clone(base), "delete", name)...); err != nil {
+		if !templateGone(err) {
+			return err
+		}
+		// There was no template to lose.
+		_, err := c.run(ctx, append(slices.Clone(base), "create", name, "--image", image)...)
 		return err
 	}
 	_, err := c.run(ctx, append(slices.Clone(base), "create", name, "--image", image)...)
-	return err
+	if err == nil {
+		return nil
+	}
+	if old != "" {
+		_, rerr := c.run(ctx, append(slices.Clone(base), "create", name, "--image", old)...)
+		if rerr == nil {
+			return fmt.Errorf("%w; template %s has image %s again", err, name, old)
+		}
+		err = fmt.Errorf("%w; creating it again with image %s failed: %w", err, old, rerr)
+	}
+	return fmt.Errorf("%w: %w", ErrTemplateDeleted, err)
 }
 
 // templateGone reports whether err says that the template to delete does

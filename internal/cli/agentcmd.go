@@ -658,8 +658,16 @@ func (a *app) agentBuild(cmd *cobra.Command, v *vm.VM, ws, name, tag string, noP
 		if err != nil {
 			return err
 		}
+		// The image to go back to if the template cannot be created again.
+		old, err := templateImage(ctx, v, ws, def.Template)
+		if err != nil {
+			fmt.Fprintf(errw, "Warning: cannot read template %s, so a failed update leaves no template: %s\n", def.Template, termtext.Escape(err.Error()))
+		}
 		fmt.Fprintf(errw, "$ openshell sandbox template delete %s; openshell sandbox template create %[1]s --image %s\n", def.Template, ref)
-		if err := cli.ReplaceTemplate(ctx, v.GatewayName(), ws, def.Template, ref); err != nil {
+		if err := cli.ReplaceTemplate(ctx, v.GatewayName(), ws, def.Template, ref, old); errors.Is(err, openshell.ErrTemplateDeleted) {
+			return fmt.Errorf("the image is in VM %s as %s, but template %s was deleted and not created again; create it with openshell %s sandbox template create %[3]s --image %[2]s: %[5]w",
+				v.Name, ref, def.Template, strings.Join(openshell.WorkspaceArgs(v.GatewayName(), ws), " "), err)
+		} else if err != nil {
 			return fmt.Errorf("the image is in VM %s as %s, but its template %s was not updated: %w", v.Name, ref, def.Template, err)
 		}
 		fmt.Fprintf(out, "Built %s and pointed template %s at it.\n", ref, def.Template)
@@ -668,6 +676,26 @@ func (a *app) agentBuild(cmd *cobra.Command, v *vm.VM, ws, name, tag string, noP
 	}
 	fmt.Fprintf(out, "Built %s and copied it into VM %s.\n", ref, v.Name)
 	return nil
+}
+
+// templateImage returns the image of the template called name in workspace
+// ws of v's gateway, or "" if there is no such template; tests replace it.
+var templateImage = func(ctx context.Context, v *vm.VM, ws, name string) (string, error) {
+	c, err := dialGateway(ctx, v)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = c.Close() }()
+	list, err := c.Templates(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, t := range list {
+		if t.Workspace == ws && t.Name == name {
+			return t.Image, nil
+		}
+	}
+	return "", nil
 }
 
 // imageID runs c, which prints an image ID, and returns the ID.
