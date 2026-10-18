@@ -146,7 +146,9 @@ if [ "$build" = true ] || [ "$brig_build" = true ] || [ "$release_missing" = tru
       echo "::warning::packaging/brig-release/RPM-GPG-KEY-brig is missing; run scripts/signing-key.sh. Publishing as a dry run with a throwaway key."
     fi
     publish=dry-run
-    # A dry run restores nothing, and the smoke test installs brig.
+    # A dry run restores nothing, and the smoke test installs brig, which
+    # requires openshell.
+    build=true
     brig_build=true
   fi
 fi
