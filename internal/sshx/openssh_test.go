@@ -24,7 +24,8 @@ import (
 
 // The tests in this file run the host's OpenSSH client against an
 // in-process SSH server, so that the options brig passes are checked by ssh
-// itself. They are skipped where ssh is not installed.
+// itself. They are skipped where ssh is not installed, except in CI, where
+// they fail: they guard brig's ssh options.
 
 // sshServer accepts one client key, answers each exec request by echoing
 // the command it received, and records the type of every request and the
@@ -139,6 +140,9 @@ func (s *sshServer) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 func openSSHTarget(t *testing.T) (Target, *sshServer) {
 	t.Helper()
 	if _, err := exec.LookPath("ssh"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("OpenSSH client not installed")
+		}
 		t.Skip("OpenSSH client not installed")
 	}
 	hostPEM, hostPub, err := GenerateKey("")
