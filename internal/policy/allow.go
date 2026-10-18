@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // hostRE matches the characters of a host name, an IPv4 address or a
@@ -17,21 +20,46 @@ var hostRE = regexp.MustCompile(`^[a-z0-9*_][a-z0-9*_.-]{0,252}$`)
 
 // CheckHost reports why host, in lower case, is no host that a rule for one
 // service may name. It admits host names, IPv4 addresses and wildcards that
-// stand above a domain of at least two labels: *.example.com is a rule for a
-// service, while *, ** and *.com would let a sandbox reach any host, or any
-// host of a top-level domain.
+// stand above a registrable domain: *.example.com is a rule for a service,
+// while *, ** and *.com would let a sandbox reach any host, or any host of a
+// top-level domain. A public suffix such as co.uk or github.io is no
+// registrable domain either, since the hosts below it belong to different
+// owners.
 func CheckHost(host string) error {
 	if !hostRE.MatchString(host) {
 		return errors.New("write a host name or IPv4 address, such as registry.npmjs.org")
 	}
+	labels := strings.Split(host, ".")
+	if slices.Contains(labels, "") {
+		return errors.New("write the host without empty labels or a dot at the end, such as registry.npmjs.org")
+	}
 	if !strings.Contains(host, "*") {
 		return nil
 	}
-	labels := strings.Split(host, ".")
 	if n := len(labels); n < 3 || strings.Contains(labels[n-1], "*") || strings.Contains(labels[n-2], "*") {
 		return fmt.Errorf("a wildcard needs a domain of two labels below it, such as *.example.com; %s would allow far more than one service", host)
 	}
+	if domain := strings.Join(labels[lastWild(labels)+1:], "."); isPublicSuffix(domain) {
+		return fmt.Errorf("%s is a public suffix, below which hosts belong to different owners; %s would allow far more than one service", domain, host)
+	}
 	return nil
+}
+
+// lastWild returns the index of the last label with a wildcard, or -1.
+func lastWild(labels []string) int {
+	for i := len(labels) - 1; i >= 0; i-- {
+		if strings.Contains(labels[i], "*") {
+			return i
+		}
+	}
+	return -1
+}
+
+// isPublicSuffix reports whether domain is on the public suffix list, as
+// com, co.uk and github.io are.
+func isPublicSuffix(domain string) bool {
+	suffix, _ := publicsuffix.PublicSuffix(domain)
+	return suffix == domain
 }
 
 // RuleName returns the key that a rule for host and port gets when the user

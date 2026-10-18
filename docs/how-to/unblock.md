@@ -32,9 +32,9 @@ made it, so the [audit trail](../concepts/audit-trail.md) can say who made
 the change. `--access` sets what the rule allows (read-only by default),
 `--l4` allows the whole connection instead of inspecting its requests, and
 `--audit` only logs what the rule would deny. It refuses `*`, `**` and
-wildcards such as `*.com`, and wants `--broad` for full access, `--l4` or a
-program path with a wildcard. The sandbox loads the rule at once; no other
-sandbox gets it.
+wildcards above a public suffix, such as `*.com`, `*.co.uk` or `*.github.io`,
+and wants `--broad` for full access, `--l4` or a program path with a wildcard.
+The sandbox loads the rule at once; no other sandbox gets it.
 
 In brig ui, **Allow…** on a denied request does the same: it offers the rule
 that OpenShell drafted from the request, which names the program's full path,

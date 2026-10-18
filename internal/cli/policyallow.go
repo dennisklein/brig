@@ -70,9 +70,10 @@ PATCH) or full. --l4 allows the whole connection instead, without looking at
 the requests, and --audit only logs what the access level would deny. The rule
 is named allow_HOST_PORT, or --rule says how.
 
-brig refuses a wildcard that stands directly above a top-level domain, such
-as *.com, and * or **. It asks for --broad before it adds a rule with full
-access, with --l4, or for a program path with a wildcard.
+brig refuses a wildcard that stands directly above a top-level domain or
+another public suffix, such as *.com, *.co.uk or *.github.io, and * or **. It
+asks for --broad before it adds a rule with full access, with --l4, or for a
+program path with a wildcard.
 
 With --draft, brig approves the rule that OpenShell drafted from the denials
 of the sandbox (brig ui shows them) as it is, with
