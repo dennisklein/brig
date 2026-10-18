@@ -102,8 +102,9 @@ The host is reachable from a VM at the VM's default gateway address; with
 addresses are blocked too. The LAN means the private, shared (100.64.0.0/10),
 link-local, multicast and broadcast address ranges plus the networks of the
 host's addresses and of its routes, in any routing table, other than default
-ones, such as a VPN's or Tailscale's intranet. brig reads them when a VM
-starts: restart VMs after joining another network or connecting a VPN.
+ones, such as a VPN's or Tailscale's intranet. A running VM's rules follow
+them within a second when the host joins another network, gets a new address
+or connects a VPN.
 
 A profile that allows the internet, the LAN or the host also gets DNS from the
 host's resolver, for any name; other profiles, such as `isolated` or one with
