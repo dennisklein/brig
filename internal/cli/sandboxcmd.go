@@ -50,7 +50,8 @@ sandbox. Arguments after -- go to openshell sandbox create as they are.
 Without NAME, the VM is the one that brig use selected.
 
 The sandbox is created in workspace W of the gateway (-w), by default the one
-that $BRIG_WORKSPACE names, else default.
+that $BRIG_WORKSPACE names, else default. --mount works only in workspace
+default.
 
 A sandbox sees DIR through a read-only sandbox mount of the VM (see brig
 create --help). brig uses the VM's sandbox mount of DIR, or adds one to the
@@ -91,6 +92,12 @@ It needs the sandbox's --name after --.`,
 			ws, err := chosenWorkspace(workspace)
 			if err != nil {
 				return err
+			}
+			// The VM labels its sandbox volumes for the default workspace
+			// only, and the gateway's resource admission refuses them in
+			// other workspaces.
+			if len(mounts) > 0 && ws != openshell.DefaultWorkspace {
+				return fmt.Errorf("--mount works only in workspace %s, not in %s: the VM offers its sandbox volumes to that workspace only", openshell.DefaultWorkspace, ws)
 			}
 			var specs []sandboxMount
 			for _, arg := range mounts {

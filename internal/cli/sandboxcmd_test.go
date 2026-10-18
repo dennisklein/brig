@@ -133,6 +133,7 @@ func TestSandboxCreateRejects(t *testing.T) {
 		{[]string{"dev", "--", "--workspace", "team"}, "give it to brig"},
 		{[]string{"dev", "--", "--workspace=team"}, "give it to brig"},
 		{[]string{"dev", "--workspace", "--name"}, "invalid workspace name"},
+		{[]string{"dev", "--workspace", "team", "-m", "/src:/a"}, "only in workspace default"},
 	} {
 		if _, err := run(t, append([]string{"sandbox", "create"}, tc.args...)...); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Errorf("sandbox create %q: %v, want an error containing %q", tc.args, err, tc.wantErr)
