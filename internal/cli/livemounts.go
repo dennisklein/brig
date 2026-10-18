@@ -57,9 +57,9 @@ func mountChanges(old, mounts []vm.Mount) (removed, added []vm.Mount) {
 	return removed, added
 }
 
-// checkVolumesUnused fails if a running container in v, such as an OpenShell
-// sandbox, uses the volume of a sandbox mount among removed. Unmounting it
-// would leave the container a dead mount.
+// checkVolumesUnused fails if a container in v, such as an OpenShell
+// sandbox, running or not, uses the volume of a sandbox mount among removed.
+// Unmounting it would leave the container a dead mount.
 func (a *app) checkVolumesUnused(ctx context.Context, v *vm.VM, removed []vm.Mount) error {
 	for _, m := range removed {
 		if !m.Sandbox {
@@ -99,6 +99,10 @@ func (a *app) applyMounts(ctx context.Context, conn liveDevices, v *vm.VM, old [
 	for _, m := range removed {
 		sandbox = sandbox || m.Sandbox
 		err := inSpan(ctx, progress.KindStep, "unmount "+m.Target, func(ctx context.Context) error {
+			// A sandbox may have attached the volume since the caller checked.
+			if err := a.checkVolumesUnused(ctx, v, []vm.Mount{m}); err != nil {
+				return err
+			}
 			script, err := guest.UnmountScript(m)
 			if err != nil {
 				return err
