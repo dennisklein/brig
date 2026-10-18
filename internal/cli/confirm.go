@@ -16,11 +16,43 @@ import (
 )
 
 // isInteractive reports whether brig may ask questions: whether in and out
-// are terminals. Tests replace it.
+// are terminals. It looks through the progress display's writers. Tests
+// replace it.
 var isInteractive = func(in io.Reader, out io.Writer) bool {
 	i, ok := in.(*os.File)
-	o, ok2 := out.(*os.File)
+	o, ok2 := fileOf(out)
 	return ok && ok2 && isTerminal(i) && isTerminal(o)
+}
+
+// fileWriter is a writer, such as the progress display's, that writes to
+// the file f in the end.
+type fileWriter struct {
+	io.Writer
+	f *os.File
+}
+
+// overFile returns shown, a writer that writes to w, such that fileOf finds
+// the file w is. It is shown itself where w is no file or shown is w.
+//
+// The display does not see through a fileWriter: what is passed to its
+// Writer must not be one, or a write would lock the display twice.
+func overFile(shown, w io.Writer) io.Writer {
+	f, ok := w.(*os.File)
+	if !ok || shown == w {
+		return shown
+	}
+	return &fileWriter{Writer: shown, f: f}
+}
+
+// fileOf returns the file that w writes to, if it is one or a fileWriter.
+func fileOf(w io.Writer) (*os.File, bool) {
+	switch v := w.(type) {
+	case *os.File:
+		return v, true
+	case *fileWriter:
+		return v.f, true
+	}
+	return nil, false
 }
 
 // confirmer returns the function that asks a yes or no question on w, with

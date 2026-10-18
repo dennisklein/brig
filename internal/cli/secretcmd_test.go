@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -267,26 +265,7 @@ func TestSecretList(t *testing.T) {
 }
 
 func TestReadSecretFromTerminalDoesNotEcho(t *testing.T) {
-	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
-	if err != nil {
-		t.Skipf("no pseudo-terminal: %v", err)
-	}
-	defer func() { _ = master.Close() }()
-	if err := unix.IoctlSetPointerInt(int(master.Fd()), unix.TIOCSPTLCK, 0); err != nil {
-		t.Skipf("cannot unlock the pseudo-terminal: %v", err)
-	}
-	n, err := unix.IoctlGetInt(int(master.Fd()), unix.TIOCGPTN)
-	if err != nil {
-		t.Skip(err)
-	}
-	slave, err := os.OpenFile("/dev/pts/"+strconv.Itoa(n), os.O_RDWR|syscall.O_NOCTTY, 0)
-	if err != nil {
-		t.Skipf("cannot open the pseudo-terminal: %v", err)
-	}
-	defer func() { _ = slave.Close() }()
-	if !isTerminal(slave) {
-		t.Skip("not a terminal")
-	}
+	master, slave := openPTY(t)
 
 	var prompts bytes.Buffer
 	go func() {

@@ -208,7 +208,10 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 	}
 	ctx, span := progress.Start(run.Context(), progress.KindCommand, commandName(cmd, args))
 	cmd.SetContext(context.WithValue(context.WithValue(ctx, runKey{}, run), vmKey{}, &p.vm))
-	cmd.SetErr(run.Writer(cmd.ErrOrStderr()))
+	// brig still asks before it deletes: confirmer sees the terminal under
+	// the display's writer.
+	stderr := cmd.ErrOrStderr()
+	cmd.SetErr(overFile(run.Writer(stderr), stderr))
 	// Only a standard output on the terminal can tear the display.
 	if isTerminal(os.Stdout) {
 		cmd.SetOut(run.Writer(cmd.OutOrStdout()))
