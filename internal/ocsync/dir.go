@@ -37,6 +37,7 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/sys/unix"
 
 	"github.com/dennisklein/brig/internal/openshell"
 )
@@ -330,32 +331,14 @@ func yamlFiles(dir string) ([]string, error) {
 // maxConfigFileSize bounds the files brig reads from config directories.
 const maxConfigFileSize = 1 << 20
 
-// readConfigFile reads a file from a config directory, following symbolic
-// links, but only a regular file of bounded size: a shared directory must
-// not make brig read a device or wait on a FIFO.
-func readConfigFile(path string) ([]byte, error) {
-	// Check the type before opening: opening a FIFO blocks until a writer
-	// appears, and opening a device can have side effects.
-	fi, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	}
-	f, err := os.Open(path)
+// ReadConfigFile reads a file from a config directory, as OpenConfigFile
+// opens it, up to maxConfigFileSize bytes.
+func ReadConfigFile(path string) ([]byte, error) {
+	f, err := OpenConfigFile(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	// The file may have been replaced since the check above.
-	fi, err = f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	}
 	data, err := io.ReadAll(io.LimitReader(f, maxConfigFileSize+1))
 	if err != nil {
 		return nil, err
@@ -364,6 +347,42 @@ func readConfigFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("%s is larger than %d bytes", path, maxConfigFileSize)
 	}
 	return data, nil
+}
+
+// OpenConfigFile opens a file from a config directory for reading, following
+// symbolic links, but only a regular file: a shared directory must not make
+// brig read a device or wait on a FIFO.
+func OpenConfigFile(path string) (*os.File, error) {
+	// Check the type before opening: opening a device can have side effects.
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return openRegular(path)
+}
+
+// openRegular opens path for reading if it is a regular file. The file may
+// have been replaced since the caller checked it, so the open must not wait:
+// with O_NONBLOCK, open(2) of a FIFO returns at once instead of waiting for a
+// writer, and O_NOCTTY keeps a terminal from becoming brig's controlling
+// one. The type is checked again on the open file.
+func openRegular(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK|unix.O_NOCTTY, 0)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := f.Stat()
+	if err == nil && !fi.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", path)
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 // yamlSource returns the content of a config file in a form the YAML decoder
@@ -412,7 +431,7 @@ func redactYAMLError(err error) string {
 // loadProfile reads what brig needs from an OpenShell profile file: its ID
 // and endpoints. OpenShell validates the rest.
 func loadProfile(path string) (ProfileFile, error) {
-	data, err := readConfigFile(path)
+	data, err := ReadConfigFile(path)
 	if err != nil {
 		return ProfileFile{}, err
 	}
@@ -482,7 +501,7 @@ func sequenceItems(n *yaml.Node) []*yaml.Node {
 }
 
 func loadProvider(path string) (Provider, error) {
-	data, err := readConfigFile(path)
+	data, err := ReadConfigFile(path)
 	if err != nil {
 		return Provider{}, err
 	}

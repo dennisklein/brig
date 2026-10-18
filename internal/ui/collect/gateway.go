@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -412,9 +411,10 @@ func readConfig(dirs []string) store.GatewayConfig {
 	return cfg
 }
 
-// readCapped reads at most limit bytes of the file at path.
+// readCapped reads at most limit bytes of the config file at path, which
+// ocsync.OpenConfigFile opens.
 func readCapped(path string, limit int64) (string, error) {
-	f, err := os.Open(path)
+	f, err := ocsync.OpenConfigFile(path)
 	if err != nil {
 		return "", err
 	}
