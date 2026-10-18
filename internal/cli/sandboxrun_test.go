@@ -318,6 +318,31 @@ func TestSandboxRunDeletesTheSandboxOfAnInterruptedCreate(t *testing.T) {
 	}
 }
 
+// TestSandboxRunExpiresAfterTheImageCopy checks that a run's sandbox counts
+// as live from its create, not from the start of the run.
+func TestSandboxRunExpiresAfterTheImageCopy(t *testing.T) {
+	a := testApp(t)
+	testVM(t, a, "dev")
+	ran, _ := fakeRun(t, &fakeRunGateway{})
+	origGrace := runGrace
+	runGrace = 0
+	t.Cleanup(func() { runGrace = origGrace })
+	var copied time.Time
+	ensureVMImage = func(context.Context, *app, *vm.VM, string, *cobra.Command) error {
+		time.Sleep(1100 * time.Millisecond)
+		copied = time.Now()
+		return nil
+	}
+	if out, err := run(t, "sandbox", "run", "dev", "--image", "img", "--timeout", "2s", "--", "true"); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	arg := (*ran)[0][slices.IndexFunc((*ran)[0], func(s string) bool { return strings.HasPrefix(s, expiresLabel+"=") })]
+	expires, _ := strconv.ParseInt(strings.TrimPrefix(arg, expiresLabel+"="), 10, 64)
+	if want := copied.Add(2 * time.Second).Unix(); expires < want {
+		t.Errorf("the sandbox expires at %d, before %d", expires, want)
+	}
+}
+
 func TestSandboxRunStdin(t *testing.T) {
 	a := testApp(t)
 	testVM(t, a, "dev")

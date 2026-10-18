@@ -173,7 +173,10 @@ type runPlan struct {
 	workdir            string
 	timeout            time.Duration
 	command            []string
-	expires            time.Time
+	// life is how long the sandbox counts as live after its create; it
+	// expires then.
+	life    time.Duration
+	expires time.Time
 }
 
 func (p runPlan) createArgv() []string {
@@ -378,7 +381,8 @@ standard input, up to 960 KiB; otherwise it gets none.
 --keep failed keeps the sandbox when the command or brig fails, --keep always
 keeps it anyway. A kept sandbox carries the labels brig.dev/run and
 brig.dev/expires, and brig sandbox clean --runs deletes it once it expires:
-a day after the run started, or with --timeout, an hour past the timeout.
+a day after brig created it, or with --timeout, an hour plus the timeout
+after that.
 
 --result FILE writes a JSON record of the run: its sandbox, exit status,
 transfers and the requests that the policy denied, by host and binary.
@@ -426,10 +430,11 @@ transfers and the requests that the policy denied, by host and binary.
 				command: args[len(vmArgs(cmd, args)):],
 			}
 			p.name = cmp.Or(name, "run-"+p.id)
-			p.expires = now.Add(runLife)
+			p.life = runLife
 			if timeout > 0 {
-				p.expires = now.Add(timeout + runGrace)
+				p.life = timeout + runGrace
 			}
+			p.expires = now.Add(p.life)
 			for _, arg := range uploads {
 				u, err := parseUpload(arg)
 				if err != nil {
@@ -549,6 +554,9 @@ func (a *app) sandboxRun(cmd *cobra.Command, p runPlan, keep string, start bool,
 			return err
 		}
 	}
+	// brig sandbox clean --runs deletes the sandbox once it expires, so its
+	// life starts after the image copy, which can take long.
+	p.expires = time.Now().Add(p.life)
 
 	r := &runResult{
 		VM: v.Name, Workspace: p.target.workspace, Sandbox: p.name, Run: p.id, Image: p.image, Template: p.template,
