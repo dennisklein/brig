@@ -90,9 +90,10 @@ func TestApplyMountsAddsASandboxMount(t *testing.T) {
 	if len(devs.calls) != 1 || devs.calls[0] != "attach brig-dev "+want {
 		t.Errorf("device calls = %q", devs.calls)
 	}
+	dirs, _ := guest.MountDirsScript(v.Mounts, box)
 	mount, _ := guest.MountScript(v.Mounts, box)
 	volumes, _ := guest.SandboxVolumesScript(v.Mounts)
-	if got, want := readLog(t, log), "root@127.0.0.1 "+mount+"\nagent@127.0.0.1 "+volumes+"\n"; got != want {
+	if got, want := readLog(t, log), "agent@127.0.0.1 "+dirs+"\nroot@127.0.0.1 "+mount+"\nagent@127.0.0.1 "+volumes+"\n"; got != want {
 		t.Errorf("guest ran\n%s\nwant\n%s", got, want)
 	}
 }

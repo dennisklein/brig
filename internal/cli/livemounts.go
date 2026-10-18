@@ -119,6 +119,15 @@ func (a *app) applyMounts(ctx context.Context, conn liveDevices, v *vm.VM, old [
 	for _, m := range added {
 		sandbox = sandbox || m.Sandbox
 		err := inSpan(ctx, progress.KindStep, "mount "+m.Target, func(ctx context.Context) error {
+			dirs, err := guest.MountDirsScript(v.Mounts, m)
+			if err != nil {
+				return err
+			}
+			if dirs != "" {
+				if _, err := a.guestRun(ctx, v, false, dirs); err != nil {
+					return err
+				}
+			}
 			x, err := libvirt.FilesystemXML(m, idmap)
 			if err != nil {
 				return err

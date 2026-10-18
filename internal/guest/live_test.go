@@ -51,28 +51,143 @@ func runScript(t *testing.T, script string, mounted bool) string {
 	return string(b)
 }
 
-func TestMountScript(t *testing.T) {
+// runFakes runs script with sh in a PATH that has fakes for mount, umount and
+// mountpoint before the system's commands. The fakes log their name, working
+// directory and arguments on one line and succeed; mountpoint fails unless
+// mounted is set. It returns the log, and the output and error of sh.
+func runFakes(t *testing.T, script string, mounted bool) (log, out string, err error) {
+	t.Helper()
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "log")
+	fake := "#!/bin/sh\necho \"${0##*/} $(pwd -P) $*\" >>" + logFile + "\n"
+	status := "exit 1\n"
+	if mounted {
+		status = "exit 0\n"
+	}
+	for name, body := range map[string]string{"mount": fake, "umount": fake, "mountpoint": fake + status} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil { //nolint:gosec // G306: scripts must be executable
+			t.Fatal(err)
+		}
+	}
+	sh, lerr := exec.LookPath("sh")
+	if lerr != nil {
+		t.Skip(lerr)
+	}
+	cmd := exec.Command(sh, "-c", script)
+	cmd.Dir = "/"
+	cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin"}
+	b, err := cmd.CombinedOutput()
+	l, rerr := os.ReadFile(logFile)
+	if rerr != nil && !os.IsNotExist(rerr) {
+		t.Fatal(rerr)
+	}
+	return string(l), string(b), err
+}
+
+func TestMountDirsScript(t *testing.T) {
 	mounts := testBootConfig().Mounts
 	mounts = append(mounts,
 		vm.Mount{Source: "/src/x", Target: `/home/agent/it's$x/y`, ReadOnly: true, Sandbox: true, Tag: "brig3"})
-	script, err := MountScript(mounts, mounts[3])
+	script, err := MountDirsScript(mounts, mounts[3])
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "install\n-d\n-m\n0700\n-o\nagent\n-g\nagent\n/home/agent/it's$x\n\n" +
-		"mkdir\n-p\n/home/agent/it's$x/y\n\n" +
-		"mountpoint\n-q\n/home/agent/it's$x/y\n\n" +
-		"mount\n-t\nvirtiofs\n-o\nro,context=system_u:object_r:container_file_t:s0\nbrig3\n/home/agent/it's$x/y\n\n"
+	want := "install\n-d\n-m\n0700\n/home/agent/it's$x\n\n" +
+		"mkdir\n-p\n/home/agent/it's$x/y\n\n"
 	if got := runScript(t, script, false); got != want {
-		t.Errorf("mount script ran\n%s\nwant\n%s", got, want)
+		t.Errorf("dirs script ran\n%s\nwant\n%s", got, want)
+	}
+	// Root creates a target outside home.
+	if script, err := MountDirsScript(mounts, mounts[0]); err != nil || script != "" {
+		t.Errorf("MountDirsScript(%s) = %q, %v", mounts[0].Target, script, err)
+	}
+}
+
+// liveMounts returns the test VM's mounts plus one at target.
+func liveMounts(target string) ([]vm.Mount, vm.Mount) {
+	m := vm.Mount{Source: "/src/x", Target: target, ReadOnly: true, Sandbox: true, Tag: "brig3"}
+	return append(testBootConfig().Mounts, m), m
+}
+
+func TestMountScript(t *testing.T) {
+	base := t.TempDir()
+	mounts, m := liveMounts(base + "/a/it's")
+	script, err := MountScript(mounts, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, out, err := runFakes(t, script, false)
+	if err != nil {
+		t.Fatalf("%v: %s\n%s", err, out, script)
+	}
+	want := "mountpoint " + m.Target + " -q .\n" +
+		"mount " + m.Target + " -c -t virtiofs -o ro,context=system_u:object_r:container_file_t:s0 brig3 .\n"
+	if log != want {
+		t.Errorf("mount script ran\n%s\nwant\n%s", log, want)
+	}
+	if fi, err := os.Stat(m.Target); err != nil || !fi.IsDir() {
+		t.Errorf("mount script made no target: %v", err)
 	}
 	// A target that is mounted already stays as it is.
-	script, err = MountScript(mounts, mounts[1])
+	if log, out, err := runFakes(t, script, true); err != nil || log != "mountpoint "+m.Target+" -q .\n" {
+		t.Errorf("mount script on a mount point ran\n%s(%v: %s)", log, err, out)
+	}
+}
+
+func TestMountScriptRefusesSymlinks(t *testing.T) {
+	base := t.TempDir()
+	for _, d := range []string{"etc", "real"} {
+		if err := os.Mkdir(filepath.Join(base, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, dest := range map[string]string{"parent": "etc", "target": "etc"} {
+		if err := os.Symlink(filepath.Join(base, dest), filepath.Join(base, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, target := range []string{base + "/parent/x", base + "/target"} {
+		mounts, m := liveMounts(target)
+		script, err := MountScript(mounts, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		log, out, err := runFakes(t, script, false)
+		if err == nil || !strings.Contains(out, "brig: refusing") || log != "" {
+			t.Errorf("mount script at %s: %v: %s\nran\n%s", target, err, out, log)
+		}
+		if entries, _ := os.ReadDir(filepath.Join(base, "etc")); len(entries) != 0 {
+			t.Errorf("mount script at %s created %v", target, entries)
+		}
+	}
+	// Below home, User makes the directories, so root must not.
+	mounts, m := liveMounts("/home/agent/a/b")
+	script, err := MountScript(mounts, m)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := runScript(t, script, true); strings.Contains(got, "\nmount\n") || strings.Contains(got, "install") {
-		t.Errorf("mount script ran\n%s", got)
+	if strings.Contains(script, "mkdir") || !strings.Contains(script, "cd -P '/home/agent/a/b'") {
+		t.Errorf("mount script below home:\n%s", script)
+	}
+}
+
+func TestEnterDir(t *testing.T) {
+	base := t.TempDir()
+	if err := os.Mkdir(filepath.Join(base, "real"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(base, "link")); err != nil {
+		t.Fatal(err)
+	}
+	enter := func(dir string) (string, error) {
+		_, out, err := runFakes(t, "set -e\n"+refuseLink+enterDir(dir)+"pwd -P\n", false)
+		return out, err
+	}
+	if out, err := enter(base + "/real"); err != nil || out != base+"/real\n" {
+		t.Errorf("enter real: %v: %s", err, out)
+	}
+	if out, err := enter(base + "/link"); err == nil || !strings.Contains(out, "brig: refusing "+base+"/link") {
+		t.Errorf("enter link: %v: %s", err, out)
 	}
 }
 
@@ -80,6 +195,9 @@ func TestMountScriptRejects(t *testing.T) {
 	mounts := testBootConfig().Mounts
 	if _, err := MountScript(mounts, vm.Mount{Source: "/src/d", Target: "/mnt/d", Tag: "brig9"}); err == nil {
 		t.Error("MountScript accepted a mount that is not the VM's")
+	}
+	if _, err := MountDirsScript(mounts, vm.Mount{Source: "/src/d", Target: "/home/agent/d", Tag: "brig9"}); err == nil {
+		t.Error("MountDirsScript accepted a mount that is not the VM's")
 	}
 	bad := append(slices.Clone(mounts), vm.Mount{Source: "/src/d", Target: "/home/agent/.ssh", Tag: "brig9"})
 	if _, err := MountScript(bad, bad[3]); err == nil {
@@ -92,16 +210,38 @@ func TestUnmountScript(t *testing.T) {
 	if _, err := UnmountScript(m); err == nil {
 		t.Error("UnmountScript accepted a target with a space")
 	}
-	m.Target = "/mnt/it's"
-	script, err := UnmountScript(m)
-	if err != nil {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "p", "it's"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := runScript(t, script, true), "mountpoint\n-q\n/mnt/it's\n\numount\n/mnt/it's\n\n"; got != want {
-		t.Errorf("unmount script ran\n%s\nwant\n%s", got, want)
+	if err := os.Symlink("p", filepath.Join(base, "link")); err != nil {
+		t.Fatal(err)
 	}
-	if got, want := runScript(t, script, false), "mountpoint\n-q\n/mnt/it's\n\n"; got != want {
-		t.Errorf("unmount script without a mount ran\n%s\nwant\n%s", got, want)
+	if err := os.Symlink("/", filepath.Join(base, "p", "root")); err != nil {
+		t.Fatal(err)
+	}
+	unmount := func(target string, mounted bool) (string, string, error) {
+		script, err := UnmountScript(vm.Mount{Source: "/src/x", Target: target, Tag: "brig3"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runFakes(t, script, mounted)
+	}
+	p := base + "/p"
+	if log, out, err := unmount(p+"/it's", true); err != nil || log != "mountpoint "+p+" -q it's\numount "+p+" -c it's\n" {
+		t.Errorf("unmount ran\n%s(%v: %s)", log, err, out)
+	}
+	if log, out, err := unmount(p+"/it's", false); err != nil || log != "mountpoint "+p+" -q it's\n" {
+		t.Errorf("unmount without a mount ran\n%s(%v: %s)", log, err, out)
+	}
+	if log, out, err := unmount(base+"/gone/x", true); err != nil || log != "" {
+		t.Errorf("unmount below a missing directory ran\n%s(%v: %s)", log, err, out)
+	}
+	if log, out, err := unmount(p+"/root", true); err != nil || log != "" {
+		t.Errorf("unmount of a symbolic link ran\n%s(%v: %s)", log, err, out)
+	}
+	if log, out, err := unmount(base+"/link/it's", true); err == nil || !strings.Contains(out, "brig: refusing") || log != "" {
+		t.Errorf("unmount below a symbolic link ran\n%s(%v: %s)", log, err, out)
 	}
 }
 
