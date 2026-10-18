@@ -116,8 +116,11 @@ Without VM, the one that brig use selected is used.`,
 				}
 				req.sandbox = args[len(args)-1]
 				args = args[:len(args)-1]
-				if req.save && req.rule == "" {
+				switch {
+				case req.save && req.rule == "":
 					return errors.New("--save with --draft needs --rule, the key of the rule that the draft adds to")
+				case req.rule != "" && !ruleKeyRE.MatchString(req.rule):
+					return errors.New("--rule: use letters, digits, _, . and - only")
 				}
 			} else {
 				req.sandbox = args[len(args)-2]

@@ -319,6 +319,8 @@ func pickRules(rep *policyReport, keys []string) ([]policy.RuleDiff, error) {
 	for _, k := range slices.Compact(slices.Sorted(slices.Values(keys))) {
 		i := slices.IndexFunc(rep.Rules, func(r policy.RuleDiff) bool { return r.Key == k })
 		switch {
+		case i < 0 && !sandboxHasRule(rep, k):
+			return nil, fmt.Errorf("sandbox %s has no rule %s", rep.Sandbox, k)
 		case i < 0:
 			return nil, ruleUnchangedError{k, rep.Sandbox, rep.Source.Path}
 		case rep.Rules[i].State == policy.NotApplied:
@@ -327,6 +329,16 @@ func pickRules(rep *policyReport, keys []string) ([]policy.RuleDiff, error) {
 		pick = append(pick, rep.Rules[i])
 	}
 	return pick, nil
+}
+
+// sandboxHasRule reports whether the sandbox of rep has a rule of key.
+func sandboxHasRule(rep *policyReport, key string) bool {
+	doc, err := policy.Parse(rep.base)
+	if err != nil {
+		return false
+	}
+	_, ok := doc.Network[key]
+	return ok
 }
 
 // ruleUnchangedError is the error of a rule to save that the file has as the
