@@ -34,7 +34,10 @@ the change. `--access` sets what the rule allows (read-only by default),
 `--audit` only logs what the rule would deny. It refuses `*`, `**` and
 wildcards above a public suffix, such as `*.com`, `*.co.uk` or `*.github.io`,
 and wants `--broad` for full access, `--l4` or a program path with a wildcard.
-The sandbox loads the rule at once; no other sandbox gets it.
+The gateway adds to a rule of the same name, in which every program reaches
+every endpoint, so brig also wants `--broad` when the rule it adds to would
+give the program more than the request does. The sandbox loads the rule at
+once; no other sandbox gets it.
 
 In brig ui, **Allow…** on a denied request does the same: it offers the rule
 that OpenShell drafted from the request, which names the program's full path,

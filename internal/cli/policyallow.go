@@ -40,6 +40,7 @@ type allowRequest struct {
 	access      string
 	enforcement string
 	rule        string // the rule's key; a draft's with save
+	broad       bool   // the user confirmed a broad rule
 	save        bool
 	to          string
 }
@@ -75,6 +76,13 @@ brig refuses a wildcard that stands directly above a top-level domain or
 another public suffix, such as *.com, *.co.uk or *.github.io, and * or **. It
 asks for --broad before it adds a rule with full access, with --l4, or for a
 program path with a wildcard.
+
+The gateway adds the endpoint and the program to a rule of the same name that
+the sandbox has already, and in a rule every program reaches every endpoint.
+So brig refuses to add to a rule named allow_HOST_PORT that holds other hosts
+or ports, and asks for --broad before the program gets the whole connection or
+full access of the rule's endpoints, or before programs of the rule with a
+wildcard reach the new endpoint.
 
 With --draft, brig approves the rule that OpenShell drafted from the denials
 of the sandbox (brig ui shows them) as it is, with
@@ -213,6 +221,7 @@ func checkAllowFlags(req *allowRequest, accessGiven bool, access string, l4, aud
 			req.enforcement = "audit"
 		}
 	}
+	req.broad = broad
 	if why := policy.Broad(req.protocol, req.access, req.binary); len(why) > 0 && !broad {
 		return fmt.Errorf("this rule is broad: %s; add --broad to add it anyway", strings.Join(why, "; "))
 	}
@@ -279,22 +288,64 @@ func allowAnnotations(ctx context.Context, req allowRequest) map[string]string {
 	return a
 }
 
+// checkMerge refuses to add the rule of req to the sandbox whose base
+// policy is base where the gateway would merge it into a rule of the same
+// key that grants more than req asks for. In a rule, every program reaches
+// every endpoint, so a rule named after the host of req must hold no other
+// endpoints, which the program would reach too, and a merge that lets a
+// program reach more broadly needs --broad, as a broad rule of its own does.
+// The rule may still change between this check and the change.
+func checkMerge(base []byte, req allowRequest) error {
+	doc, err := policy.Parse(base)
+	if err != nil {
+		return fmt.Errorf("sandbox %s: %w", req.sandbox, err)
+	}
+	rule, ok := doc.Network[req.rule]
+	if !ok {
+		return nil
+	}
+	if req.rule == policy.RuleName(req.host, req.port) {
+		if other := policy.OtherEndpoints(rule, req.host, req.port); len(other) > 0 {
+			return fmt.Errorf("sandbox %s has a rule %s for %s already, which %s would reach too; name a rule of its own with --rule",
+				req.sandbox, req.rule, strings.Join(other, ", "), req.binary)
+		}
+	}
+	if why := policy.MergeBroad(rule, req.host, req.port, req.binary); len(why) > 0 && !req.broad {
+		return fmt.Errorf("sandbox %s has a rule %s already, and adding to it is broad: %s; add --broad to add it anyway, or name a rule of its own with --rule",
+			req.sandbox, req.rule, strings.Join(why, "; "))
+	}
+	return nil
+}
+
 // ruleKeyRE matches a rule's key under network_policies.
 var ruleKeyRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 
 // policyAllow adds the rule to the sandbox and, with req.save, saves it.
 func (a *app) policyAllow(ctx context.Context, v *vm.VM, req allowRequest, out, warn io.Writer) error {
 	// Refuse a save that cannot be made before the sandbox changes.
+	var base []byte
 	if req.save {
-		if _, err := a.findSaveTarget(ctx, v, req.workspace, req.sandbox, req.to, warn); err != nil {
+		t, err := a.findSaveTarget(ctx, v, req.workspace, req.sandbox, req.to, warn)
+		if err != nil {
+			return err
+		}
+		base = t.rep.base
+	}
+	cli, err := openshell.Find()
+	if err != nil {
+		return err
+	}
+	if req.draft == "" {
+		if base == nil {
+			if base, err = cli.BasePolicy(ctx, v.GatewayName(), req.workspace, req.sandbox); err != nil {
+				return fmt.Errorf("the base policy of sandbox %s in workspace %s of VM %s (is the VM running?): %w", req.sandbox, req.workspace, v.Name, err)
+			}
+		}
+		if err := checkMerge(base, req); err != nil {
 			return err
 		}
 	}
 	if req.draft != "" {
-		cli, err := openshell.Find()
-		if err != nil {
-			return err
-		}
 		text, err := cli.InSandbox(ctx, v.GatewayName(), req.workspace, req.sandbox, "rule", "approve", req.sandbox, "--chunk-id", req.draft)
 		if err != nil {
 			return err
@@ -322,7 +373,7 @@ func (a *app) policyAllow(ctx context.Context, v *vm.VM, req allowRequest, out, 
 		fmt.Fprintf(out, "Only %s has the rule. %s keeps it for new sandboxes.\n", termtext.Escape(req.sandbox), termtext.Escape(keep))
 		return nil
 	}
-	err := a.policySave(ctx, v, saveRequest{
+	err = a.policySave(ctx, v, saveRequest{
 		workspace: req.workspace, sandbox: req.sandbox, keys: []string{req.rule}, to: req.to, show: true,
 	}, out, warn)
 	var same ruleUnchangedError

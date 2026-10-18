@@ -5,6 +5,8 @@ package policy
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -130,6 +132,65 @@ func TestEndpoints(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("Endpoints = %q, want %q", got, want)
 			break
+		}
+	}
+}
+
+func TestOtherEndpoints(t *testing.T) {
+	raw, err := RawRules([]byte(`network_policies:
+  r:
+    endpoints:
+      - {host: registry.npmjs.org, port: 443}
+      - {host: registry.npmjs.org, ports: [80, 443]}
+      - {host: evil.example.com}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := OtherEndpoints(raw["r"], "registry.npmjs.org", 443), []string{"registry.npmjs.org:80", "evil.example.com:443"}; !slices.Equal(got, want) {
+		t.Errorf("OtherEndpoints = %q, want %q", got, want)
+	}
+	if got := OtherEndpoints(map[string]any{}, "registry.npmjs.org", 443); len(got) != 0 {
+		t.Errorf("OtherEndpoints of no endpoints = %q", got)
+	}
+}
+
+func TestMergeBroad(t *testing.T) {
+	raw, err := RawRules([]byte(`network_policies:
+  l4:
+    endpoints: [{host: api.example.com, port: 443}]
+    binaries: [{path: /usr/bin/curl}]
+  full:
+    endpoints: [{host: api.example.com, port: 443, protocol: rest, access: full, enforcement: enforce}]
+    binaries: [{path: /usr/bin/curl}]
+  narrow:
+    endpoints: [{host: api.example.com, port: 443, protocol: rest, access: read-only, enforcement: enforce}]
+    binaries: [{path: /usr/bin/curl}]
+  wild:
+    endpoints: [{host: api.example.com, port: 443, protocol: rest, access: read-only, enforcement: enforce}]
+    binaries: [{path: /usr/bin/*}]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		rule, binary string
+		want         string // part of the one reason, or "" for none
+	}{
+		{"l4", "/usr/bin/node", "the whole connection to api.example.com:443"},
+		{"l4", "/usr/bin/curl", ""},
+		{"full", "/usr/bin/node", "every HTTP method to api.example.com:443"},
+		{"full", "/usr/bin/curl", ""},
+		{"narrow", "/usr/bin/node", ""},
+		{"wild", "/usr/bin/node", "the programs /usr/bin/*"},
+		{"wild", "/usr/bin/*", ""},
+	} {
+		got := MergeBroad(raw[c.rule], "pypi.org", 443, c.binary)
+		switch {
+		case c.want == "" && len(got) != 0:
+			t.Errorf("MergeBroad(%s, %s) = %q, want none", c.rule, c.binary, got)
+		case c.want != "" && (len(got) != 1 || !strings.Contains(got[0], c.want)):
+			t.Errorf("MergeBroad(%s, %s) = %q, want %q", c.rule, c.binary, got, c.want)
 		}
 	}
 }

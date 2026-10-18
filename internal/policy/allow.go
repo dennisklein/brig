@@ -107,18 +107,25 @@ func Broad(protocol, access, binary string) []string {
 	return why
 }
 
-// Endpoints lists the endpoints of a rule as host:port, as RawRules returns
-// the rule. An endpoint with a port list gives one entry per port, and one
-// that only logs says so.
-func Endpoints(rule map[string]any) []string {
-	var out []string
+// endpoint is one host and port of a rule's endpoint.
+type endpoint struct {
+	host, port       string
+	protocol, access string
+	audit            bool
+}
+
+func (e endpoint) String() string { return e.host + ":" + e.port }
+
+// endpoints lists the endpoints of a rule as RawRules or Parse returns the
+// rule, one entry per port.
+func endpoints(rule map[string]any) []endpoint {
+	var out []endpoint
 	eps, _ := rule["endpoints"].([]any)
 	for _, e := range eps {
 		ep, ok := e.(map[string]any)
 		if !ok {
 			continue
 		}
-		host, _ := ep["host"].(string)
 		var ports []any
 		if p, ok := ep["port"]; ok && p != nil {
 			ports = append(ports, p)
@@ -129,15 +136,97 @@ func Endpoints(rule map[string]any) []string {
 		if len(ports) == 0 {
 			ports = []any{defaultPort}
 		}
+		host, _ := ep["host"].(string)
+		protocol, _ := ep["protocol"].(string)
+		access, _ := ep["access"].(string)
+		enf, _ := ep["enforcement"].(string)
 		for _, p := range ports {
-			s := fmt.Sprintf("%s:%v", host, p)
-			if enf, _ := ep["enforcement"].(string); enf == "audit" {
-				s += " (audit)"
-			}
-			out = append(out, s)
+			out = append(out, endpoint{host: host, port: fmt.Sprint(p), protocol: protocol, access: access, audit: enf == "audit"})
 		}
 	}
 	return out
+}
+
+// binaries lists the program paths of a rule as RawRules or Parse returns
+// the rule.
+func binaries(rule map[string]any) []string {
+	var out []string
+	bins, _ := rule["binaries"].([]any)
+	for _, b := range bins {
+		switch b := b.(type) {
+		case string:
+			out = append(out, b)
+		case map[string]any:
+			if p, ok := b["path"].(string); ok {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// Endpoints lists the endpoints of a rule as host:port, as RawRules returns
+// the rule. An endpoint with a port list gives one entry per port, and one
+// that only logs says so.
+func Endpoints(rule map[string]any) []string {
+	var out []string
+	for _, e := range endpoints(rule) {
+		s := e.String()
+		if e.audit {
+			s += " (audit)"
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// OtherEndpoints lists the endpoints of rule, as RawRules or Parse returns
+// it, that are not for host and port, as host:port.
+func OtherEndpoints(rule map[string]any, host string, port int) []string {
+	var out []string
+	for _, e := range endpoints(rule) {
+		if s := e.String(); !strings.EqualFold(e.host, host) || e.port != strconv.Itoa(port) {
+			if !slices.Contains(out, s) {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+// MergeBroad lists the ways in which adding an endpoint for host and port
+// and the program binary to rule, a sandbox's rule as RawRules or Parse
+// returns it, lets a sandbox do more than Broad says of the endpoint and
+// program on their own: the gateway merges them into the rule, in which
+// every program reaches every endpoint. So binary gets the whole connection
+// or full access that an endpoint of the rule has, and a program path of
+// the rule with a wildcard reaches the new endpoint. The list is empty for a
+// merge that needs no confirmation beyond Broad's.
+func MergeBroad(rule map[string]any, host string, port int, binary string) []string {
+	var why []string
+	add := func(s string) {
+		if !slices.Contains(why, s) {
+			why = append(why, s)
+		}
+	}
+	bins := binaries(rule)
+	if !slices.Contains(bins, binary) {
+		for _, e := range endpoints(rule) {
+			switch {
+			case e.protocol == "":
+				add(fmt.Sprintf("the rule allows the whole connection to %s, so the proxy does not look at the HTTP requests of %s to it either", e, binary))
+			// openshell may spell the access level as its enum value.
+			case e.access == "full" || strings.HasSuffix(e.access, "_FULL"):
+				add(fmt.Sprintf("the rule allows every HTTP method to %s, which %s gets too", e, binary))
+			}
+		}
+	}
+	for _, b := range bins {
+		if b != binary && strings.Contains(b, "*") {
+			add(fmt.Sprintf("the rule is for the programs %s, so more than one program may connect to %s:%d", b, host, port))
+		}
+	}
+	return why
 }
 
 // EndpointSpec spells an endpoint as openshell policy update takes it in

@@ -136,6 +136,18 @@ func buildAllow(f Form, c Context) (Command, error) {
 	}
 	spec := policy.EndpointSpec(host, port, protocol, access, enforcement)
 	broad := policy.Broad(protocol, access, binary)
+	// The gateway merges the endpoint into a rule of the same name, as brig
+	// policy allow checks too; the sandbox's policy as brig ui last read it
+	// tells the user before the command does.
+	if r, ok := sandboxRule(s, rule); ok {
+		if rule == policy.RuleName(host, port) {
+			if other := policy.OtherEndpoints(r, host, port); len(other) > 0 {
+				return Command{}, fieldErr("Rule name", fmt.Sprintf("%s has a rule %s for %s already, which %s would reach too; name a rule of its own",
+					s.Name, rule, strings.Join(other, ", "), binary))
+			}
+		}
+		broad = append(broad, policy.MergeBroad(r, host, port, binary)...)
+	}
 	if len(broad) > 0 && f.Get("broad") == "" {
 		return Command{}, fieldErr("Broad rule", strings.Join(broad, "; ")+". Tick Allow a broad rule to add it anyway")
 	}
@@ -170,6 +182,20 @@ func buildAllow(f Form, c Context) (Command, error) {
 		cmd = cmd.Note("Audit logs the requests that the access level would deny, and lets them pass.")
 	}
 	return cmd, nil
+}
+
+// sandboxRule returns the network rule of key in the policy of s, if brig ui
+// read it.
+func sandboxRule(s store.Sandbox, key string) (policy.Rule, bool) {
+	if s.Policy == nil || s.Policy.Base == "" {
+		return nil, false
+	}
+	doc, err := policy.Parse([]byte(s.Policy.Base))
+	if err != nil {
+		return nil, false
+	}
+	r, ok := doc.Network[key]
+	return r, ok
 }
 
 // keepNote says what keeping a rule does not do.

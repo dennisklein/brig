@@ -34,6 +34,13 @@ another public suffix, such as \*.com, \*.co.uk or \*.github.io, and \* or \*\*.
 asks for --broad before it adds a rule with full access, with --l4, or for a
 program path with a wildcard.
 
+The gateway adds the endpoint and the program to a rule of the same name that
+the sandbox has already, and in a rule every program reaches every endpoint.
+So brig refuses to add to a rule named allow\_HOST\_PORT that holds other hosts
+or ports, and asks for --broad before the program gets the whole connection or
+full access of the rule's endpoints, or before programs of the rule with a
+wildcard reach the new endpoint.
+
 With --draft, brig approves the rule that OpenShell drafted from the denials
 of the sandbox ([`brig ui`](brig-ui.md) shows them) as it is, with
 openshell rule approve. The draft's rule is then the one that --save saves,
