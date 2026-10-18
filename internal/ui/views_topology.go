@@ -139,16 +139,20 @@ func topologyOf(v *view, vm, sel string) topology {
 		cols[col] = append(cols[col], n)
 	}
 	var edges []topoEdge
+	// edgeAt and hasIn index the edges: a sandbox's denials can fill the
+	// log, and scanning the edges for each would be quadratic.
+	edgeAt := map[[2]string]int{}
+	hasIn := map[string]bool{}
 	edge := func(from, to, class string) {
-		for i, e := range edges {
-			if e.From == from && e.To == to {
-				// Denied outranks allowed, which outranks configured.
-				if rank(class) > rank(e.Class) {
-					edges[i].Class = class
-				}
-				return
+		if i, ok := edgeAt[[2]string{from, to}]; ok {
+			// Denied outranks allowed, which outranks configured.
+			if rank(class) > rank(edges[i].Class) {
+				edges[i].Class = class
 			}
+			return
 		}
+		edgeAt[[2]string{from, to}] = len(edges)
+		hasIn[to] = true
 		edges = append(edges, topoEdge{From: from, To: to, Class: class})
 	}
 
@@ -206,7 +210,7 @@ func topologyOf(v *view, vm, sel string) topology {
 		}
 		for _, p := range g.Providers {
 			prID := "pr:" + g.VM + "/" + p.Workspace + "/" + p.Name
-			if !slices.ContainsFunc(edges, func(e topoEdge) bool { return e.To == prID }) {
+			if !hasIn[prID] {
 				continue
 			}
 			sub := strings.Join(p.Credentials, ", ")
@@ -280,14 +284,18 @@ func topologyOf(v *view, vm, sel string) topology {
 	t.FenceX, t.FenceH = topoX[3]-30, t.Height-40
 	t.FenceTextX, t.FenceTextY = t.FenceX+9, t.Height-6
 
-	touches := func(id string) bool {
-		if sel == "" || id == sel {
-			return true
+	near := map[string]bool{}
+	if sel != "" {
+		for _, e := range edges {
+			switch sel {
+			case e.From:
+				near[e.To] = true
+			case e.To:
+				near[e.From] = true
+			}
 		}
-		return slices.ContainsFunc(edges, func(e topoEdge) bool {
-			return (e.From == sel && e.To == id) || (e.To == sel && e.From == id)
-		})
 	}
+	touches := func(id string) bool { return sel == "" || id == sel || near[id] }
 	if _, ok := byID[sel]; !ok {
 		sel = ""
 	}
