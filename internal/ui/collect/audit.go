@@ -23,19 +23,26 @@ func Audit(ctx context.Context, st *store.Store, s audit.Store) {
 	defer sub.Close()
 	tick := time.NewTicker(auditEvery)
 	defer tick.Stop()
-	for {
+	read := func() {
 		sn := st.Snapshot()
 		if a := ReadAudit(ctx, sn, s); !reflect.DeepEqual(a, sn.Audit) {
 			st.SetAudit(a)
 		}
+	}
+	read()
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-sub.Changed():
+			// Only a change of the VMs can change what is read. Reading
+			// for the audit's own change would loop.
 			if !sub.Take()[store.TopicVMs] {
 				continue
 			}
+			read()
 		case <-tick.C:
+			read()
 		}
 	}
 }
