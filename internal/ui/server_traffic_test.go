@@ -313,3 +313,30 @@ func TestTrafficRows(t *testing.T) {
 		t.Errorf("a sandbox without a workspace filters: %+v", got)
 	}
 }
+
+// Many requests of a sandbox to one endpoint make one edge.
+func TestTopologyEdges(t *testing.T) {
+	ts := newTestServer(t)
+	now := time.Now()
+	var rs []store.Request
+	for range 500 {
+		rs = append(rs,
+			store.Request{Workspace: "default", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "allow", Host: "x.example", Port: 443},
+			store.Request{Workspace: "default", Sandbox: "webapp", Time: now.Add(-time.Minute), Verdict: "deny", Host: "x.example", Port: 443})
+	}
+	ts.st.AddRequests("dev", rs)
+	v := ts.srv.newView(httptest.NewRequest("GET", "/topology", nil), "topology", "")
+	topo := topologyOf(v, "dev", "")
+	var n int
+	for _, e := range topo.Edges {
+		if e.To == "ep:x.example:443" {
+			n++
+			if e.Class != "deny" {
+				t.Errorf("edge class %q, want deny", e.Class)
+			}
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d edges to the endpoint, want 1", n)
+	}
+}
