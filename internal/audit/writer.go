@@ -11,10 +11,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // gapsKept is how long the index keeps the times of gaps.
@@ -106,14 +108,18 @@ func (w *Writer) Flush(positions any) error {
 		d = &Day{File: day + plainExt}
 	}
 	for _, r := range queue {
+		r = capFields(r)
 		b, err := json.Marshal(r)
 		if err != nil {
 			return fmt.Errorf("writing an audit record: %w", err)
 		}
 		if len(b) >= maxLine {
-			// No reader would take it; a request's raw line is the only
-			// field that long.
-			r.Raw = r.Raw[:min(len(r.Raw), 4096)]
+			// No reader would take it. Only its collections can still
+			// be this long; a gap says that it is missing.
+			r = Record{
+				V: r.V, T: r.T, VM: r.VM, Workspace: r.Workspace, Sandbox: r.Sandbox, Kind: KindGap,
+				Why: fmt.Sprintf("A %s record of %d bytes was too long to keep.", r.Kind, len(b)),
+			}
 			if b, err = json.Marshal(r); err != nil {
 				return err
 			}
@@ -166,6 +172,46 @@ func (w *Writer) Flush(positions any) error {
 		err = errors.Join(err, writeJSONFile(w.s.positionsPath(w.vm), positions))
 	}
 	return err
+}
+
+// maxField bounds each string of a record, in bytes. A request's fields
+// come from the sandbox, which can make them as long as it likes.
+const maxField = 4096
+
+// capFields cuts each string of r, also those in its string slices and
+// maps, to maxField bytes, at the start of a UTF-8 character.
+func capFields(r Record) Record {
+	cut := func(s string) string {
+		if len(s) <= maxField {
+			return s
+		}
+		n := maxField
+		for n > 0 && !utf8.RuneStart(s[n]) {
+			n--
+		}
+		return s[:n]
+	}
+	v := reflect.ValueOf(&r).Elem()
+	for i := range v.NumField() {
+		f := v.Field(i)
+		switch {
+		case f.Kind() == reflect.String:
+			f.SetString(cut(f.String()))
+		case f.Type() == reflect.TypeFor[[]string]():
+			ss := slices.Clone(f.Interface().([]string))
+			for j, s := range ss {
+				ss[j] = cut(s)
+			}
+			f.Set(reflect.ValueOf(ss))
+		case f.Type() == reflect.TypeFor[map[string]string]() && !f.IsNil():
+			m := map[string]string{}
+			for k, s := range f.Interface().(map[string]string) {
+				m[cut(k)] = cut(s)
+			}
+			f.Set(reflect.ValueOf(m))
+		}
+	}
+	return r
 }
 
 func (w *Writer) requeue(rs []Record) {
