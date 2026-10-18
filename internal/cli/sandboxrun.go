@@ -567,9 +567,10 @@ func (a *app) sandboxRun(cmd *cobra.Command, p runPlan, keep string, start bool,
 		}
 	}
 	if r.Kept {
-		// A failed create may have left no sandbox to keep.
-		_, err := findSandbox(cctx, v, p.target.workspace, p.name)
-		r.Kept = exitStatus(err) != exitNotFound
+		// A failed create may have left no sandbox to keep, or found one of
+		// the same name that another command created after the check above.
+		s, err := findSandbox(cctx, v, p.target.workspace, p.name)
+		r.Kept = exitStatus(err) != exitNotFound && (err != nil || s.Labels[runLabel] == p.id)
 		if !r.Kept {
 			delErr = nil
 		}
