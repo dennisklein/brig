@@ -25,6 +25,12 @@ func Execute() int {
 	// that it cleans up or rolls back.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	// The first signal only cancels; a second one ends brig at once, as by
+	// default, should the clean-up hang.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 
 	var p progressRun
 	root := newRootCmd(&p)

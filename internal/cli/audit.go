@@ -11,10 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -226,10 +224,9 @@ func runAudit(cmd *cobra.Command, args []string, o auditOptions, format outputFo
 		}
 		return nil
 	}
-	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// Ctrl-C ends the command's context, which follows until then.
 	q.Since, q.Until = time.Time{}, time.Time{}
-	err = st.Follow(ctx, q, func(r audit.Record) { _ = p.print(r) })
+	err = st.Follow(cmd.Context(), q, func(r audit.Record) { _ = p.print(r) })
 	return errors.Join(err, p.err)
 }
 
@@ -687,9 +684,8 @@ func newAuditCollectCmd() *cobra.Command {
 					return gatewayClient(v)
 				},
 			}
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			return c.Run(ctx)
+			// Ctrl-C and SIGTERM end the command's context.
+			return c.Run(cmd.Context())
 		},
 	}
 }
