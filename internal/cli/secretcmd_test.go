@@ -63,7 +63,7 @@ func newSecretFixture(t *testing.T, gatewayUp bool) *secretFixture {
 echo "$*" >>'`+f.toolLog+`'
 case "$1" in
 store) cat >'`+f.stored+`' ;;
-lookup) if [ "$3" = github.com ] && [ -f '`+f.stored+`' ]; then cat '`+f.stored+`'; else exit 1; fi ;;
+lookup) if [ "$2 $3" = "application brig" ] && [ "$5" = github.com ] && [ -f '`+f.stored+`' ]; then cat '`+f.stored+`'; else exit 1; fi ;;
 esac
 `, 0o755)
 	f.openshellLog = filepath.Join(bin, "openshell-log")
@@ -91,7 +91,7 @@ func TestSecretSetStoresAndSyncsOnlyThatProvider(t *testing.T) {
 		t.Fatalf("secret set: %v\n%s", err, out)
 	}
 	// The sync then looks the secret up, and only that one.
-	if got, _ := os.ReadFile(f.toolLog); string(got) != "store --label=brig: github GH_TOKEN service github.com\nlookup service github.com\n" {
+	if got, _ := os.ReadFile(f.toolLog); string(got) != "store --label=brig: github GH_TOKEN application brig service github.com\nlookup application brig service github.com\n" {
 		t.Errorf("secret-tool was run as %q", got)
 	}
 	if got, _ := os.ReadFile(f.stored); string(got) != "ghp_s3cret" {
@@ -226,7 +226,7 @@ func TestSecretList(t *testing.T) {
 	for _, want := range []string{
 		"PROVIDER  CREDENTIAL  SOURCE",
 		"ci        A           env BRIG_SECRET_CI_A",
-		"github    GH_TOKEN    secret-tool service github.com  ",
+		"github    GH_TOKEN    secret-tool application brig service github.com  ",
 		"stored",
 		"missing",
 		"brig secret set dev gitlab",

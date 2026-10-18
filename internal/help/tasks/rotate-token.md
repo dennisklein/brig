@@ -9,8 +9,8 @@ show:
 doc: "how-to/secrets.md#rotate-a-token"
 ---
 1. Run brig secret set with the VM and the provider. It asks for the new
-   value without echo and stores it in your keyring under the attributes the
-   provider file names.
+   value without echo and stores it in your keyring under application brig
+   and the attributes the provider file names.
 2. If the VM runs, it syncs that provider at once. Programs that a sandbox
    starts afterwards get the new token; running agents keep the old one.
 

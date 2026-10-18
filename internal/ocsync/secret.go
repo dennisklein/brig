@@ -18,13 +18,29 @@ import (
 // SecretTool looks secrets up and stores them with secret-tool from
 // libsecret, or another program that takes the same arguments: `lookup
 // ATTRIBUTE VALUE...`, which prints the secret, and `store --label=LABEL
-// ATTRIBUTE VALUE...`, which reads it from standard input.
+// ATTRIBUTE VALUE...`, which reads it from standard input. It puts brig's
+// namespace before the attributes it is given; see KeyringAttributes.
 type SecretTool struct {
 	// Path is the program: an absolute path, or a name to look up in PATH.
 	Path string
 	// Timeout bounds each lookup, which may wait for the user to unlock the
 	// keyring. Zero means two minutes.
 	Timeout time.Duration
+}
+
+// The attribute/value pair that brig puts before the attributes of every
+// secret it looks up or stores. A provider file, which a shared config
+// directory may hold, can then name only secrets stored for brig, and not,
+// say, a password that another program keeps in the same keyring.
+const (
+	NamespaceAttribute = "application"
+	NamespaceValue     = "brig"
+)
+
+// KeyringAttributes returns the attributes under which the secret of a
+// secret_tool reference is in the keyring: brig's namespace, then lookup.
+func KeyringAttributes(lookup []string) []string {
+	return append([]string{NamespaceAttribute, NamespaceValue}, lookup...)
 }
 
 // ErrSecretNotFound means the Secret Service has no secret with the given
@@ -53,13 +69,15 @@ func LookupEnv(name string) (string, error) {
 }
 
 // Lookup returns the secret with the attributes attrs, given as
-// attribute/value pairs. A single trailing newline is removed. Neither the
-// secret nor secret-tool's standard output ever appears in errors.
+// attribute/value pairs, in brig's namespace. A single trailing newline is
+// removed. Neither the secret nor secret-tool's standard output ever appears
+// in errors.
 func (s SecretTool) Lookup(ctx context.Context, attrs []string) (string, error) {
 	path, err := s.program()
 	if err != nil {
 		return "", err
 	}
+	attrs = KeyringAttributes(attrs)
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, append([]string{"lookup"}, attrs...)...)
@@ -119,7 +137,7 @@ func (s SecretTool) withTimeout(ctx context.Context) (context.Context, context.C
 }
 
 // Store saves secret under the attributes attrs, given as attribute/value
-// pairs, with the label label. The secret goes to the program on standard
+// pairs, in brig's namespace, with the label label. The secret goes to the program on standard
 // input, never on its command line, and is exactly the bytes given, so the
 // caller removes a trailing newline. A program that cannot store, such as a
 // wrapper that only looks up, exits non-zero; the error then names the
@@ -130,6 +148,7 @@ func (s SecretTool) Store(ctx context.Context, label string, attrs []string, sec
 	if err != nil {
 		return err
 	}
+	attrs = KeyringAttributes(attrs)
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, append([]string{"store", "--label=" + label}, attrs...)...)

@@ -35,10 +35,12 @@ brig stores it by running the program set as openshell.secret\_tool in
 config.yaml (default secret-tool) as
 
 ```text
-PROG store --label="brig: PROVIDER CREDENTIAL" ATTRIBUTE VALUE...
+PROG store --label="brig: PROVIDER CREDENTIAL" application brig ATTRIBUTE VALUE...
 ```
 
-with the secret on standard input. A wrapper that takes only lookup fails
+with the secret on standard input. brig puts application brig before the
+attributes of every secret it stores or looks up, so a provider file can
+name only secrets stored for brig. A wrapper that takes only lookup fails
 there, and brig prints the attributes to store the secret by hand.
 
 If the VM is running, brig then syncs only that provider, and what its
