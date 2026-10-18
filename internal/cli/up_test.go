@@ -92,3 +92,17 @@ func TestUpListsSandboxesAndPendingRules(t *testing.T) {
 		t.Errorf("%v: %s", err, &out)
 	}
 }
+
+func TestPrintPendingEscapesGatewayNames(t *testing.T) {
+	var out bytes.Buffer
+	evil := "w\x1b]52;c;cm0gLXJmIH4=\a"
+	err := printPending(&out, &vm.VM{Name: "dev"}, []upSandbox{
+		{sandboxRow: sandboxRow{Workspace: evil, Name: "web\x1b[2Japp"}, PendingRules: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(out.String(), "\x1b\a") || !strings.Contains(out.String(), "1 drafted rule waits") {
+		t.Errorf("printPending wrote %q", &out)
+	}
+}

@@ -182,9 +182,10 @@ func printPending(w io.Writer, v *vm.VM, sandboxes []upSandbox) error {
 		if s.PendingRules == 1 {
 			rules = "rule waits"
 		}
+		// The gateway names the workspace, as it does the sandbox.
 		get := strings.Join(append([]string{"openshell"}, openshell.WorkspaceArgs(v.GatewayName(), s.Workspace)...), " ")
 		lines = append(lines, fmt.Sprintf("%d drafted %s for review in sandbox %s: %s rule get %s --status pending, or brig ui.",
-			s.PendingRules, rules, termtext.Escape(s.Name), get, termtext.Escape(s.Name)))
+			s.PendingRules, rules, termtext.Escape(s.Name), termtext.Escape(get), termtext.Escape(s.Name)))
 	}
 	if len(lines) == 0 {
 		return nil
