@@ -233,7 +233,7 @@ func (a *app) policyDiff(ctx context.Context, v *vm.VM, workspace, sandbox, sour
 }
 
 func readPolicyFile(path string) (*policy.Doc, error) {
-	data, err := os.ReadFile(path)
+	data, err := ocsync.ReadConfigFile(path)
 	if err != nil {
 		return nil, err
 	}

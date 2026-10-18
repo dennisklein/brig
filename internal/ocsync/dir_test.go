@@ -275,6 +275,19 @@ func TestLoadReadsOnlyRegularFiles(t *testing.T) {
 		// The goroutine stays blocked in open(2); the test binary exits anyway.
 		t.Fatal("Load blocked on a symlink to a FIFO")
 	}
+	// A FIFO swapped in after the type check must not block the open either.
+	go func() {
+		_, err := openRegular(filepath.Join(fifo, "fifo"))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("open of a FIFO: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("openRegular blocked on a FIFO")
+	}
 	big := t.TempDir()
 	writeFile(t, filepath.Join(big, "profiles", "big.yaml"), "id: big\n#"+strings.Repeat("x", maxConfigFileSize)+"\n")
 	if _, err := Load([]string{big}); err == nil || !strings.Contains(err.Error(), "larger than") {
