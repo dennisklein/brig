@@ -226,6 +226,37 @@ func TestCreateLeavesAVMCreatedMeanwhileAlone(t *testing.T) {
 	}
 }
 
+// TestCreateAndImageRemovalExcludeEachOther checks that brig image rm
+// cannot remove the image of a VM that brig create is creating, nor brig
+// create use an image that brig image rm is removing.
+func TestCreateAndImageRemovalExcludeEachOther(t *testing.T) {
+	a := testApp(t)
+	id := "f44-openshell0.1.2-20261007T120000Z"
+	testImage(t, a, id)
+	unlock, err := a.lockImageUse(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &vm.VM{Name: "dev", Image: id, CPUs: 1, Memory: bytesize.GiB, RootDisk: 20 * bytesize.GiB, DataDisk: bytesize.GiB}
+	cmd := newCreateCmd()
+	cmd.SetOut(io.Discard)
+	if err := a.create(t.Context(), cmd, v, false, readyBooted, io.Discard); err == nil || !strings.Contains(err.Error(), "removing base images") {
+		t.Errorf("create() during an image removal = %v", err)
+	}
+	unlock()
+
+	if unlock, err = a.lockImageUse(false); err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if _, err := run(t, "image", "rm", id); err == nil || !strings.Contains(err.Error(), "taking a base image into use") {
+		t.Errorf("image rm during a create = %v", err)
+	}
+	if _, err := a.images.Get(id); err != nil {
+		t.Errorf("the image is gone: %v", err)
+	}
+}
+
 func TestLockSurvivesDeletingTheVM(t *testing.T) {
 	a := testApp(t)
 	testVM(t, a, "dev")

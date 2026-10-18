@@ -206,12 +206,24 @@ func (a *app) create(ctx context.Context, cmd *cobra.Command, v *vm.VM, start bo
 	if a.vms.Exists(v.Name) {
 		return alreadyExists(fmt.Errorf("VM %s already exists", v.Name))
 	}
-	conn, err := a.connect(ctx)
+	// brig image rm may have removed the image since the check above, and
+	// could remove it until the VM's record names it.
+	unlockImages, err := a.lockImageUse(false)
 	if err != nil {
 		return err
 	}
+	conn, err := a.connect(ctx)
+	if err != nil {
+		unlockImages()
+		return err
+	}
 	defer func() { _ = conn.Close() }()
-	if err := a.provision(ctx, conn, v); err != nil {
+	_, err = a.images.Get(v.Image)
+	if err == nil {
+		err = a.provision(ctx, conn, v)
+	}
+	unlockImages()
+	if err != nil {
 		return err
 	}
 	fmt.Fprintf(result, "Created VM %s from image %s.\n", v.Name, v.Image)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -114,6 +115,32 @@ func (a *app) lockLoadedVM(v *vm.VM) (func(), error) {
 	}
 	*v = *fresh
 	return unlock, nil
+}
+
+// lockImageUse serialises taking a base image into use with removing base
+// images: brig create holds it shared from its last check of the image until
+// the VM's record names the image, and brig image rm and prune hold it
+// exclusive. The returned function releases the lock.
+func (a *app) lockImageUse(exclusive bool) (func(), error) {
+	if err := paths.EnsurePrivate(a.dirs.ImagesDir()); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(a.dirs.ImagesDir(), ".use.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	how, busy := syscall.LOCK_SH, "another brig command is removing base images"
+	if exclusive {
+		how, busy = syscall.LOCK_EX, "a brig create is taking a base image into use"
+	}
+	if err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errors.New(busy)
+		}
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil
 }
 
 // newUUID returns a random (version 4) UUID.
