@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -74,6 +75,31 @@ func TestPushImage(t *testing.T) {
 				t.Fatalf("pushImage() = %v, want an error containing %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestPushImageEscapesTheGuest checks that what podman load in the VM
+// prints reaches the terminal with its control characters escaped.
+func TestPushImageEscapesTheGuest(t *testing.T) {
+	a := testApp(t)
+	v := testVM(t, a, "dev")
+	fakeCommands(t, map[string]string{
+		"podman": "printf data",
+		"ssh":    `cat >/dev/null; printf 'Loaded image: x\033]52;c;cm0=\007\n'; printf 'warn\033[2J' >&2`,
+	})
+	cmd := newImagePushCmd()
+	var result, stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	if err := a.pushImage(t.Context(), v, "localhost/agent:latest", cmd, &result); err != nil {
+		t.Fatal(err)
+	}
+	for name, out := range map[string]string{"result": result.String(), "stderr": stderr.String()} {
+		if strings.ContainsAny(out, "\x1b\a") {
+			t.Errorf("%s: %q", name, out)
+		}
+	}
+	if !strings.Contains(result.String(), "Loaded image: x") || !strings.Contains(stderr.String(), "warn") {
+		t.Errorf("result %q, stderr %q", &result, &stderr)
 	}
 }
 
