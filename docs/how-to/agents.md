@@ -362,7 +362,7 @@ the token without saving it. Store it in the keyring:
 
 ```sh
 claude setup-token
-secret-tool store --label='Claude Code token (agents)' service claude.ai user alice
+secret-tool store --label='Claude Code token (agents)' application brig service claude.ai user alice
 ```
 
 With the provider file below in place, `claude setup-token | brig secret set

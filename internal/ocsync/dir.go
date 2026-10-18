@@ -92,9 +92,13 @@ func (p ProfileFile) SHA256() string {
 //	    secret_tool:
 //	      lookup: [service, github.com, user, alice]
 //
-// lookup holds the attribute/value pairs of `secret-tool lookup`. A CI job,
-// which has no keyring, gives `env: BRIG_SECRET_GH_TOKEN` in place of
-// secret_tool. There is deliberately no way to give a credential's value in
+// lookup holds the attribute/value pairs of `secret-tool lookup`; brig adds
+// its namespace, application brig, so the secret is stored as
+//
+//	secret-tool store --label=LABEL application brig service github.com user alice
+//
+// A CI job, which has no keyring, gives `env: BRIG_SECRET_GH_TOKEN` in place
+// of secret_tool. There is deliberately no way to give a credential's value in
 // the file.
 type Provider struct {
 	Name        string                `yaml:"name"`
@@ -120,7 +124,7 @@ type Credential struct {
 const EnvSecretPrefix = "BRIG_SECRET_"
 
 // SecretToolRef names a secret in the Secret Service by the attributes that
-// `secret-tool lookup` takes.
+// `secret-tool lookup` takes, without brig's namespace.
 type SecretToolRef struct {
 	Lookup []string `yaml:"lookup"`
 }
@@ -551,6 +555,11 @@ func (p Provider) validate() error {
 		lookup := c.SecretTool.Lookup
 		if len(lookup) < 2 || len(lookup)%2 != 0 || slices.Contains(lookup, "") {
 			return fmt.Errorf("credential %s: secret_tool.lookup needs attribute/value pairs", key)
+		}
+		for i := 0; i < len(lookup); i += 2 {
+			if lookup[i] == NamespaceAttribute {
+				return fmt.Errorf("credential %s: secret_tool.lookup cannot set the attribute %s; brig adds %s %s itself", key, NamespaceAttribute, NamespaceAttribute, NamespaceValue)
+			}
 		}
 	}
 	return nil

@@ -243,7 +243,7 @@ case "$*" in
 esac
 `, 0o755)
 	tool := filepath.Join(bin, "my-secret-tool")
-	writeTestFile(t, tool, "#!/bin/sh\n[ \"$*\" = 'lookup service github.com' ] && printf 'tok\\n'\n", 0o755)
+	writeTestFile(t, tool, "#!/bin/sh\n[ \"$*\" = 'lookup application brig service github.com' ] && printf 'tok\\n'\n", 0o755)
 	writeTestFile(t, a.dirs.ConfigFile(), "openshell:\n  secret_tool: "+tool+"\n", 0o600)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 

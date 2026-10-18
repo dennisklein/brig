@@ -112,7 +112,7 @@ while the agent only reads. A personal token would also open every other
 project you can see, and the CI/CD variables of those you maintain.
 
 ```sh
-secret-tool store --label='GitLab token (agents)' service gitlab.example.org user alice
+secret-tool store --label='GitLab token (agents)' application brig service gitlab.example.org user alice
 ```
 
 ```yaml

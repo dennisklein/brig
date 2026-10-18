@@ -32,7 +32,7 @@ func TestSecretToolLookup(t *testing.T) {
 	if err != nil || got != "s3cret" {
 		t.Fatalf("Lookup() = %q, %v", got, err)
 	}
-	if data, _ := os.ReadFile(log); string(data) != "lookup service github.com\n" {
+	if data, _ := os.ReadFile(log); string(data) != "lookup application brig service github.com\n" {
 		t.Errorf("argv: %q", data)
 	}
 
@@ -49,7 +49,7 @@ func TestSecretToolLookupFailures(t *testing.T) {
 		notFound bool
 		want     string
 	}{
-		"not found":    {"exit 1", true, "secret-tool store --label=LABEL service x"},
+		"not found":    {"exit 1", true, "secret-tool store --label=LABEL application brig service x"},
 		"empty":        {"exit 0", true, "no such secret"},
 		"error":        {"echo 'Cannot autolaunch D-Bus without X11' >&2; echo leaked; exit 1", false, "D-Bus"},
 		"silent crash": {"echo leaked; exit 3", false, "exit status 3"},
@@ -82,7 +82,7 @@ func TestSecretToolStoreHint(t *testing.T) {
 	// stores the secret under the same attributes.
 	path, _ := fakeSecretTool(t, "exit 1")
 	_, err := SecretTool{Path: path}.Lookup(context.Background(), []string{"service", "GitHub token", "user", "alice's", "x", "$(echo hi)"})
-	want := `store it with: secret-tool store --label=LABEL service 'GitHub token' user 'alice'\''s' x '$(echo hi)'`
+	want := `store it with: secret-tool store --label=LABEL application brig service 'GitHub token' user 'alice'\''s' x '$(echo hi)'`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("Lookup() error = %v, want %q", err, want)
 	}
@@ -109,7 +109,7 @@ func TestSecretToolStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The label and attributes are arguments; the secret is not.
-	if data, _ := os.ReadFile(log); string(data) != "store --label=brig: github GH_TOKEN service github.com user alice smith\n" {
+	if data, _ := os.ReadFile(log); string(data) != "store --label=brig: github GH_TOKEN application brig service github.com user alice smith\n" {
 		t.Errorf("argv: %q", data)
 	}
 	if data, _ := os.ReadFile(in); string(data) != secret {

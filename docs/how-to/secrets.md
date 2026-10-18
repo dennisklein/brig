@@ -21,14 +21,29 @@ claude setup-token | brig secret set dev claude-code
 brig secret list dev                    # stored or missing for each credential, never values
 ```
 
-`secret-tool` does the same by hand, with the attributes from the provider
-file:
+`secret-tool` does the same by hand, with `application brig` and then the
+attributes from the provider file:
 
 ```sh
-secret-tool store --label='GitHub token (agents)' service github.com user alice
-secret-tool store --label='LLM key (agents)' service llm.example.com
+secret-tool store --label='GitHub token (agents)' application brig service github.com user alice
+secret-tool store --label='LLM key (agents)' application brig service llm.example.com
 brig sync dev
 ```
+
+## brig's namespace
+
+brig puts `application brig` before the attributes of every secret it looks up
+or stores, and a provider file cannot set the attribute `application`. A
+provider file in a shared directory can then name only secrets stored for
+brig, not a password that a browser or another program keeps in the same
+keyring. `brig secret list dev` shows the attributes as the keyring has them.
+
+Secrets stored by an older brig, or by hand without `application brig`, are
+not found any more: the sync of that provider fails and names the attributes.
+Store each one again with `brig secret set dev PROVIDER`, or with
+`secret-tool store` and `application brig` as above. Remove the old entry
+in your keyring manager; `secret-tool clear` with the old attributes would
+also match the new one.
 
 ## Rotate a token
 
@@ -45,8 +60,9 @@ To use another keyring client, set `openshell.secret_tool` in
 `~/.config/brig/config.yaml`; config directories cannot set it, so a shared
 one cannot run programs on your host. The program takes two verbs, as
 `secret-tool` does: `lookup ATTRIBUTE VALUE...` prints the secret, and `store
---label=LABEL ATTRIBUTE VALUE...` reads it from standard input. A wrapper
-around `pass`:
+--label=LABEL ATTRIBUTE VALUE...` reads it from standard input. Like
+`secret-tool`, it gets brig's namespace first, as in `lookup application brig
+service github.com`. A wrapper around `pass`:
 
 ```sh
 #!/bin/sh

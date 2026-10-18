@@ -122,6 +122,7 @@ func TestLoadRejects(t *testing.T) {
 		"no credentials":  {provider("name: p\ntype: github\n"), "at least one credential"},
 		"odd lookup":      {provider("name: p\ntype: github\ncredentials:\n  T:\n    secret_tool: {lookup: [service]}\n"), "attribute/value pairs"},
 		"empty attribute": {provider("name: p\ntype: github\ncredentials:\n  T:\n    secret_tool: {lookup: [service, '']}\n"), "attribute/value pairs"},
+		"namespace":       {provider("name: p\ntype: github\ncredentials:\n  T:\n    secret_tool: {lookup: [service, x, application, other]}\n"), "cannot set the attribute application"},
 		"reserved key":    {provider("name: p\ntype: github\ncredentials:\n  PATH:\n    secret_tool: {lookup: [a, b]}\n"), "cannot pass"},
 		"openshell key":   {provider("name: p\ntype: github\ncredentials:\n  openshell_x:\n    secret_tool: {lookup: [a, b]}\n"), "cannot pass"},
 		"revision key":    {provider("name: p\ntype: github\ncredentials:\n  v10_TOKEN:\n    secret_tool: {lookup: [a, b]}\n"), "cannot pass"},

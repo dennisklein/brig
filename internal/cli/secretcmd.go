@@ -73,8 +73,10 @@ secret, or one of more lines, on standard input.
 
 brig stores it by running the program set as openshell.secret_tool in
 config.yaml (default secret-tool) as
-  PROG store --label="brig: PROVIDER CREDENTIAL" ATTRIBUTE VALUE...
-with the secret on standard input. A wrapper that takes only lookup fails
+  PROG store --label="brig: PROVIDER CREDENTIAL" application brig ATTRIBUTE VALUE...
+with the secret on standard input. brig puts application brig before the
+attributes of every secret it stores or looks up, so a provider file can
+name only secrets stored for brig. A wrapper that takes only lookup fails
 there, and brig prints the attributes to store the secret by hand.
 
 If the VM is running, brig then syncs only that provider, and what its
@@ -212,7 +214,7 @@ func (a *app) secretSet(cmd *cobra.Command, v *vm.VM, ws, providerName, credenti
 		return err
 	}
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "Stored the secret of %s of provider %s (%s).\n", key, p.Name, termtext.Escape(ocsync.SecretToolRef{Lookup: attrs}.String()))
+	fmt.Fprintf(out, "Stored the secret of %s of provider %s (%s).\n", key, p.Name, termtext.Escape(strings.Join(ocsync.KeyringAttributes(attrs), " ")))
 	if noSync {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Apply it with: brig sync %s --workspace %s\n", v.Name, ws)
 	} else if err := a.secretSync(cmd, v, ws, p.Name, secretTool); err != nil {
@@ -382,7 +384,8 @@ type secretStatus struct {
 	Credential string `json:"credential"`
 	// Source is "secret_tool" or "env".
 	Source string `json:"source"`
-	// Attributes are the attribute/value pairs of a secret_tool source.
+	// Attributes are the attribute/value pairs of a secret_tool source as
+	// the keyring has them, brig's namespace included.
 	Attributes []string `json:"attributes,omitempty"`
 	// Env is the variable of an env source.
 	Env string `json:"env,omitempty"`
@@ -476,12 +479,12 @@ func checkSecrets(ctx context.Context, w ocsync.WorkspaceSet, tool ocsync.Secret
 				s.Source, s.Env = "env", c.Env
 				_, err = ocsync.LookupEnv(c.Env)
 			case stopped:
-				s.Source, s.Attributes = "secret_tool", c.SecretTool.Lookup
+				s.Source, s.Attributes = "secret_tool", ocsync.KeyringAttributes(c.SecretTool.Lookup)
 				s.Status = "not checked"
 				list = append(list, s)
 				continue
 			default:
-				s.Source, s.Attributes = "secret_tool", c.SecretTool.Lookup
+				s.Source, s.Attributes = "secret_tool", ocsync.KeyringAttributes(c.SecretTool.Lookup)
 				_, err = tool.Lookup(ctx, c.SecretTool.Lookup)
 			}
 			switch {

@@ -126,6 +126,11 @@ credentials:
       lookup: [service, github.com, user, alice]
 ```
 
+brig looks the secret up as `secret-tool lookup application brig service
+github.com user alice`: it adds [its namespace](../how-to/secrets.md#brigs-namespace),
+so a shared directory cannot name a secret that another program keeps in
+your keyring.
+
 Attach directories with `brig create --openshell-config DIR` or `brig update
 --add-openshell-config DIR`, or list defaults for new VMs in `openshell.configs`
 in `~/.config/brig/config.yaml`. [Secrets](../how-to/secrets.md) shows how to
