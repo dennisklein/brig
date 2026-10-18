@@ -5,6 +5,8 @@ package ocsync
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -54,9 +56,10 @@ type Options struct {
 	// RefreshSecrets updates every provider's credentials, whether or not
 	// they changed.
 	RefreshSecrets bool
-	// HoldNewEndpoints keeps back profile changes that would let the
-	// credentials of providers on the gateway go to more endpoints, so that
-	// only an explicit sync widens where credentials may be sent.
+	// HoldNewEndpoints keeps back profile changes that could change where or
+	// how the credentials of providers on the gateway are sent: anything
+	// but a profile's name, description and category. Only an explicit sync
+	// then widens where credentials may be sent.
 	HoldNewEndpoints bool
 	// Verbose also reports what is up to date.
 	Verbose bool
@@ -359,6 +362,155 @@ func addedEndpoints(cur, next []openshell.Endpoint) []string {
 	return added
 }
 
+// cosmeticKeys are the top-level keys of a profile that do not decide where
+// or how its credentials are sent. Every other key does, unknown ones too.
+var cosmeticKeys = []string{"id", "display_name", "description", "category", "resource_version"}
+
+// maxRoutingBytes bounds the canonical form that routing builds, which
+// aliases can make much larger than the file.
+const maxRoutingBytes = 16 << 20
+
+// routing returns a digest of each top-level key of the profile that decides
+// where or how its credentials are sent, such as credentials, endpoints and
+// binaries. The digests are of the values as written, with aliases resolved:
+// two spellings that a YAML parser may read alike, such as 443 and 0673,
+// differ.
+func routing(p ProfileFile) (map[string]string, error) {
+	src, err := yamlSource(p.Path, p.Data)
+	if err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(src, &doc); err != nil {
+		return nil, fmt.Errorf("%s: %w", p.Path, err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s: not a YAML mapping", p.Path)
+	}
+	m := doc.Content[0]
+	budget := maxRoutingBytes
+	out := map[string]string{}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k := resolveAlias(m.Content[i])
+		if k.Kind != yaml.ScalarNode {
+			return nil, fmt.Errorf("%s: a top-level key is not a string", p.Path)
+		}
+		if slices.Contains(cosmeticKeys, k.Value) {
+			continue
+		}
+		val, err := canonical(m.Content[i+1], &budget)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p.Path, err)
+		}
+		if _, dup := out[k.Value]; dup {
+			return nil, fmt.Errorf("%s: key %s is given twice", p.Path, k.Value)
+		}
+		sum := sha256.Sum256([]byte(val))
+		out[k.Value] = hex.EncodeToString(sum[:])
+	}
+	return out, nil
+}
+
+// canonical writes the YAML node n in a form that differs for any two values
+// that are written differently, apart from layout, comments, anchors and the
+// order of mapping keys. budget bounds the bytes it writes.
+func canonical(n *yaml.Node, budget *int) (string, error) {
+	n = resolveAlias(n)
+	var b strings.Builder
+	switch n.Kind {
+	case yaml.ScalarNode:
+		fmt.Fprintf(&b, "s%d:%s%d:%s", len(n.ShortTag()), n.ShortTag(), len(n.Value), n.Value)
+	case yaml.SequenceNode:
+		b.WriteString("[")
+		for _, c := range n.Content {
+			s, err := canonical(c, budget)
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(s)
+		}
+		b.WriteString("]")
+	case yaml.MappingNode:
+		var entries []string
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, err := canonical(n.Content[i], budget)
+			if err != nil {
+				return "", err
+			}
+			v, err := canonical(n.Content[i+1], budget)
+			if err != nil {
+				return "", err
+			}
+			entries = append(entries, k+v)
+		}
+		slices.Sort(entries)
+		fmt.Fprintf(&b, "{%s}", strings.Join(entries, ""))
+	default:
+		return "", fmt.Errorf("unexpected YAML node kind %v", n.Kind)
+	}
+	if *budget -= b.Len(); *budget < 0 {
+		return "", errors.New("the profile is too large once its aliases are resolved")
+	}
+	return b.String(), nil
+}
+
+// changedKeys returns the keys whose digests differ between cur and next,
+// sorted, those that only one of them has included.
+func changedKeys(cur, next map[string]string) []string {
+	var changed []string
+	for k, v := range next {
+		if cur[k] != v {
+			changed = append(changed, k)
+		}
+	}
+	for k := range cur {
+		if _, ok := next[k]; !ok {
+			changed = append(changed, k)
+		}
+	}
+	slices.Sort(changed)
+	return changed
+}
+
+// routingChange says how a profile change could change where and how the
+// credentials of the providers users are sent, which use the profile.
+type routingChange struct {
+	users []string
+	// added are endpoints that the gateway's profile lacks.
+	added []string
+	// changed are the top-level keys that differ from the profile that
+	// brig applied, apart from cosmetic ones.
+	changed []string
+	// unknown is set when brig has no record of the gateway's profile, so
+	// that changed is unknown.
+	unknown bool
+}
+
+func (c routingChange) any() bool {
+	return len(c.users) > 0 && (len(c.added) > 0 || len(c.changed) > 0 || c.unknown)
+}
+
+// reasons phrases the change for the report.
+func (c routingChange) reasons(added, changed, unknown string) []string {
+	users := strings.Join(c.users, ", ")
+	var why []string
+	if len(c.added) > 0 {
+		why = append(why, fmt.Sprintf(added, users, strings.Join(c.added, ", ")))
+	}
+	// New endpoints are named already.
+	keys := c.changed
+	if len(c.added) > 0 {
+		keys = slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return k == "endpoints" })
+	}
+	if len(keys) > 0 {
+		why = append(why, fmt.Sprintf(changed, strings.Join(keys, ", "), users))
+	}
+	if c.unknown {
+		why = append(why, fmt.Sprintf(unknown, users))
+	}
+	return why
+}
+
 func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile, providers []openshell.Provider) {
 	ws := workspaceProfiles(profiles)
 	tmp, err := os.MkdirTemp("", "brig-profiles-")
@@ -370,28 +522,46 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 	for _, p := range s.set.Profiles {
 		cur, exists := ws[p.ID]
 		prev, managed := s.ws.Profiles[p.ID]
+		route, err := routing(p)
+		if err != nil {
+			s.unapplied[p.ID] = true
+			s.fail("profile", p.ID, err)
+			continue
+		}
 		if exists && managed && prev.SHA256 == p.SHA256() {
+			// A state from before brig recorded routing: the file is what
+			// the gateway has.
+			if prev.Routing == nil && !s.opts.DryRun {
+				prev.Routing = route
+				s.ws.Profiles[p.ID] = prev
+			}
 			s.report("profile", p.ID, "up to date", false)
 			continue
 		}
 		// Credentials that the gateway holds already must not silently
-		// gain destinations.
-		var users []string
+		// gain destinations or be sent in another way.
+		var rc routingChange
 		for _, pr := range providers {
 			if pr.Type == p.ID {
-				users = append(users, pr.Name)
+				rc.users = append(rc.users, pr.Name)
 			}
 		}
-		slices.Sort(users)
-		var added []string
-		if len(users) > 0 {
+		slices.Sort(rc.users)
+		if len(rc.users) > 0 {
 			eff, _ := effectiveProfile(profiles, p.ID)
-			added = addedEndpoints(eff.Endpoints, p.Endpoints)
+			rc.added = addedEndpoints(eff.Endpoints, p.Endpoints)
+			if exists && managed && prev.Routing != nil {
+				rc.changed = changedKeys(prev.Routing, route)
+			} else {
+				rc.unknown = true
+			}
 		}
-		if len(added) > 0 && s.opts.HoldNewEndpoints {
+		if rc.any() && s.opts.HoldNewEndpoints {
 			s.unapplied[p.ID] = true
-			s.fail("profile", p.ID, fmt.Errorf("held back: it would let the credentials of providers %s also go to %s; review with `brig sync --dry-run` and apply with `brig sync`",
-				strings.Join(users, ", "), strings.Join(added, ", ")))
+			why := rc.reasons("it would let the credentials of providers %s also go to %s",
+				"it changes %s, which decide where and how the credentials of providers %s are sent",
+				"brig has no record of the profile that the gateway uses for providers %s, so it cannot tell where their credentials would go")
+			s.fail("profile", p.ID, fmt.Errorf("held back: %s; review with `brig sync --dry-run` and apply with `brig sync`", strings.Join(why, "; ")))
 			continue
 		}
 		action := "import"
@@ -418,11 +588,13 @@ func (s *syncer) syncProfiles(ctx context.Context, profiles []openshell.Profile,
 			continue
 		}
 		if !s.opts.DryRun {
-			s.ws.Profiles[p.ID] = ProfileState{SHA256: p.SHA256(), Created: !exists || (managed && prev.Created)}
+			s.ws.Profiles[p.ID] = ProfileState{SHA256: p.SHA256(), Created: !exists || (managed && prev.Created), Routing: route}
 		}
 		msg := s.done(action) + " from " + p.Path
-		if len(added) > 0 {
-			msg += fmt.Sprintf("; the credentials of providers %s may now also go to %s", strings.Join(users, ", "), strings.Join(added, ", "))
+		if rc.any() {
+			msg += "; " + strings.Join(rc.reasons("the credentials of providers %s may now also go to %s",
+				"it changes %s, which decide where and how the credentials of providers %s are sent",
+				"brig has no record of the profile that the gateway used for providers %s before"), "; ")
 		}
 		s.report("profile", p.ID, msg, true)
 	}
