@@ -216,6 +216,39 @@ func TestBrigCollectStats(t *testing.T) {
 	}
 }
 
+// libvirt does not tell when a domain booted, so the collector notes the
+// boots it sees.
+func TestBrigCollectUp(t *testing.T) {
+	dirs := testDirs(t)
+	if err := vm.NewStore(dirs).Save(&vm.VM{Name: "dev", Image: "gone", NetworkProfile: "default"}); err != nil {
+		t.Fatal(err)
+	}
+	conn := &fakeDomains{states: map[string]libvirt.State{"brig-dev": libvirt.StateRunning}}
+	b := &Brig{Dirs: dirs, Connect: func(context.Context) (Domains, error) { return conn, nil }}
+	s := store.New()
+	up := func() time.Time {
+		t.Helper()
+		b.Collect(context.Background(), s, conn)
+		return s.Snapshot().VMs[0].Up
+	}
+	if got := up(); !got.IsZero() {
+		t.Errorf("a VM that ran before the first poll is up since %v", got)
+	}
+	conn.states["brig-dev"] = libvirt.StateShutoff
+	if got := up(); !got.IsZero() {
+		t.Errorf("a VM that is off is up since %v", got)
+	}
+	before := time.Now()
+	conn.states["brig-dev"] = libvirt.StateRunning
+	booted := up()
+	if booted.Before(before) || booted.After(time.Now()) {
+		t.Fatalf("a VM that booted between polls is up since %v", booted)
+	}
+	if got := up(); !got.Equal(booted) {
+		t.Errorf("up moved from %v to %v", booted, got)
+	}
+}
+
 func TestUsageCapsCPU(t *testing.T) {
 	t0 := time.Now()
 	got := usage(libvirt.Stats{SampledAt: t0}, libvirt.Stats{SampledAt: t0.Add(time.Second), CPUTimeNS: 3e9}, 2)

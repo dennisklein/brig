@@ -44,6 +44,10 @@ type Brig struct {
 	// samples are the last resource samples by domain: a CPU share needs
 	// two of them.
 	samples map[string]libvirt.Stats
+	// up is when each running domain was first seen to run after it was
+	// seen not to; stopped holds the domains seen not to run since.
+	up      map[string]time.Time
+	stopped map[string]bool
 
 	wake chan struct{}
 }
@@ -110,6 +114,7 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 			conn = nil
 		}
 	}
+	now := time.Now()
 	out := make([]store.VM, len(records))
 	var running []string
 	for i, r := range records {
@@ -124,6 +129,7 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 				v.State = s.String()
 			}
 		}
+		v.Up = b.upSince(r.DomainName(), v.State, now)
 		if v.Running() {
 			running = append(running, r.DomainName())
 		}
@@ -148,6 +154,33 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 		st.SetVMs(state)
 	}
 	return conn
+}
+
+// upSince returns when the domain booted, as far as the collector saw it:
+// the poll that found it running after it had found it stopped. It is zero
+// for a domain that already ran when the collector started, because libvirt
+// does not tell when a domain booted. A state the collector could not read
+// changes nothing.
+func (b *Brig) upSince(domain, state string, now time.Time) time.Time {
+	if b.up == nil {
+		b.up, b.stopped = map[string]time.Time{}, map[string]bool{}
+	}
+	switch state {
+	case libvirt.StateRunning.String():
+		if t, ok := b.up[domain]; ok {
+			return t
+		}
+		if b.stopped[domain] {
+			b.up[domain] = now
+			return now
+		}
+		return time.Time{}
+	case "unknown":
+		return b.up[domain]
+	}
+	delete(b.up, domain)
+	b.stopped[domain] = true
+	return time.Time{}
 }
 
 // baseImages returns imgs, newest first, with the VMs that use each.
