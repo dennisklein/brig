@@ -192,5 +192,13 @@ policies decide), a `credentials` entry such as a refresh `token_url`, or
 `binaries`. Only an explicit `brig sync` applies it, and it names the new
 endpoints and the keys that changed.
 
+Likewise, once the gateway holds credentials that brig set, `brig start` holds
+back a new provider, a provider that brig did not create, and a credential
+that a provider file now looks up elsewhere. A shared directory could
+otherwise add a provider that pairs a token the gateway holds with a profile
+of its own. Run `brig sync` after you add a provider; `brig secret set` also
+applies the provider it stores a secret for. The first sync of a new VM is not
+held back.
+
 Config directories cannot set the program that looks up secrets, so a shared
 one cannot run programs on your host; see [secrets](../how-to/secrets.md).

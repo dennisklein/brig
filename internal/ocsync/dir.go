@@ -526,6 +526,21 @@ func loadProvider(path string) (Provider, error) {
 	return p, nil
 }
 
+// sources maps each credential of the provider to where its value is looked
+// up: "env:NAME", or "secret_tool:" and the lookup attributes as JSON.
+func (p Provider) sources() map[string]string {
+	out := map[string]string{}
+	for key, c := range p.Credentials {
+		if c.Env != "" {
+			out[key] = "env:" + c.Env
+			continue
+		}
+		attrs, _ := json.Marshal(c.SecretTool.Lookup)
+		out[key] = "secret_tool:" + string(attrs)
+	}
+	return out
+}
+
 func (p Provider) validate() error {
 	if !nameRE.MatchString(p.Name) {
 		return fmt.Errorf("invalid or missing provider name %q", p.Name)

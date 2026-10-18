@@ -61,6 +61,13 @@ type Options struct {
 	// but a profile's name, description and category. Only an explicit sync
 	// then widens where credentials may be sent.
 	HoldNewEndpoints bool
+	// HoldNewProviders keeps back creating a provider, giving secrets to one
+	// that brig did not create, and changing where a provider's credential
+	// is looked up, once the gateway holds credentials that brig set: a new
+	// pairing of a secret with a profile could send a secret that the
+	// gateway already holds to other endpoints. Only an explicit sync then
+	// makes such pairings. The first sync of a gateway is not held back.
+	HoldNewProviders bool
 	// Verbose also reports what is up to date.
 	Verbose bool
 	// Workspaces limits SyncAll to these workspaces; empty means all.
@@ -121,6 +128,9 @@ func SyncAll(ctx context.Context, set *Set, host Host, secrets Secrets, st *Stat
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
+	// Decided once for all workspaces: creating the first workspace's
+	// providers must not hold back the next one's.
+	opts.HoldNewProviders = opts.HoldNewProviders && st.holdsCredentials()
 	known := slices.Collect(maps.Keys(set.Workspaces))
 	known = append(known, slices.Collect(maps.Keys(st.Workspaces))...)
 	names := orderedWorkspaces(known)
@@ -242,6 +252,7 @@ func Sync(ctx context.Context, set WorkspaceSet, gw Gateway, secrets Secrets, st
 	if len(opts.Providers) > 0 {
 		set, opts.Prune = onlyProviders(set, opts.Providers), false
 	}
+	opts.HoldNewProviders = opts.HoldNewProviders && st.holdsCredentials()
 	s := &syncer{set: set, gw: gw, secrets: secrets, st: st, ws: ws, opts: opts, unapplied: map[string]bool{}}
 	profiles, err := gw.Profiles(ctx)
 	if err != nil {
@@ -658,12 +669,19 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 			s.fail("provider", p.Name, fmt.Errorf("unknown provider type %s; put its profile into a config directory's profiles/", p.Type))
 			continue
 		}
+		prev, managed := s.ws.Providers[p.Name]
+		sources := p.sources()
+		// Decided before any lookup, so that a held-back provider's
+		// secrets are not even read.
+		if why := s.newPairing(exists, managed, prev, sources); why != "" {
+			s.fail("provider", p.Name, fmt.Errorf("held back: %s; review with `brig sync --dry-run` and apply with `brig sync`", why))
+			continue
+		}
 		secrets, fingerprints, err := s.lookup(ctx, p)
 		if err != nil {
 			s.fail("provider", p.Name, err)
 			continue
 		}
-		prev, managed := s.ws.Providers[p.Name]
 		var remove []string
 		if exists && managed {
 			for key := range prev.Credentials {
@@ -676,8 +694,19 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 		missing := slices.ContainsFunc(slices.Collect(maps.Keys(p.Credentials)), func(key string) bool {
 			return !slices.Contains(cur.CredentialKeys, key)
 		})
-		if exists && managed && !s.opts.RefreshSecrets && len(remove) == 0 && !missing && maps.Equal(prev.Credentials, fingerprints) {
+		upToDate := exists && managed && len(remove) == 0 && !missing && maps.Equal(prev.Credentials, fingerprints)
+		if upToDate && prev.Sources == nil && !s.opts.DryRun {
+			// A state from before brig recorded sources: these give the
+			// secrets that the gateway holds.
+			prev.Sources = sources
+			s.ws.Providers[p.Name] = prev
+		}
+		if upToDate && !s.opts.RefreshSecrets {
 			s.report("provider", p.Name, "up to date", false)
+			continue
+		}
+		if s.opts.HoldNewProviders && prev.Sources == nil {
+			s.fail("provider", p.Name, errors.New("held back: brig has no record of where its credentials were looked up; review with `brig sync --dry-run` and apply with `brig sync`"))
 			continue
 		}
 		action := "create"
@@ -688,13 +717,13 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 			if exists {
 				err = s.gw.UpdateProvider(ctx, p.Name, secrets, remove)
 			} else if err = s.gw.CreateProvider(ctx, p.Name, p.Type, secrets); err != nil {
-				s.ws.Providers[p.Name] = ProviderState{Type: p.Type, Created: true}
+				s.ws.Providers[p.Name] = ProviderState{Type: p.Type, Created: true, Sources: sources}
 			}
 			if err != nil {
 				s.fail("provider", p.Name, err)
 				continue
 			}
-			s.ws.Providers[p.Name] = ProviderState{Type: p.Type, Credentials: fingerprints, Created: !exists || (managed && prev.Created)}
+			s.ws.Providers[p.Name] = ProviderState{Type: p.Type, Credentials: fingerprints, Created: !exists || (managed && prev.Created), Sources: sources}
 		}
 		keys := slices.Sorted(maps.Keys(p.Credentials))
 		msg := fmt.Sprintf("%s (type %s); %s may be sent to %s", s.done(action), p.Type, strings.Join(keys, ", "), endpoints)
@@ -703,6 +732,38 @@ func (s *syncer) syncProviders(ctx context.Context, profiles []openshell.Profile
 		}
 		s.report("provider", p.Name, msg, true)
 	}
+}
+
+// newPairing says why HoldNewProviders keeps a provider back, if it does:
+// the provider would pair secrets with a profile in a way that no explicit
+// sync made. exists and managed say whether the gateway has it and whether
+// brig created or set it, prev is its state and sources are its credentials'
+// sources now.
+func (s *syncer) newPairing(exists, managed bool, prev ProviderState, sources map[string]string) string {
+	switch {
+	case !s.opts.HoldNewProviders:
+		return ""
+	// A provider that brig set before, even if its create failed or it was
+	// deleted since, is recreated with the sources it had.
+	case !exists && !managed:
+		return "brig start creates no provider once the gateway holds credentials, since a new one could send them to other endpoints"
+	case !managed:
+		return "brig start gives no secrets to a provider that brig did not create"
+	case prev.Sources == nil:
+		// Told apart once the secrets are looked up: an up-to-date
+		// provider is recorded as it is.
+		return ""
+	}
+	var moved []string
+	for _, key := range slices.Sorted(maps.Keys(sources)) {
+		if prev.Sources[key] != sources[key] {
+			moved = append(moved, key)
+		}
+	}
+	if len(moved) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("it would look %s up elsewhere than brig did before", strings.Join(moved, ", "))
 }
 
 // endpoints describes where credentials of a provider of type typ may be

@@ -41,6 +41,7 @@ and passt silently.
 | --- | --- | --- |
 | `brig sync` says a secret is missing | No keyring entry with exactly those attributes | `brig secret list dev` on the host; `brig secret set dev github` stores it again |
 | `brig start` says it held back a profile change | The change can send a credential already in the gateway elsewhere or in another way | Review with `brig sync dev --dry-run`, then `brig sync dev` |
+| `brig start` says it held back a provider | The provider is new, brig did not create it, or its file looks a credential up elsewhere | Review with `brig sync dev --dry-run`, then `brig sync dev` |
 | `--driver-config-json` is rejected | The VM was last started by an older brig, so its gateway still has driver config off | `brig stop dev && brig start dev` |
 | Version warning at `brig start` | Host CLI and gateway differ | Older CLI: `sudo dnf upgrade openshell`. Newer CLI, e.g. after a system update: `brig image build && brig upgrade dev --allow-minor` after reading the release notes, or `sudo dnf downgrade openshell` |
 | A host on the LAN or on this host is unreachable, though the policy allows it | The VM's network profile, fence 2, blocks it | `brig show dev`, then `brig update dev --profile NAME` and restart the VM; see [network profiles](reference/network-profiles.md) |
