@@ -245,11 +245,9 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) host(w http.ResponseWriter, r *http.Request) {
+	// A GET changes nothing. The first visit has no checks to show, and
+	// the page asks for them with a POST.
 	v := s.newView(r, "host", "Host")
-	if v.Snap.Doctor == nil {
-		// The first visit runs the checks; the page shows them when done.
-		s.startCheck()
-	}
 	v.Events = eventsURL([]string{"rail", "host-checks", "host-audit"}, nil)
 	s.render(w, http.StatusOK, "host", v)
 }

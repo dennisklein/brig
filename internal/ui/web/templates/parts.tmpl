@@ -224,7 +224,8 @@
 <section class="panel tw"><table><tbody>
 {{range $d.Results}}<tr><td class="dotcell"><span class="dot {{checkClass .Status}}"></span></td><td class="strong">{{.Name}}</td><td class="muted">{{.Detail}}{{with .Hint}}<div class="faint small">To fix: {{range lines .}}{{.}}<br>{{end}}</div>{{end}}</td></tr>{{end}}
 </tbody></table></section>
-{{else}}<section class="panel empty">Running the checks…</section>{{end}}
+{{else if $d}}<section class="panel empty">Running the checks…</section>
+{{else}}<section class="panel empty" hx-post="/host/check" hx-trigger="load" hx-target="#host-checks">Running the checks…</section>{{end}}
 {{end}}
 
 {{/* Activity. */}}

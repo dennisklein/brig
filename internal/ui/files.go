@@ -142,6 +142,10 @@ func rows(vmName, ws, sandbox, dir string, d store.Dir) []fileRow {
 // the Files tab loads. Listing runs a read-only command in the sandbox
 // through its gateway; a sandbox that does not run is not asked.
 func (s *Server) sandboxFiles(w http.ResponseWriter, r *http.Request) {
+	if !sameOriginFetch(r) {
+		forbidden(w, "The request came from another page.")
+		return
+	}
 	vmName, ws, name := r.PathValue("vm"), r.PathValue("workspace"), r.PathValue("name")
 	dir, ok := workspacePath(r.URL.Query().Get("path"))
 	if vm.ValidateName(vmName) != nil || !action.ValidWorkspaceName(ws) || !action.ValidSandboxName(name) || !ok {
