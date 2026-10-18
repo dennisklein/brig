@@ -87,8 +87,8 @@ func TestBrigCollect(t *testing.T) {
 	conn := &fakeDomains{states: map[string]libvirt.State{"brig-dev": libvirt.StateRunning, "brig-old": libvirt.StateShutoff}}
 	b := &Brig{Dirs: dirs, Connect: func(context.Context) (Domains, error) { return conn, nil }}
 	s := store.New()
-	changes, unsubscribe := s.Subscribe()
-	defer unsubscribe()
+	sub := s.Subscribe()
+	defer sub.Close()
 
 	next := b.Collect(context.Background(), s, nil)
 	if next != conn {
@@ -118,16 +118,14 @@ func TestBrigCollect(t *testing.T) {
 	if _, ok := sn.Profiles["default"]; !ok {
 		t.Error("no built-in profiles without a config file")
 	}
-	if got := <-changes; got != store.TopicVMs {
-		t.Errorf("notified %q", got)
+	if got := sub.Take(); len(got) != 1 || !got[store.TopicVMs] {
+		t.Errorf("notified %v", got)
 	}
 
 	// Nothing changed: nobody is told.
 	b.Collect(context.Background(), s, conn)
-	select {
-	case got := <-changes:
-		t.Errorf("an unchanged poll notified %q", got)
-	default:
+	if got := sub.Take(); len(got) != 0 {
+		t.Errorf("an unchanged poll notified %v", got)
 	}
 
 	// A lost connection makes states unknown, says why, and is dropped.

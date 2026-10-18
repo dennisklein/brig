@@ -47,19 +47,18 @@ func TestAddRequests(t *testing.T) {
 
 func TestSetDrafts(t *testing.T) {
 	s := New()
-	ch, unsubscribe := s.Subscribe()
-	defer unsubscribe()
+	sub := s.Subscribe()
+	defer sub.Close()
 	npm := Draft{ID: "ch-1", Rule: "npm", Binary: "/usr/bin/node", Endpoints: []DraftEndpoint{{Host: "registry.npmjs.org", Port: 443}}}
 	s.SetDrafts("dev", "default", "webapp", []Draft{npm})
 	s.SetDrafts("dev", "default", "kit-dev", []Draft{{ID: "ch-2", Rule: "raw"}})
-	<-ch
-	<-ch
+	if got := sub.Take(); !got[TopicTraffic] {
+		t.Errorf("notified %v for new drafts", got)
+	}
 	// The same drafts again change nothing.
 	s.SetDrafts("dev", "default", "webapp", []Draft{npm})
-	select {
-	case got := <-ch:
-		t.Errorf("notified %q for the same drafts", got)
-	default:
+	if got := sub.Take(); len(got) != 0 {
+		t.Errorf("notified %v for the same drafts", got)
 	}
 	tr := s.Snapshot().TrafficOf("dev")
 	if len(tr.Drafts) != 2 || tr.Drafts[0].Sandbox != "kit-dev" || tr.Drafts[1].Sandbox != "webapp" {

@@ -98,8 +98,8 @@ func (w *worker) stop() {
 
 // Run keeps the store's gateways up to date until ctx ends.
 func (g *Gateways) Run(ctx context.Context, st *store.Store) {
-	changes, unsubscribe := st.Subscribe()
-	defer unsubscribe()
+	sub := st.Subscribe()
+	defer sub.Close()
 	workers := map[string]*worker{}
 	defer func() {
 		for _, w := range workers {
@@ -114,8 +114,8 @@ func (g *Gateways) Run(ctx context.Context, st *store.Store) {
 		select {
 		case <-ctx.Done():
 			return
-		case t := <-changes:
-			if t != store.TopicVMs {
+		case <-sub.Changed():
+			if !sub.Take()[store.TopicVMs] {
 				continue
 			}
 			g.reconcile(ctx, st, workers, dirs, false)

@@ -7,8 +7,8 @@ import "testing"
 
 func TestUpdateGateway(t *testing.T) {
 	s := New()
-	changes, unsubscribe := s.Subscribe()
-	defer unsubscribe()
+	sub := s.Subscribe()
+	defer sub.Close()
 	for _, vm := range []string{"review", "dev", "airgap"} {
 		s.UpdateGateway(vm, func(g *Gateway) bool { g.State = GatewayReady; return true })
 	}
@@ -20,14 +20,14 @@ func TestUpdateGateway(t *testing.T) {
 	if len(order) != 3 || order[0] != "airgap" || order[1] != "dev" || order[2] != "review" {
 		t.Fatalf("gateways out of order: %v", order)
 	}
-	if n := len(changes); n != 3 {
-		t.Errorf("%d notices, want 3", n)
+	if got := sub.Take(); len(got) != 1 || !got[TopicGateways] {
+		t.Errorf("notices %v, want gateways", got)
 	}
 
 	// No change, no notice.
 	s.UpdateGateway("dev", func(*Gateway) bool { return false })
-	if n := len(changes); n != 3 {
-		t.Errorf("an unchanged gateway was published")
+	if got := sub.Take(); len(got) != 0 {
+		t.Errorf("an unchanged gateway was published: %v", got)
 	}
 
 	// A snapshot taken before keeps its gateways.
