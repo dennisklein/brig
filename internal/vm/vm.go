@@ -27,7 +27,13 @@ import (
 
 // VM is brig's record of a VM.
 type VM struct {
-	Name           string        `json:"name"`
+	Name string `json:"name"`
+	// Role is RoleGateway or RoleService. Records from before services
+	// have none, and are gateways.
+	Role string `json:"role,omitempty"`
+	// Type is a service's type, such as llm-proxy, which decides what runs
+	// in it; see package service.
+	Type           string        `json:"type,omitempty"`
 	UUID           string        `json:"uuid"`
 	CreatedAt      time.Time     `json:"created_at"`
 	Image          string        `json:"image"`
@@ -52,6 +58,17 @@ type VM struct {
 	// upgrade, so brig does not delete them.
 	KeptSnapshots []string `json:"kept_snapshots,omitempty"`
 }
+
+// The roles of a VM. A gateway runs agents in sandboxes under OpenShell. A
+// service runs one fixed workload, which its type defines and which agents
+// in a gateway's sandboxes may use but never control.
+const (
+	RoleGateway = "gateway"
+	RoleService = "service"
+)
+
+// IsService reports whether the VM is a service rather than a gateway.
+func (v *VM) IsService() bool { return v.Role == RoleService }
 
 // Ports are the host loopback ports forwarded into the VM.
 type Ports struct {
@@ -137,6 +154,9 @@ func (s Store) Load(name string) (*VM, error) {
 	if v.Name != name {
 		return nil, fmt.Errorf("%s: record is for VM %q", s.recordPath(name), v.Name)
 	}
+	if err := v.checkRole(); err != nil {
+		return nil, fmt.Errorf("%s: %w", s.recordPath(name), err)
+	}
 	for _, m := range v.Mounts {
 		if m.Sandbox && !m.ReadOnly {
 			return nil, fmt.Errorf("%s: sandbox mount %s must be read-only", s.recordPath(name), m.Target)
@@ -150,10 +170,30 @@ func (s Store) Load(name string) (*VM, error) {
 	return &v, nil
 }
 
+// checkRole checks the VM's role and type.
+func (v *VM) checkRole() error {
+	switch v.Role {
+	case "", RoleGateway:
+		if v.Type != "" {
+			return fmt.Errorf("gateway has a service type %q", v.Type)
+		}
+	case RoleService:
+		if !nameRE.MatchString(v.Type) {
+			return fmt.Errorf("service has an invalid or no type %q", v.Type)
+		}
+	default:
+		return fmt.Errorf("unknown role %q", v.Role)
+	}
+	return nil
+}
+
 // Save writes the VM's record atomically, creating its directory with mode
 // 0700.
 func (s Store) Save(v *VM) error {
 	if err := ValidateName(v.Name); err != nil {
+		return err
+	}
+	if err := v.checkRole(); err != nil {
 		return err
 	}
 	if err := paths.EnsurePrivate(s.Dir(v.Name)); err != nil {
