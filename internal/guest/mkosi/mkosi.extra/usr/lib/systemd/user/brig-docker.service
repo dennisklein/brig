@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Rootless Docker for the sandboxes that opt in with brig sandbox create
+# --docker. It runs as dockerd, a user that owns nothing but its home, and
+# starts when brig-docker-proxy.socket gets its first connection. Its API
+# socket is %t/docker.sock; nothing outside the VM can reach it.
+#
+# The cgroupfs driver: runc's systemd driver cannot create units in dockerd's
+# user manager. overlay2: on the btrfs data disk, Docker would pick its btrfs
+# driver, which rootless cannot remove subvolumes with. Published ports bind
+# the VM's loopback only, where sandboxes reach them through OpenShell.
+
+[Unit]
+Description=brig: rootless Docker for sandboxes
+Documentation=https://github.com/dennisklein/brig
+ConditionUser=dockerd
+
+[Service]
+Type=notify
+NotifyAccess=all
+Environment=DOCKERD=/usr/libexec/brig/dockerd
+ExecStart=/usr/bin/dockerd-rootless.sh --exec-opt native.cgroupdriver=cgroupfs --storage-driver overlay2 --ip 127.0.0.1 --log-driver local
+ExecReload=/bin/kill -s HUP $MAINPID
+TimeoutStartSec=5min
+Restart=on-failure
+RestartSec=2
+Delegate=yes
+KillMode=mixed
+TasksMax=infinity

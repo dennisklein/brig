@@ -27,5 +27,34 @@ const (
 	HostKeyCredential = "tmpfiles.brig-hostkey" //nolint:gosec // G101: a credential name, not a credential
 )
 
+// Fixed facts about rootless Docker in brig VMs, which sandboxes use when
+// brig sandbox create --docker lets them.
+const (
+	// DockerUser runs rootless dockerd. It owns nothing but its home, so
+	// a sandbox that takes over Docker cannot read User's files.
+	DockerUser = "dockerd"
+	// DockerUID is DockerUser's UID and GID.
+	DockerUID = 1001
+	// DockerPort is the VM's loopback port of the Docker API, which a
+	// sandbox reaches as host.openshell.internal:DockerPort.
+	DockerPort = 2375
+	// DockerSocket is dockerd's API socket in the VM. A container that
+	// drives Docker, such as testcontainers' Ryuk, mounts it.
+	DockerSocket = "/run/user/1001/docker.sock"
+	// FirstPublishedPort and LastPublishedPort bound the host ports that
+	// Docker picks for published container ports; see
+	// /usr/libexec/brig/dockerd.
+	FirstPublishedPort = 61000
+	LastPublishedPort  = 61127
+)
+
+// Where DockerUser's home lives: a directory on the data disk, so that
+// images and volumes last like Podman's, bind-mounted outside home, which
+// DockerUser cannot enter.
+const (
+	dockerHome = "/home/" + DockerUser
+	dockerData = home + "/.local/share/brig/docker"
+)
+
 // home is User's home directory, the mount point of the data disk.
 const home = "/home/" + User

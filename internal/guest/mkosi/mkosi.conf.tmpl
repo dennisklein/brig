@@ -78,6 +78,14 @@ Packages=
         passt
         catatonit
         openssl
+        # Rootless Docker for sandboxes that opt in, as user dockerd; see
+        # brig-docker.service. The rootful docker.service stays disabled.
+        moby-engine
+        docker-cli
+        rootlesskit
+        slirp4netns
+        # sysctl, which dockerd-rootless.sh runs.
+        procps-ng
 {{- range .OpenShellPackages}}
         {{.}}
 {{- end}}

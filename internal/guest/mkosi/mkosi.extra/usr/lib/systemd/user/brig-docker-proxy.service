@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Relays brig-docker-proxy.socket to the API socket of rootless dockerd, which
+# listens inside RootlessKit's network namespace and so cannot take the TCP
+# port itself.
+
+[Unit]
+Description=brig: relay sandboxes' Docker connections to rootless dockerd
+Documentation=https://github.com/dennisklein/brig
+ConditionUser=dockerd
+Requires=brig-docker-proxy.socket brig-docker.service
+After=brig-docker-proxy.socket brig-docker.service
+
+[Service]
+Type=notify
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd %t/docker.sock
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native

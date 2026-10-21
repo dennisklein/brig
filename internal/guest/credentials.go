@@ -92,9 +92,10 @@ func CheckMounts(mounts []vm.Mount) error {
 }
 
 // provisioned are the files that tmpfiles writes at every boot (see
-// BootConfig.tmpfiles). A mount must not hide them or their directories:
-// tmpfiles would write the files, and set the owners and modes of the
-// directories, on the host through virtiofs.
+// BootConfig.tmpfiles), and Docker's home and its source, which fstab
+// bind-mounts. A mount must not hide them or their directories: tmpfiles
+// would write the files, and set the owners and modes of the directories, on
+// the host through virtiofs, and Docker would keep its storage there.
 var provisioned = []string{
 	"/etc/hostname",
 	"/etc/ssh/ssh_host_ed25519_key",
@@ -102,6 +103,8 @@ var provisioned = []string{
 	home + "/.ssh/authorized_keys",
 	gatewayEnv,
 	sandboxVolumes,
+	dockerHome,
+	dockerData,
 }
 
 // hidesProvisioned returns a provisioned file that a mount at target would
@@ -186,6 +189,12 @@ func (c BootConfig) tmpfiles() string {
 	file(home+"/.ssh/authorized_keys", "0600", User, key)
 	dir(home+"/.config", User)
 	dir(home+"/.config/brig", User)
+	for _, d := range dataDirs {
+		dir(d, User)
+	}
+	// By UID: an image older than DockerUser lacks the user, and the line
+	// must not fail there.
+	fmt.Fprintf(&b, "d %s 0700 %d %[2]d -\n", dockerData, DockerUID)
 	for _, d := range c.mountParents() {
 		dir(d, User)
 	}
@@ -196,6 +205,9 @@ func (c BootConfig) tmpfiles() string {
 	file(sandboxVolumes, "0600", User, sandboxVolumeList(c.Mounts))
 	return b.String()
 }
+
+// dataDirs are the parents of dockerData below home, shallowest first.
+var dataDirs = []string{home + "/.local", home + "/.local/share", home + "/.local/share/brig"}
 
 // gatewayMountsConfig is the gateway configuration in the image that lets
 // sandboxes attach the volumes of sandbox mounts.
@@ -230,6 +242,9 @@ func tmpfilesPath(p string) string {
 // and mode of the host directory through virtiofs.
 func (c BootConfig) mountParents() []string {
 	seen := map[string]bool{home + "/.ssh": true, home + "/.config": true, home + "/.config/brig": true}
+	for _, d := range dataDirs {
+		seen[d] = true
+	}
 	inMount := func(d string) bool {
 		for _, m := range c.Mounts {
 			if d == m.Target || strings.HasPrefix(d, m.Target+"/") {
@@ -254,10 +269,17 @@ func (c BootConfig) mountParents() []string {
 	return dirs
 }
 
-// fstab returns the fstab(5) lines of the data disk and the virtiofs mounts.
-// The data disk is a btrfs file system, formatted with FormatDataDisk and
-// grown after a resize. btrfs has no boot-time fsck (it replays its log at
-// mount), so the pass is 0. A virtiofs mount that fails does not fail the boot.
+// fstab returns the fstab(5) lines of the data disk, Docker's home and the
+// virtiofs mounts. The data disk is a btrfs file system, formatted with
+// FormatDataDisk and grown after a resize. btrfs has no boot-time fsck (it
+// replays its log at mount), so the pass is 0. A virtiofs mount that fails
+// does not fail the boot.
+//
+// DockerUser's home is dockerData, bind-mounted after tmpfiles has created
+// it and before DockerUser's user manager starts dockerd. nofail also drops
+// the mount's order before local-fs.target, which tmpfiles comes after. If
+// the mount fails, so does the user manager, rather than dockerd keeping its
+// storage on the root disk.
 func (c BootConfig) fstab() string {
 	var b strings.Builder
 	opts := "defaults,compress=zstd:1,x-systemd.growfs"
@@ -265,6 +287,10 @@ func (c BootConfig) fstab() string {
 		opts = "defaults,compress=zstd:1,x-systemd.makefs,x-systemd.growfs"
 	}
 	fmt.Fprintf(&b, "/dev/disk/by-id/virtio-%s %s btrfs %s 0 0\n", DataDiskSerial, home, opts)
+	userManager := fmt.Sprintf("user@%d.service", DockerUID)
+	fmt.Fprintf(&b, "%s %s none bind,nofail,x-systemd.requires-mounts-for=%s,"+
+		"x-systemd.after=systemd-tmpfiles-setup.service,x-systemd.before=%s,x-systemd.required-by=%[4]s 0 0\n",
+		dockerData, dockerHome, home, userManager)
 	for _, m := range c.Mounts {
 		fmt.Fprintf(&b, "%s %s virtiofs %s 0 0\n", m.Tag, m.Target, mountOptions(m, "nofail"))
 	}

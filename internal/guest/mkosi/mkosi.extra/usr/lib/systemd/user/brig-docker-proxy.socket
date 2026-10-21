@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# The Docker API for sandboxes: OpenShell connects here for a sandbox whose
+# policy allows host.openshell.internal:2375. Loopback only, and not forwarded
+# to the host. The first connection starts brig-docker-proxy.service, and with
+# it dockerd, so a VM whose sandboxes never use Docker does not run it.
+
+[Unit]
+Description=brig: Docker port for sandboxes
+Documentation=https://github.com/dennisklein/brig
+ConditionUser=dockerd
+
+[Socket]
+ListenStream=127.0.0.1:2375
+
+[Install]
+WantedBy=sockets.target

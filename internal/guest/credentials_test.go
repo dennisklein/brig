@@ -78,6 +78,10 @@ func parseTmpfiles(t *testing.T, text string) map[string]tmpfilesEntry {
 	return entries
 }
 
+// dockerFstab is the fstab line that bind-mounts Docker's home.
+const dockerFstab = "/home/agent/.local/share/brig/docker /home/dockerd none bind,nofail,x-systemd.requires-mounts-for=/home/agent," +
+	"x-systemd.after=systemd-tmpfiles-setup.service,x-systemd.before=user@1001.service,x-systemd.required-by=user@1001.service 0 0\n"
+
 func TestCredentials(t *testing.T) {
 	data := credentialData(t, testBootConfig())
 	if len(data) != 3 {
@@ -100,6 +104,10 @@ func TestCredentials(t *testing.T) {
 		"/home/agent/.config/brig":                 {"d", "0700", "agent", "agent", ""},
 		"/home/agent/.config/brig/gateway.env":     {"f+~", "0600", "agent", "agent", "OPENSHELL_GATEWAY_CONFIG=/usr/share/brig/gateway-mounts.toml\n"},
 		"/home/agent/.config/brig/sandbox-volumes": {"f+~", "0600", "agent", "agent", "brig2 /home/agent/c\n"},
+		"/home/agent/.local":                       {"d", "0700", "agent", "agent", ""},
+		"/home/agent/.local/share":                 {"d", "0700", "agent", "agent", ""},
+		"/home/agent/.local/share/brig":            {"d", "0700", "agent", "agent", ""},
+		"/home/agent/.local/share/brig/docker":     {"d", "0700", "1001", "1001", ""},
 	} {
 		if got, ok := files[path]; !ok {
 			t.Errorf("tmpfiles.extra lacks %s", path)
@@ -107,12 +115,12 @@ func TestCredentials(t *testing.T) {
 			t.Errorf("tmpfiles.extra %s = %+v, want %+v", path, got, want)
 		}
 	}
-	if len(files) != 11 {
+	if len(files) != 15 {
 		t.Errorf("tmpfiles.extra has %d entries:\n%s", len(files), data["tmpfiles.extra"])
 	}
 
 	wantFstab := `/dev/disk/by-id/virtio-brig-data /home/agent btrfs defaults,compress=zstd:1,x-systemd.makefs,x-systemd.growfs 0 0
-brig0 /mnt/a virtiofs ro,nofail 0 0
+` + dockerFstab + `brig0 /mnt/a virtiofs ro,nofail 0 0
 brig1 /work/b virtiofs rw,nofail 0 0
 brig2 /home/agent/c virtiofs ro,nofail,context=system_u:object_r:container_file_t:s0 0 0
 `
@@ -139,7 +147,7 @@ func TestCredentialsWithoutSandboxMounts(t *testing.T) {
 	if got := files["/home/agent/.ssh/authorized_keys"].content; got != testKey+"\n" {
 		t.Errorf("authorized_keys = %q", got)
 	}
-	if got, want := data["fstab.extra"], "/dev/disk/by-id/virtio-brig-data /home/agent btrfs defaults,compress=zstd:1,x-systemd.growfs 0 0\n"; got != want {
+	if got, want := data["fstab.extra"], "/dev/disk/by-id/virtio-brig-data /home/agent btrfs defaults,compress=zstd:1,x-systemd.growfs 0 0\n"+dockerFstab; got != want {
 		t.Errorf("fstab.extra = %q, want %q", got, want)
 	}
 }
@@ -163,6 +171,8 @@ func TestCredentialsRejects(t *testing.T) {
 		"blank in target":    mount(vm.Mount{Target: "/a b", ReadOnly: true, Tag: "brig9"}),
 		"home target":        mount(vm.Mount{Target: "/home/agent", ReadOnly: true, Tag: "brig9"}),
 		"home parent target": mount(vm.Mount{Target: "/home", ReadOnly: true, Tag: "brig9"}),
+		"docker home target": mount(vm.Mount{Target: "/home/dockerd", ReadOnly: true, Tag: "brig9"}),
+		"docker data target": mount(vm.Mount{Target: "/home/agent/.local/share/brig/docker", ReadOnly: true, Tag: "brig9"}),
 		"rw tmp target":      mount(vm.Mount{Target: "/tmp", Tag: "brig9"}),
 		"rw var tmp target":  mount(vm.Mount{Target: "/var/tmp", Tag: "brig9"}),
 		"rw srv target":      mount(vm.Mount{Target: "/srv", Tag: "brig9"}),
