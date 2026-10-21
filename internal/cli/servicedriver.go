@@ -5,8 +5,10 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/dennisklein/brig/internal/service"
+	"github.com/dennisklein/brig/internal/vmrunner"
 )
 
 // Service types that do more than brig does for every type register here,
@@ -19,7 +21,9 @@ var (
 	// host, and what runs next to the VM of a type of placement vm on the
 	// host, such as the forwarder to a type's sandbox (see
 	// service.Type.Sandbox).
-	hostRunners = map[string]service.HostRunner{}
+	hostRunners = map[string]service.HostRunner{
+		vmrunner.ServiceType: &vmrunner.Unit{RuntimeDir: os.Getenv("XDG_RUNTIME_DIR")},
+	}
 )
 
 // serviceTypes returns the service types that brig knows; tests replace it.
