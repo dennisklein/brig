@@ -81,7 +81,7 @@ func (a *app) netConfig(v *vm.VM) (vmnet.Config, error) {
 	if err != nil {
 		return vmnet.Config{}, err
 	}
-	return vmnet.Config{
+	c := vmnet.Config{
 		VM:               v.Name,
 		Socket:           socket,
 		SSHPort:          v.Ports.SSH,
@@ -89,7 +89,34 @@ func (a *app) netConfig(v *vm.VM) (vmnet.Config, error) {
 		GuestSSHPort:     guest.SSHPort,
 		GuestGatewayPort: guest.GatewayPort,
 		Profile:          profile,
-	}, nil
+	}
+	if v.IsService() {
+		svc, err := a.services.Load(v.Name)
+		if err != nil {
+			return vmnet.Config{}, err
+		}
+		t, err := serviceType(svc.Type)
+		if err != nil {
+			return vmnet.Config{}, err
+		}
+		if t.ForwardsPort() {
+			c.ServicePort, c.GuestServicePort = svc.Port, t.Port
+		}
+	}
+	return c, nil
+}
+
+// runsOpenShell reports whether v runs an OpenShell gateway: every gateway
+// does, and a service does if its type says so.
+func runsOpenShell(v *vm.VM) (bool, error) {
+	if !v.IsService() {
+		return true, nil
+	}
+	t, err := serviceType(v.Type)
+	if err != nil {
+		return false, err
+	}
+	return t.OpenShell, nil
 }
 
 // sshTarget addresses the VM's sshd through its forwarded port.
@@ -117,11 +144,16 @@ func (a *app) domainSpec(v *vm.VM) (libvirt.DomainSpec, error) {
 	if err := checkMounts(v.Mounts); err != nil {
 		return libvirt.DomainSpec{}, err
 	}
+	withOpenShell, err := runsOpenShell(v)
+	if err != nil {
+		return libvirt.DomainSpec{}, err
+	}
 	creds, err := guest.Credentials(guest.BootConfig{
 		Hostname:       v.Name,
 		AuthorizedKey:  strings.TrimSpace(string(pub)),
 		Mounts:         v.Mounts,
 		FormatDataDisk: !v.DataDiskReady,
+		NoOpenShell:    !withOpenShell,
 	})
 	if err != nil {
 		return libvirt.DomainSpec{}, err
@@ -308,6 +340,13 @@ func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, 
 			if err != nil {
 				return err
 			}
+			if !v.IsService() {
+				// The firewall lets the gateway reach the services that its
+				// sandboxes are attached to.
+				if err := a.writeServicePorts(v.Name); err != nil {
+					fmt.Fprintf(w, "Warning: the gateway may not reach its services: %s\n", termtext.Escape(err.Error()))
+				}
+			}
 			if err := startNetwork(ctx, net); err != nil {
 				return fmt.Errorf("starting the network of %s: %w", v.Name, err)
 			}
@@ -327,17 +366,46 @@ func (a *app) startVM(ctx context.Context, conn domains, v *vm.VM, w io.Writer, 
 	if err := a.boot(ctx, v); err != nil {
 		return err
 	}
-	if err := a.connectGateway(ctx, v, w, ready); err != nil {
+	withOpenShell, err := runsOpenShell(v)
+	if err != nil {
 		return err
 	}
-	err = inOptionalSpan(ctx, progress.KindStep, "start the audit collector", func(ctx context.Context) error {
-		return startAudit(ctx, v.Name)
-	})
-	if err != nil && ctx.Err() == nil {
-		fmt.Fprintf(w, "Warning: nothing records the traffic of %s: %s\n", v.Name, termtext.Escape(err.Error()))
+	if withOpenShell {
+		if err := a.connectGateway(ctx, v, w, ready); err != nil {
+			return err
+		}
+	}
+	if v.IsService() {
+		if err := a.startService(ctx, v, false); err != nil {
+			return err
+		}
+	} else {
+		a.reconcileOnStart(ctx, conn, v, w)
+	}
+	if withOpenShell {
+		err = inOptionalSpan(ctx, progress.KindStep, "start the audit collector", func(ctx context.Context) error {
+			return startAudit(ctx, v.Name)
+		})
+		if err != nil && ctx.Err() == nil {
+			fmt.Fprintf(w, "Warning: nothing records the traffic of %s: %s\n", v.Name, termtext.Escape(err.Error()))
+		}
 	}
 	// Steps that only warn above may have been cut short.
 	return ctx.Err()
+}
+
+// reconcileOnStart runs reconcileServices for the started gateway VM v if
+// there are services, warning on w if it fails.
+func (a *app) reconcileOnStart(ctx context.Context, conn domains, v *vm.VM, w io.Writer) {
+	if svcs, err := a.services.List(); err == nil && len(svcs) == 0 {
+		return
+	}
+	err := inOptionalSpan(ctx, progress.KindStep, "connect the services", func(ctx context.Context) error {
+		return a.reconcileServices(ctx, conn, v, w)
+	})
+	if err != nil && ctx.Err() == nil {
+		fmt.Fprintf(w, "Warning: the sandboxes of %s may not reach their services; fix it and run `brig sync %[1]s`: %s\n", v.Name, termtext.Escape(err.Error()))
+	}
 }
 
 // boot waits until the started VM answers over SSH, which it does once it has
@@ -556,7 +624,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 		stopAudit(ctx, v.Name)
 		vmnet.Stop(ctx, v.Name)
 		a.pruneUpgradeSnapshots(ctx, v)
-		return nil
+		return a.stopServiceRunner(ctx, v)
 	case force:
 		err = inSpan(ctx, progress.KindStep, "power off the VM", func(context.Context) error {
 			return conn.Destroy(v.DomainName())
@@ -578,6 +646,7 @@ func (a *app) stop(ctx context.Context, conn domains, v *vm.VM, force bool) erro
 		stopAudit(ctx, v.Name)
 		vmnet.Stop(ctx, v.Name)
 		a.pruneUpgradeSnapshots(ctx, v)
+		err = a.stopServiceRunner(ctx, v)
 	}
 	return err
 }

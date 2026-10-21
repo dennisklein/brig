@@ -49,10 +49,41 @@ func (a *app) resolveVM(cmd *cobra.Command, given string) (*vm.VM, error) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Using VM %s (selected by brig use).\n", termtext.Escape(name))
 	}
 	v, err := a.vms.Load(name)
-	if err == nil {
-		recordVM(cmd.Context(), v.Name)
+	if err != nil {
+		return nil, err
 	}
-	return v, err
+	recordVM(cmd.Context(), v.Name)
+	if !anyVMCommands[topCommand(cmd).Name()] {
+		if err := requireOpenShell(v); err != nil {
+			return nil, err
+		}
+	}
+	return v, nil
+}
+
+// anyVMCommands work on every VM; the other commands that work on one VM
+// need its OpenShell gateway, which a service VM may not have.
+var anyVMCommands = map[string]bool{
+	"start": true, "stop": true, "show": true, "ssh": true, "console": true,
+	"update": true, "upgrade": true, "sync": true, "delete": true,
+}
+
+// topCommand returns the command below brig that cmd is or belongs to.
+func topCommand(cmd *cobra.Command) *cobra.Command {
+	for cmd.HasParent() && cmd.Parent().HasParent() {
+		cmd = cmd.Parent()
+	}
+	return cmd
+}
+
+// requireOpenShell fails for a service VM whose type runs no OpenShell
+// gateway.
+func requireOpenShell(v *vm.VM) error {
+	ok, err := runsOpenShell(v)
+	if err == nil && !ok {
+		err = fmt.Errorf("VM %s is service %[1]s, which runs no OpenShell gateway", v.Name)
+	}
+	return err
 }
 
 // resolveVMArg is resolveVM for a command whose arguments are args, of which

@@ -47,6 +47,16 @@ Every command of brig, as [`brig`](brig.md) lists them. Run `brig COMMAND --help
 | [`brig secret`](brig-secret.md) | Store the secrets that providers in the config directories refer to |
 | [`brig secret list`](brig-secret-list.md) | Show which providers' secrets are stored, never their values |
 | [`brig secret set`](brig-secret-set.md) | Store the secret of a provider's credential in the keyring |
+| [`brig service`](brig-service.md) | Run services that sandboxes use, each with a token of its own |
+| [`brig service attach`](brig-service-attach.md) | Give a sandbox a token for a service |
+| [`brig service create`](brig-service-create.md) | Create and start a service |
+| [`brig service delete`](brig-service-delete.md) | Delete a service, its VM and its tokens |
+| [`brig service detach`](brig-service-detach.md) | Take a sandbox's token for a service away |
+| [`brig service list`](brig-service-list.md) | List services |
+| [`brig service show`](brig-service-show.md) | Show a service and the sandboxes attached to it |
+| [`brig service start`](brig-service-start.md) | Start a service |
+| [`brig service stop`](brig-service-stop.md) | Stop a service |
+| [`brig service types`](brig-service-types.md) | List the service types that this brig has |
 | [`brig show`](brig-show.md) | Show a VM's settings and state |
 | [`brig ssh`](brig-ssh.md) | Open a shell in a VM, or run a command there |
 | [`brig start`](brig-start.md) | Start a VM and connect its OpenShell gateway |

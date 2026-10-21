@@ -29,3 +29,23 @@ const (
 
 // home is User's home directory, the mount point of the data disk.
 const home = "/home/" + User
+
+// What a service VM's workload finds. brig writes the files at every start
+// of the VM, as root and over SSH, into /run, which is a tmpfs, so they never
+// reach a disk, and then starts ServiceTarget.
+const (
+	// ServiceTarget is the system unit that the units of a service type
+	// are wanted by.
+	ServiceTarget = "brig-service.target"
+	// ServiceDir holds what brig puts into a service VM.
+	ServiceDir = "/run/brig/service"
+	// ServiceSecretsDir holds one file per secret of the service, named
+	// after it, readable by root only; units read them with
+	// LoadCredential=NAME:/run/brig/service/secrets/NAME.
+	ServiceSecretsDir = ServiceDir + "/secrets"
+	// ServiceTokensFile lists the SHA-256 hashes of the tokens of the
+	// sandboxes attached to the service, with who they belong to. brig
+	// replaces it whenever an attachment changes, so the workload reads it
+	// again when it changes.
+	ServiceTokensFile = ServiceDir + "/tokens.json"
+)

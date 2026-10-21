@@ -53,6 +53,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.
 | [`brig print-fedora-deps`](brig-print-fedora-deps.md) | Print the Fedora packages brig needs on this host |
 | [`brig sandbox`](brig-sandbox.md) | Create, list and work in OpenShell sandboxes |
 | [`brig secret`](brig-secret.md) | Store the secrets that providers in the config directories refer to |
+| [`brig service`](brig-service.md) | Run services that sandboxes use, each with a token of its own |
 | [`brig shell-init`](brig-shell-init.md) | Print the shell integration that provides brig use |
 | [`brig show`](brig-show.md) | Show a VM's settings and state |
 | [`brig ssh`](brig-ssh.md) | Open a shell in a VM, or run a command there |

@@ -124,7 +124,7 @@ lists the concepts and how-tos that brig help TOPIC explains.
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newUpCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
-		newSandboxCmd(), newPolicyCmd(), newSecretCmd(), newAgentCmd(), newAuditCmd(),
+		newSandboxCmd(), newServiceCmd(), newPolicyCmd(), newSecretCmd(), newAgentCmd(), newAuditCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)

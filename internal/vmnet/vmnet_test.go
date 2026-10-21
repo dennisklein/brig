@@ -308,6 +308,7 @@ func TestCommand(t *testing.T) {
 		"net-helper", "--socket", "/run/user/1000/brig/dev/net.sock",
 		"--guest-ssh-port", "22", "--guest-gateway-port", "17671",
 		"--profile", `{"internet":true,"host":false,"lan":false,"ipv6":false}`,
+		"--service-ports", "/run/user/1000/brig/dev/service-ports.json",
 		"--host-addr", "140.181.2.3/16", "--host-addr", "2001:db8:1::abcd/64",
 		"--host-net", "/run/user/1000/brig/dev/host-net.json",
 	}
@@ -326,6 +327,41 @@ func TestCommand(t *testing.T) {
 	bad.Socket = "relative.sock"
 	if _, err := bad.Command("pasta", "brig"); err == nil {
 		t.Error("relative socket path accepted")
+	}
+}
+
+func TestCommandServicePort(t *testing.T) {
+	c := Config{
+		VM: "proxy", Socket: "/run/user/1000/brig/proxy/net.sock",
+		SSHPort: 40022, GatewayPort: 40670, GuestSSHPort: 22, GuestGatewayPort: 17671,
+		ServicePort: 41000, GuestServicePort: 4000,
+		Profile: config.NetworkProfile{Internet: true},
+	}
+	argv, err := c.Command("/usr/bin/pasta", "/home/u/bin/brig")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmdline := strings.Join(argv, " ")
+	for _, s := range []string{"-t 127.0.0.1/41000:4000 -u none", "--guest-service-port 4000"} {
+		if !strings.Contains(cmdline, s) {
+			t.Errorf("Command() = %q lacks %q", argv, s)
+		}
+	}
+	if passt := strings.Join(c.passtArgs("/usr/bin/passt"), " "); !strings.Contains(passt, "-t 17671:17671 -t 4000:4000 -u none") {
+		t.Errorf("passt args %q do not forward the service port", passt)
+	}
+	for _, bad := range []Config{
+		{ServicePort: 41000},
+		{GuestServicePort: 4000},
+		{ServicePort: 41000, GuestServicePort: 2222},
+		{ServicePort: 41000, GuestServicePort: 17671},
+		{ServicePort: 70000, GuestServicePort: 4000},
+	} {
+		b := c
+		b.ServicePort, b.GuestServicePort = bad.ServicePort, bad.GuestServicePort
+		if _, err := b.Command("pasta", "brig"); err == nil {
+			t.Errorf("service ports %d:%d accepted", b.ServicePort, b.GuestServicePort)
+		}
 	}
 }
 

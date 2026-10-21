@@ -38,6 +38,13 @@ workspaces/WS/profiles/*.yaml, workspaces/WS/providers/*.yaml
 policies/default.yaml  the default policy for new sandboxes, which
                        brig use NAME and eval "$(brig env NAME)"
                        export as OPENSHELL_SANDBOX_POLICY
+services/*.yaml        the secrets of a service (see brig service
+                       --help), in a config directory of its VM:
+                         name: mirror
+                         secrets:
+                           UPSTREAM_TOKEN:
+                             secret_tool:
+                               lookup: [service, mirror.example.org]
 ```
 
 Every workspace is synced on its own: the default workspace first, then
@@ -67,6 +74,12 @@ set, [`brig start`](brig-start.md) also keeps back new providers, providers that
 create, and credentials that a provider file now looks up elsewhere, since
 each could send a secret to other endpoints. brig sync applies them and
 says what it changes. Check shared profiles with --dry-run first.
+
+For a gateway VM, brig sync and every start also bring its services in
+line: the relays and profiles of the services that its sandboxes are
+attached to, a new token for a sandbox whose provider is gone, and no token
+for a sandbox that is gone. For a service VM, brig sync hands the service
+its secrets again and restarts it.
 
 ## Examples
 

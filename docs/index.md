@@ -43,6 +43,8 @@ New to brig? Run these in order.
 - [OpenShell configuration](concepts/openshell-config.md): providers,
   profiles, policies, and the config directories brig syncs.
 - [Workspaces](concepts/workspaces.md): tenants inside a gateway.
+- [Services](concepts/services.md): workloads that sandboxes use with a
+  token each, such as a model proxy.
 - [Disks and images](concepts/disks-and-images.md): what a VM boots from and
   what survives an upgrade.
 - [Audit trail](concepts/audit-trail.md): what brig records about each

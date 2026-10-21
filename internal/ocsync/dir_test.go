@@ -155,6 +155,23 @@ func TestLoadRejects(t *testing.T) {
 			writeFile(t, filepath.Join(dir, "profiles", "a.yaml"), githubProfile)
 			writeFile(t, filepath.Join(dir, "profiles", "b.yaml"), githubProfile)
 		}, "defined in"},
+		"service profile": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "profiles", "x.yaml"), "id: brig-svc-proxy\n")
+		}, "brig's, for services"},
+		"service provider": {provider("name: brig-svc-proxy-web\ntype: github\ncredentials:\n  T:\n    secret_tool: {lookup: [a, b]}\n"), "brig's, for services"},
+		"service secret value": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "services", "s.yaml"), "name: mirror\nsecrets:\n  T:\n    value: s3cret\n")
+		}, "never values"},
+		"service secret key": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "services", "s.yaml"), "name: mirror\nsecrets:\n  PATH:\n    secret_tool: {lookup: [a, b]}\n")
+		}, "cannot pass"},
+		"service name": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "services", "s.yaml"), "secrets:\n  T:\n    secret_tool: {lookup: [a, b]}\n")
+		}, "service name"},
+		"service bound twice": {func(dir string) {
+			writeFile(t, filepath.Join(dir, "services", "a.yaml"), "name: mirror\nsecrets: {}\n")
+			writeFile(t, filepath.Join(dir, "services", "b.yaml"), "name: mirror\nsecrets: {}\n")
+		}, "bound in"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -163,6 +180,25 @@ func TestLoadRejects(t *testing.T) {
 				t.Errorf("Load() = %v, want an error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadServiceSecrets(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "services", "mirror.yaml"), "name: mirror\nsecrets:\n  UPSTREAM_TOKEN:\n    secret_tool:\n      lookup: [service, mirror.example.org]\n  CI_KEY:\n    env: BRIG_SECRET_CI_KEY\n")
+	set, err := Load([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ss, ok := set.Services["mirror"]
+	if !ok || len(set.Services) != 1 || ss.Path != filepath.Join(dir, "services", "mirror.yaml") {
+		t.Fatalf("Services = %+v", set.Services)
+	}
+	if c := ss.Secrets["UPSTREAM_TOKEN"]; c.SecretTool == nil || c.SecretTool.String() != "service mirror.example.org" {
+		t.Errorf("UPSTREAM_TOKEN = %+v", c)
+	}
+	if c := ss.Secrets["CI_KEY"]; c.Env != "BRIG_SECRET_CI_KEY" {
+		t.Errorf("CI_KEY = %+v", c)
 	}
 }
 

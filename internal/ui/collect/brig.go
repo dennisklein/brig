@@ -13,6 +13,7 @@ import (
 	"math"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/dennisklein/brig/internal/config"
@@ -108,6 +109,8 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 	if imgs, err := images.List(); err == nil {
 		bases = baseImages(imgs, records)
 	}
+	// The UI shows gateways; brig service list shows services.
+	records = slices.DeleteFunc(records, (*vm.VM).IsService)
 	if conn == nil && len(records) > 0 {
 		if conn, err = b.Connect(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("connecting to libvirt (try brig doctor): %w", err))
