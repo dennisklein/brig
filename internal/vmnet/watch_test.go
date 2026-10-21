@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -37,7 +38,7 @@ func TestReloader(t *testing.T) {
 	r := reloader{
 		path:    path,
 		current: wifi,
-		load: func(h HostNet) error {
+		load: func(h HostNet, _ []uint16) error {
 			if fail.Load() {
 				return errors.New("nft failed")
 			}
@@ -97,6 +98,94 @@ func TestReloader(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the reloader outlived its parent")
+	}
+}
+
+func TestReloaderServicePorts(t *testing.T) {
+	reloadEvery = 5 * time.Millisecond
+	t.Cleanup(func() { reloadEvery = 500 * time.Millisecond })
+	dir := t.TempDir()
+	hostNet, ports := filepath.Join(dir, hostNetFile), ServicePortsPath(filepath.Join(dir, "net.sock"))
+	if err := writeHostNet(hostNet, wifi); err != nil {
+		t.Fatal(err)
+	}
+	type load struct {
+		h     HostNet
+		ports []uint16
+	}
+	loads := make(chan load, 10)
+	var gone atomic.Bool
+	r := reloader{
+		path: hostNet, current: wifi, portsPath: ports, ports: []uint16{4000},
+		load: func(h HostNet, p []uint16) error {
+			loads <- load{h, p}
+			return nil
+		},
+		parentGone: gone.Load,
+	}
+	done := make(chan error)
+	go func() { done <- r.run(context.Background()) }()
+	defer func() {
+		gone.Store(true)
+		<-done
+	}()
+	loaded := func(want []uint16) {
+		t.Helper()
+		select {
+		case l := <-loads:
+			if !slices.Equal(l.ports, want) || !l.h.equal(wifi) {
+				t.Fatalf("loaded %+v, want ports %v and the unchanged host network", l, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("no reload after a change")
+		}
+	}
+	quiet := func() {
+		t.Helper()
+		select {
+		case l := <-loads:
+			t.Fatalf("loaded %+v without a change", l)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	write := func(p ...uint16) {
+		t.Helper()
+		if err := WriteServicePorts(ports, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The file as the firewall was loaded with it.
+	write(4000)
+	quiet()
+	write(4001, 4000, 4001)
+	loaded([]uint16{4000, 4001})
+	// No service left removes the file, which closes the ports.
+	write()
+	if _, err := os.Stat(ports); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("no ports left the file: %v", err)
+	}
+	loaded(nil)
+	quiet()
+}
+
+func TestServicePortsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run", servicePortsFile)
+	if got, err := ReadServicePorts(path); err != nil || got != nil {
+		t.Fatalf("missing file: %v, %v", got, err)
+	}
+	if err := WriteServicePorts(path, []uint16{4001, 4000}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadServicePorts(path); err != nil || !slices.Equal(got, []uint16{4000, 4001}) {
+		t.Fatalf("ReadServicePorts() = %v, %v", got, err)
+	}
+	if err := WriteServicePorts(path, []uint16{0}); err == nil {
+		t.Fatal("port 0 was written")
+	}
+	p := withServicePorts(config.NetworkProfile{Internet: true, HostPorts: []uint16{11434, 4000}}, []uint16{4000, 4001})
+	if !slices.Equal(p.HostPorts, []uint16{4000, 4001, 11434}) || !p.Internet {
+		t.Fatalf("withServicePorts() = %+v", p)
 	}
 }
 

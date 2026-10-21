@@ -13,11 +13,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/dennisklein/brig/internal/config"
 )
 
 // The host's networks change while a VM runs: a new DHCP lease, a VPN, an
@@ -189,18 +192,23 @@ func netChanges() <-chan struct{} {
 var reloadEvery = 500 * time.Millisecond
 
 // reloader loads the firewall again when the file at path holds another
-// host network than current.
+// host network than current, or the file at portsPath other service ports.
 type reloader struct {
 	path    string
 	current HostNet
-	// load loads the firewall for a host network.
-	load func(HostNet) error
+	// portsPath is the file that lists the host ports of the services
+	// attached to the VM's sandboxes (see WriteServicePorts), empty for
+	// none; ports are the ones the firewall was loaded with.
+	portsPath string
+	ports     []uint16
+	// load loads the firewall for a host network and service ports.
+	load func(HostNet, []uint16) error
 	// parentGone reports whether the reloader's parent has exited.
 	parentGone func() bool
 }
 
 func (r *reloader) run(ctx context.Context) error {
-	var seen os.FileInfo
+	var seen, seenPorts os.FileInfo
 	tick := time.NewTicker(reloadEvery)
 	defer tick.Stop()
 	for {
@@ -212,40 +220,149 @@ func (r *reloader) run(ctx context.Context) error {
 		if r.parentGone() {
 			return nil
 		}
+		h, hostChanged := r.current, false
 		// The watcher replaces the file, so a new one is a change.
-		fi, err := os.Stat(r.path)
-		if err != nil || (seen != nil && os.SameFile(fi, seen)) {
+		if fi, err := os.Stat(r.path); err == nil && (seen == nil || !os.SameFile(fi, seen)) {
+			seen = fi
+			if h, err = readHostNetFile(r.path); err != nil {
+				fmt.Fprintf(os.Stderr, "brig: reading the host's network: %v\n", err)
+				h = r.current
+			} else {
+				hostChanged = !h.equal(r.current)
+			}
+		}
+		ports, portsChanged := r.ports, false
+		if r.portsPath != "" {
+			fi, err := os.Stat(r.portsPath)
+			switch {
+			case errors.Is(err, os.ErrNotExist):
+				// brig removes the file once no service is attached.
+				portsChanged, seenPorts, ports = len(r.ports) > 0, nil, nil
+			case err == nil && (seenPorts == nil || !os.SameFile(fi, seenPorts)):
+				seenPorts = fi
+				if ports, err = ReadServicePorts(r.portsPath); err != nil {
+					fmt.Fprintf(os.Stderr, "brig: reading the service ports: %v\n", err)
+					ports = r.ports
+				} else {
+					portsChanged = !slices.Equal(ports, r.ports)
+				}
+			}
+		}
+		if !hostChanged && !portsChanged {
 			continue
 		}
-		seen = fi
-		b, err := os.ReadFile(r.path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "brig: reading the host's network: %v\n", err)
+		if err := r.load(h, ports); err != nil {
+			fmt.Fprintf(os.Stderr, "brig: the firewall still allows what it allowed before: %v\n", err)
 			continue
 		}
-		var h HostNet
-		if err := json.Unmarshal(b, &h); err != nil {
-			fmt.Fprintf(os.Stderr, "brig: reading the host's network: %v\n", err)
-			continue
+		r.current, r.ports = h, ports
+		if hostChanged {
+			fmt.Fprintln(os.Stderr, "brig: the firewall follows a change of the host's network")
 		}
-		if h.equal(r.current) {
-			continue
+		if portsChanged {
+			fmt.Fprintln(os.Stderr, "brig: the firewall follows a change of the attached services")
 		}
-		if err := r.load(h); err != nil {
-			fmt.Fprintf(os.Stderr, "brig: the firewall still blocks the host's previous network: %v\n", err)
-			continue
-		}
-		r.current = h
-		fmt.Fprintln(os.Stderr, "brig: the firewall follows a change of the host's network")
 	}
 }
 
+// readHostNetFile reads a host network as writeHostNet wrote it.
+func readHostNetFile(path string) (HostNet, error) {
+	var h HostNet
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return h, err
+	}
+	err = json.Unmarshal(b, &h)
+	return h, err
+}
+
+// servicePortsFile is the file, next to the VM's socket, that lists the
+// host ports of the services attached to the VM's sandboxes.
+const servicePortsFile = "service-ports.json"
+
+// ServicePortsPath is the file that lists the host ports of the services
+// attached to the sandboxes of the VM whose socket is socket.
+func ServicePortsPath(socket string) string {
+	return filepath.Join(filepath.Dir(socket), servicePortsFile)
+}
+
+// servicePorts is the content of a service ports file.
+type servicePorts struct {
+	Ports []uint16 `json:"ports"`
+}
+
+// WriteServicePorts replaces the service ports file at path, as
+// ServicePortsPath names it, with ports, so that the VM's firewall lets the
+// VM reach them on the host's loopback like a profile's host_ports: at the
+// VM's next start, and at once while it runs. No ports remove the file.
+func WriteServicePorts(path string, ports []uint16) error {
+	ports = slices.Compact(slices.Sorted(slices.Values(ports)))
+	if len(ports) == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if slices.Contains(ports, 0) {
+		return errors.New("service port 0 is not a TCP port")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.Marshal(servicePorts{Ports: ports})
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+servicePortsFile+"-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	_, err = tmp.Write(b)
+	if err = errors.Join(err, tmp.Close()); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// ReadServicePorts reads a service ports file; a missing file lists none.
+func ReadServicePorts(path string) ([]uint16, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var sp servicePorts
+	if err := json.Unmarshal(b, &sp); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if slices.Contains(sp.Ports, 0) {
+		return nil, fmt.Errorf("%s: port 0 is not a TCP port", path)
+	}
+	return slices.Compact(slices.Sorted(slices.Values(sp.Ports))), nil
+}
+
+// withServicePorts returns p allowing ports on the host's loopback too.
+func withServicePorts(p config.NetworkProfile, ports []uint16) config.NetworkProfile {
+	if len(ports) == 0 {
+		return p
+	}
+	p.HostPorts = slices.Compact(slices.Sorted(slices.Values(slices.Concat(p.HostPorts, ports))))
+	return p
+}
+
 // RunReloader runs in the namespace beside passt: it loads the firewall
-// again whenever the watcher writes another host network to o.HostNet. It
-// returns when its parent, passt by then, exits.
+// again whenever the watcher writes another host network to o.HostNet, or
+// brig other service ports to o.ServicePorts. It returns when its parent,
+// passt by then, exits.
 func RunReloader(ctx context.Context, o HelperOptions) error {
 	if !filepath.IsAbs(o.HostNet) {
 		return errors.New("the host network's path must be absolute")
+	}
+	if o.ServicePorts != "" && !filepath.IsAbs(o.ServicePorts) {
+		return errors.New("the service ports' path must be absolute")
 	}
 	profile, err := decodeProfile(o.Profile)
 	if err != nil {
@@ -265,15 +382,17 @@ func RunReloader(ctx context.Context, o HelperOptions) error {
 	}
 	parent := os.Getppid()
 	r := reloader{
-		path:    o.HostNet,
-		current: HostNet{Addrs: addrs, Routes: routes},
-		load: func(h HostNet) error {
+		path:      o.HostNet,
+		current:   HostNet{Addrs: addrs, Routes: routes},
+		portsPath: o.ServicePorts,
+		ports:     o.LoadedServicePorts,
+		load: func(h HostNet, ports []uint16) error {
 			// The namespace's gateways stay as pasta set them up.
 			gateways, err := ReadGateways()
 			if err != nil {
 				return err
 			}
-			return loadNft(nftPath, reloadRuleset(Ruleset(profile, gateways, h.Addrs, h.Routes)))
+			return loadNft(nftPath, reloadRuleset(Ruleset(withServicePorts(profile, ports), gateways, h.Addrs, h.Routes)))
 		},
 		parentGone: func() bool { return os.Getppid() != parent },
 	}
@@ -307,6 +426,12 @@ func startReloader(o HelperOptions) {
 		}
 		for _, r := range o.Routes {
 			args = append(args, "--route", r)
+		}
+		if o.ServicePorts != "" {
+			args = append(args, "--service-ports", o.ServicePorts)
+		}
+		for _, p := range o.LoadedServicePorts {
+			args = append(args, "--loaded-service-port", strconv.Itoa(int(p)))
 		}
 		cmd := exec.Command(brig, args...)
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr

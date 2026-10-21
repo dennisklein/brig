@@ -5,7 +5,9 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -33,6 +35,8 @@ func newNetHelperCmd() *cobra.Command {
 	f.StringArrayVar(&o.HostAddrs, "host-addr", nil, "host address with prefix length (repeatable)")
 	f.StringArrayVar(&o.Routes, "route", nil, "destination of a host route (repeatable)")
 	f.StringVar(&o.HostNet, "host-net", "", "file the watcher writes the host's network to")
+	f.IntVar(&o.GuestServicePort, "guest-service-port", 0, "guest port of a service VM's workload")
+	f.StringVar(&o.ServicePorts, "service-ports", "", "file that lists the host ports of attached services")
 	cmd.AddCommand(newNetWatchCmd(), newNetReloadCmd())
 	return cmd
 }
@@ -77,5 +81,28 @@ func newNetReloadCmd() *cobra.Command {
 	f.StringArrayVar(&o.HostAddrs, "host-addr", nil, "host address with prefix length the firewall was loaded with (repeatable)")
 	f.StringArrayVar(&o.Routes, "route", nil, "destination of a host route the firewall was loaded with (repeatable)")
 	f.StringVar(&o.HostNet, "host-net", "", "file the watcher writes the host's network to")
+	f.StringVar(&o.ServicePorts, "service-ports", "", "file that lists the host ports of attached services")
+	f.Var(portList{&o.LoadedServicePorts}, "loaded-service-port", "host port of an attached service that the firewall was loaded with (repeatable)")
 	return cmd
 }
+
+// portList is a repeatable flag of TCP ports.
+type portList struct{ ports *[]uint16 }
+
+func (l portList) String() string {
+	if l.ports == nil {
+		return ""
+	}
+	return fmt.Sprint(*l.ports)
+}
+
+func (l portList) Set(v string) error {
+	n, err := strconv.ParseUint(v, 10, 16)
+	if err != nil || n == 0 {
+		return fmt.Errorf("invalid port %q", v)
+	}
+	*l.ports = append(*l.ports, uint16(n))
+	return nil
+}
+
+func (portList) Type() string { return "port" }

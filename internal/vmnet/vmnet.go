@@ -57,7 +57,13 @@ type Config struct {
 	// GuestSSHPort and GuestGatewayPort in the VM.
 	SSHPort, GatewayPort           int
 	GuestSSHPort, GuestGatewayPort int
-	// Profile restricts what the VM may reach.
+	// ServicePort, if not zero, is a service VM's host loopback port, at
+	// which gateways reach it, forwarded to GuestServicePort in the VM,
+	// where its workload listens.
+	ServicePort, GuestServicePort int
+	// Profile restricts what the VM may reach. The VM may also reach the
+	// host ports that the file ServicePortsPath lists, which the firewall
+	// follows while the VM runs.
 	Profile config.NetworkProfile
 	// HostAddrs are the host's interface addresses with their prefix
 	// lengths, which Ruleset keeps the VM from reaching as the host and as
@@ -85,6 +91,21 @@ func (c Config) validate() error {
 	if c.GuestGatewayPort == nsSSHPort {
 		return fmt.Errorf("vmnet: guest gateway port %d collides with the namespace SSH port", nsSSHPort)
 	}
+	if (c.ServicePort == 0) != (c.GuestServicePort == 0) {
+		return errors.New("vmnet: a service needs both its host and its guest port")
+	}
+	if c.ServicePort != 0 {
+		for _, p := range []int{c.ServicePort, c.GuestServicePort} {
+			if p < 1 || p > 65535 {
+				return fmt.Errorf("vmnet: invalid port %d", p)
+			}
+		}
+		// The namespace binds the guest port, beside the SSH and gateway
+		// ports.
+		if c.GuestServicePort == nsSSHPort || c.GuestServicePort == c.GuestGatewayPort {
+			return fmt.Errorf("vmnet: guest service port %d collides with the SSH or the gateway port", c.GuestServicePort)
+		}
+	}
 	return nil
 }
 
@@ -98,10 +119,15 @@ func (c Config) pastaArgs() []string {
 		// would forward every port the namespace binds, in both directions.
 		"-t", fmt.Sprintf("127.0.0.1/%d:%d", c.SSHPort, nsSSHPort),
 		"-t", fmt.Sprintf("127.0.0.1/%d:%d", c.GatewayPort, c.GuestGatewayPort),
+	}
+	if c.ServicePort != 0 {
+		args = append(args, "-t", fmt.Sprintf("127.0.0.1/%d:%d", c.ServicePort, c.GuestServicePort))
+	}
+	args = append(args,
 		"-u", "none",
 		"-T", "none",
 		"-U", "none",
-	}
+	)
 	if !c.Profile.IPv6 {
 		args = append(args, "-4")
 	}
@@ -125,8 +151,11 @@ func (c Config) passtArgs(passt string) []string {
 		"--dns", DNSAddr,
 		"-t", fmt.Sprintf("%d:%d", nsSSHPort, c.GuestSSHPort),
 		"-t", fmt.Sprintf("%d:%d", c.GuestGatewayPort, c.GuestGatewayPort),
-		"-u", "none",
 	}
+	if c.GuestServicePort != 0 {
+		args = append(args, "-t", fmt.Sprintf("%d:%d", c.GuestServicePort, c.GuestServicePort))
+	}
+	args = append(args, "-u", "none")
 	if !c.Profile.IPv6 {
 		args = append(args, "-4")
 	}
@@ -145,6 +174,10 @@ func (c Config) helperArgs() ([]string, error) {
 		"--guest-ssh-port", strconv.Itoa(c.GuestSSHPort),
 		"--guest-gateway-port", strconv.Itoa(c.GuestGatewayPort),
 		"--profile", profile,
+		"--service-ports", ServicePortsPath(c.Socket),
+	}
+	if c.GuestServicePort != 0 {
+		args = append(args, "--guest-service-port", strconv.Itoa(c.GuestServicePort))
 	}
 	for _, p := range c.HostAddrs {
 		args = append(args, "--host-addr", p.String())
