@@ -51,3 +51,24 @@ audit:
   journal: changes
   # Delete history older than this: 90d, 12w or 36h. 0 keeps everything.
   retention: 90d
+
+# The vm runner lets agents start throwaway VMs on this host and drive them
+# through MCP tools (brig help vm-runner).
+vm_runner:
+  # The images agents may start VMs from: qcow2 files that contain
+  # qemu-guest-agent. brig never writes to them.
+  images:
+    fedora-44:
+      file: ~/vm-images/Fedora-Cloud-Base-Generic-44.x86_64.qcow2
+  # What each sandbox may use at once. These values are built in.
+  quota:
+    vms: 2
+    cpus: 4
+    memory: 8GiB
+    disk: 60GiB
+    lifetime: 4h
+    snapshots: 3
+  # What all sandboxes may use together. These values are built in.
+  host_quota:
+    vms: 6
+    memory: 24GiB

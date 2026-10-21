@@ -86,6 +86,13 @@ func TestLoadErrors(t *testing.T) {
 		"journal mode":      {"audit:\n  journal: some\n", "must be changes, all or off"},
 		"bad retention":     {"audit:\n  retention: forever\n", "invalid duration"},
 		"short retention":   {"audit:\n  retention: 1h\n", "at least a day"},
+		"runner image name": {"vm_runner:\n  images:\n    Fedora:\n      file: /x.qcow2\n", "invalid name"},
+		"runner image path": {"vm_runner:\n  images:\n    f:\n      file: x.qcow2\n", "not an absolute path"},
+		"runner cpus":       {"vm_runner:\n  quota:\n    cpus: -1\n", "cpus at least 1"},
+		"runner memory":     {"vm_runner:\n  quota:\n    memory: 100MiB\n", "at least 512MiB"},
+		"runner disk":       {"vm_runner:\n  quota:\n    disk: 100MiB\n", "at least 1GiB"},
+		"runner lifetime":   {"vm_runner:\n  quota:\n    lifetime: 10s\n", "at least a minute"},
+		"runner host":       {"vm_runner:\n  host_quota:\n    vms: -1\n", "must not be negative"},
 		"second document":   {"defaults:\n  cpus: 2\n---\nnetwork_profiles:\n  default: {}\n", "more than one YAML document"},
 		"empty document":    {"---\n---\ndefaults:\n  cpus: 2\n", "more than one YAML document"},
 	} {
@@ -140,6 +147,31 @@ func TestLoadOpenShell(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.OpenShell, want) {
 		t.Errorf("openshell section = %+v, want %+v", cfg.OpenShell, want)
+	}
+}
+
+func TestLoadVMRunner(t *testing.T) {
+	b := Builtin().VMRunner
+	if b.Quota.VMs != 2 || b.Quota.CPUs != 4 || b.Quota.Memory != 8*bytesize.GiB || time.Duration(b.Quota.Lifetime) != 4*time.Hour ||
+		b.HostQuota.VMs != 6 || len(b.Images) != 0 {
+		t.Errorf("built-in vm_runner section: %+v", b)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg, err := Load(write(t, "vm_runner:\n  images:\n    fedora-44:\n      file: ~/img/f44.qcow2\n  quota:\n    vms: 1\n    lifetime: 1d\n  host_quota:\n    memory: 32GiB\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := cfg.VMRunner
+	if r.Images["fedora-44"].File != filepath.Join(home, "img", "f44.qcow2") {
+		t.Errorf("images = %+v", r.Images)
+	}
+	// The keys left out keep their built-in values.
+	if r.Quota.VMs != 1 || time.Duration(r.Quota.Lifetime) != 24*time.Hour || r.Quota.CPUs != b.Quota.CPUs || r.Quota.Snapshots != b.Quota.Snapshots {
+		t.Errorf("quota = %+v", r.Quota)
+	}
+	if r.HostQuota.Memory != 32*bytesize.GiB || r.HostQuota.VMs != b.HostQuota.VMs {
+		t.Errorf("host_quota = %+v", r.HostQuota)
 	}
 }
 
