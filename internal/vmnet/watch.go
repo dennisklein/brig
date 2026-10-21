@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/paths"
 )
 
@@ -252,6 +253,10 @@ func RunReloader(ctx context.Context, o HelperOptions) error {
 	if err != nil {
 		return err
 	}
+	mode := fence2.Mode(o.Fence2)
+	if mode != fence2.Itemised && mode != fence2.CountsOnly && mode != fence2.Off {
+		return fmt.Errorf("unknown fence 2 mode %q", o.Fence2)
+	}
 	nftPath, err := lookPath("nft")
 	if err != nil {
 		return err
@@ -266,7 +271,9 @@ func RunReloader(ctx context.Context, o HelperOptions) error {
 			if err != nil {
 				return err
 			}
-			return loadNft(nftPath, reloadRuleset(Ruleset(profile, gateways, h.Addrs, h.Routes)))
+			// The same mode as the helper loaded, so that the named
+			// counters, which the reload keeps, go on counting.
+			return loadNft(nftPath, reloadRuleset(Ruleset(profile, gateways, h.Addrs, h.Routes, mode)))
 		},
 		parentGone: func() bool { return os.Getppid() != parent },
 	}
@@ -294,7 +301,7 @@ func loadNft(nftPath, ruleset string) error {
 func startReloader(o HelperOptions) {
 	brig, err := os.Executable()
 	if err == nil {
-		args := []string{"net-helper", "reload", "--host-net", o.HostNet, "--profile", o.Profile}
+		args := []string{"net-helper", "reload", "--host-net", o.HostNet, "--profile", o.Profile, "--fence2", o.Fence2}
 		for _, a := range o.HostAddrs {
 			args = append(args, "--host-addr", a)
 		}
