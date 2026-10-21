@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# The workload of a service VM. brig starts this target at every start of
+# the VM, once it has put the service's secrets and tokens below
+# /run/brig/service, so the units of a service type are WantedBy= it rather
+# than multi-user.target. Gateways never start it.
+
+[Unit]
+Description=brig: the workload of a service VM
+Documentation=https://github.com/dennisklein/brig
