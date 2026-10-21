@@ -7,7 +7,7 @@ Create an OpenShell sandbox in a VM, with host directories mounted read-only
 ## Synopsis
 
 ```text
-brig sandbox create [NAME] [-w W] [--mount DIR:TARGET]... [--connect] [-- OPENSHELL-ARGS...]
+brig sandbox create [NAME] [-w W] [--mount DIR:TARGET]... [--docker] [--connect] [-- OPENSHELL-ARGS...]
 ```
 
 ## Description
@@ -32,6 +32,23 @@ the gateway lacks is an error rather than one that openshell creates from
 credentials it finds on the host. Give --auto-providers after -- for
 openshell's own behaviour.
 
+With --docker, the sandbox may use the VM's rootless Docker, for test suites
+that start containers with testcontainers or docker compose. brig adds the
+rule brig\_docker to the sandbox's policy: it lets the docker CLI and the
+usual runtimes (python3, java, node, Go test binaries) reach Docker's API at
+host.openshell.internal:2375 and the ports at which Docker publishes
+containers, 61000 to 61127. The rule goes into the policy file that --policy
+names after --, else the VM's default policy, else OpenShell's built-in
+default; a policy that the image ships is then not used. A file with a
+brig\_docker rule of its own keeps it, which is how to change the programs or
+ports that the rule allows. brig also sets DOCKER\_HOST and testcontainers'
+settings in the sandbox, except with --template, for which openshell takes
+no environment; it then prints them. The sandbox's image needs the docker CLI
+only for docker commands; libraries such as testcontainers talk to the API
+themselves. Everything that the sandbox starts through Docker runs as the
+VM's user dockerd, outside the sandbox's own rules but inside the VM's
+network profile.
+
 With --connect, brig starts the VM first if it is stopped, as [`brig start`](brig-start.md)
 --wait does, creates the sandbox without attaching to it, waits until it is
 ready and then connects this terminal to it, as [`brig sandbox connect`](brig-sandbox-connect.md) does.
@@ -44,6 +61,7 @@ brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit -- \
   --name kit-dev --from localhost/pi-agent:2026-10-08 --provider llm
 brig use dev && brig sandbox create -m ~/notes:/usr/local/share/notes
 brig sandbox create dev --connect -m ~/src/webapp:/sandbox/src -- --name webapp --template pi
+brig sandbox create dev --docker -- --name tests --from localhost/ci:2026-10-20
 ```
 
 ## Options
@@ -51,6 +69,7 @@ brig sandbox create dev --connect -m ~/src/webapp:/sandbox/src -- --name webapp 
 | Option | Description |
 | --- | --- |
 | `--connect` | start the VM if needed, wait until the sandbox is ready and connect to it |
+| `--docker` | let the sandbox use the VM's rootless Docker |
 | `-m, --mount stringArray` | show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable) |
 | `-w, --workspace string` | the workspace of the gateway to work in (default: $BRIG\_WORKSPACE, else default) |
 

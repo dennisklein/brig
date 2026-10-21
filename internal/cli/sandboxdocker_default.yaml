@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# OpenShell's built-in default policy (restrictive_default_policy in
+# openshell-policy, v0.1.4), which brig sandbox create --docker adds its rule
+# to when no policy file is given and the VM has no default policy.
+version: 1
+filesystem_policy:
+  include_workdir: true
+  read_only: [/bin, /usr, /lib, /proc, /dev/urandom, /etc, /var/log]
+  read_write: [/tmp, /dev/null]
+landlock:
+  compatibility: best_effort

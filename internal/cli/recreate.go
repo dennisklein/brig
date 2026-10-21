@@ -254,7 +254,16 @@ func (s *snapshots) planRecreate(ctx context.Context, ws, name string, target re
 		if err != nil {
 			return nil, err
 		}
+		// The sandbox keeps Docker, which brig sandbox create --docker
+		// gave it, unless the file has a rule of its own for it.
+		data, kept, err := osclient.KeepRule(p.policy, data, dockerRuleKey)
+		if err != nil {
+			return nil, fmt.Errorf("the policy of sandbox %s: %w", name, err)
+		}
 		p.policy, p.Policy = data, "policy file "+path
+		if kept {
+			p.Policy += ", with rule " + dockerRuleKey + " of the sandbox"
+		}
 	} else if o.dry {
 		p.Policy += policyNote(ctx, s.a, s.v, ws, name)
 	}

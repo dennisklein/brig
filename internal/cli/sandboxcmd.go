@@ -40,9 +40,10 @@ func newSandboxCreateCmd() *cobra.Command {
 		mounts    []string
 		workspace string
 		connect   bool
+		docker    bool
 	)
 	cmd := &cobra.Command{
-		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [--connect] [-- OPENSHELL-ARGS...]",
+		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [--docker] [--connect] [-- OPENSHELL-ARGS...]",
 		Short: "Create an OpenShell sandbox in a VM, with host directories mounted read-only",
 		Long: `Run openshell sandbox create against VM NAME's gateway, with each
 --mount DIR:TARGET showing host directory DIR read-only at TARGET in the
@@ -65,6 +66,23 @@ the gateway lacks is an error rather than one that openshell creates from
 credentials it finds on the host. Give --auto-providers after -- for
 openshell's own behaviour.
 
+With --docker, the sandbox may use the VM's rootless Docker, for test suites
+that start containers with testcontainers or docker compose. brig adds the
+rule brig_docker to the sandbox's policy: it lets the docker CLI and the
+usual runtimes (python3, java, node, Go test binaries) reach Docker's API at
+host.openshell.internal:2375 and the ports at which Docker publishes
+containers, 61000 to 61127. The rule goes into the policy file that --policy
+names after --, else the VM's default policy, else OpenShell's built-in
+default; a policy that the image ships is then not used. A file with a
+brig_docker rule of its own keeps it, which is how to change the programs or
+ports that the rule allows. brig also sets DOCKER_HOST and testcontainers'
+settings in the sandbox, except with --template, for which openshell takes
+no environment; it then prints them. The sandbox's image needs the docker CLI
+only for docker commands; libraries such as testcontainers talk to the API
+themselves. Everything that the sandbox starts through Docker runs as the
+VM's user dockerd, outside the sandbox's own rules but inside the VM's
+network profile.
+
 With --connect, brig starts the VM first if it is stopped, as brig start
 --wait does, creates the sandbox without attaching to it, waits until it is
 ready and then connects this terminal to it, as brig sandbox connect does.
@@ -72,7 +90,8 @@ It needs the sandbox's --name after --.`,
 		Example: `  brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit -- \
     --name kit-dev --from localhost/pi-agent:2026-10-08 --provider llm
   brig use dev && brig sandbox create -m ~/notes:/usr/local/share/notes
-  brig sandbox create dev --connect -m ~/src/webapp:/sandbox/src -- --name webapp --template pi`,
+  brig sandbox create dev --connect -m ~/src/webapp:/sandbox/src -- --name webapp --template pi
+  brig sandbox create dev --docker -- --name tests --from localhost/ci:2026-10-20`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if n := len(vmArgs(cmd, args)); n > 1 {
 				return fmt.Errorf("accepts at most one VM name before --, received %d", n)
@@ -141,6 +160,13 @@ It needs the sandbox's --name after --.`,
 			if config != "" {
 				argv = append(argv, "--driver-config-json", config)
 			}
+			if docker {
+				var opts []string
+				if opts, pass, err = dockerArgs(v, pass, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+				argv = append(argv, opts...)
+			}
 			if !choosesProviders(pass) {
 				argv = append(argv, "--no-auto-providers")
 			}
@@ -164,6 +190,7 @@ It needs the sandbox's --name after --.`,
 	cmd.Flags().StringArrayVarP(&mounts, "mount", "m", nil, "show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable)")
 	_ = cmd.RegisterFlagCompletionFunc("mount", completeDirs)
 	cmd.Flags().BoolVar(&connect, "connect", false, "start the VM if needed, wait until the sandbox is ready and connect to it")
+	cmd.Flags().BoolVar(&docker, "docker", false, "let the sandbox use the VM's rootless Docker")
 	return cmd
 }
 

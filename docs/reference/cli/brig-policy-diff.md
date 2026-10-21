@@ -23,7 +23,9 @@ changed      in both, with different content
 
 Sections other than the network rules, such as filesystem\_policy, are fixed
 once a sandbox starts; brig lists those that differ and offers nothing for
-them. Reformatting a file is not a difference.
+them. Reformatting a file is not a difference, and neither is the rule
+brig\_docker that [`brig sandbox create`](brig-sandbox-create.md) --docker adds, unless the file has a rule
+of that name.
 
 The file is looked for among the policies/\*.yaml files of the VM's OpenShell
 config directories: the one that agrees with the sandbox in everything but
