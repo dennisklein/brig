@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,7 +31,54 @@ type Config struct {
 	NetworkProfiles map[string]NetworkProfile `yaml:"network_profiles"`
 	OpenShell       OpenShell                 `yaml:"openshell"`
 	Audit           Audit                     `yaml:"audit"`
+	VMRunner        VMRunner                  `yaml:"vm_runner"`
 }
+
+// VMRunner configures the vm runner: the images that agents may start VMs
+// from, and the resources that each sandbox and the host may use.
+type VMRunner struct {
+	// Images maps the names agents use to qcow2 files on the host.
+	Images map[string]RunnerImage `yaml:"images"`
+	// Quota bounds the VMs of each sandbox.
+	Quota RunnerQuota `yaml:"quota"`
+	// HostQuota bounds the VMs of all sandboxes together.
+	HostQuota RunnerHostQuota `yaml:"host_quota"`
+}
+
+// RunnerImage is an image that agents may start VMs from. brig never
+// writes to it: each VM gets an overlay.
+type RunnerImage struct {
+	// File is the absolute path of a qcow2 image; a leading ~/ is the
+	// home directory.
+	File string `yaml:"file"`
+}
+
+// RunnerQuota bounds the VMs of one sandbox.
+type RunnerQuota struct {
+	// VMs is the most VMs that a sandbox may have at once.
+	VMs int `yaml:"vms"`
+	// CPUs is the most virtual CPUs of a sandbox's VMs together.
+	CPUs int `yaml:"cpus"`
+	// Memory is the most memory of a sandbox's VMs together.
+	Memory bytesize.Size `yaml:"memory"`
+	// Disk is the most disk size of a sandbox's VMs together.
+	Disk bytesize.Size `yaml:"disk"`
+	// Lifetime is how long a VM lives at most; then brig deletes it.
+	Lifetime Duration `yaml:"lifetime"`
+	// Snapshots is the most snapshots of each VM. A snapshot holds the
+	// VM's memory, so it takes up to that much host disk.
+	Snapshots int `yaml:"snapshots"`
+}
+
+// RunnerHostQuota bounds the VMs of all sandboxes together.
+type RunnerHostQuota struct {
+	// VMs is the most VMs on the host at once.
+	VMs int `yaml:"vms"`
+	// Memory is the most memory of all VMs together.
+	Memory bytesize.Size `yaml:"memory"`
+}
+
+var runnerImageRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
 // Audit configures the audit trail that brig keeps of each VM.
 type Audit struct {
@@ -175,6 +223,14 @@ func Builtin() *Config {
 		},
 		OpenShell: OpenShell{SecretTool: "secret-tool"},
 		Audit:     Audit{Journal: "changes"},
+		VMRunner: VMRunner{
+			Images: map[string]RunnerImage{},
+			Quota: RunnerQuota{
+				VMs: 2, CPUs: 4, Memory: 8 * bytesize.GiB, Disk: 60 * bytesize.GiB,
+				Lifetime: Duration(4 * time.Hour), Snapshots: 3,
+			},
+			HostQuota: RunnerHostQuota{VMs: 6, Memory: 24 * bytesize.GiB},
+		},
 	}
 }
 
@@ -212,6 +268,9 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	if err := file.OpenShell.expandHome(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := file.VMRunner.expandHome(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.overlay(&file)
@@ -256,6 +315,42 @@ func (c *Config) overlay(o *Config) {
 	if o.Audit.Retention != 0 {
 		c.Audit.Retention = o.Audit.Retention
 	}
+	for name, img := range o.VMRunner.Images {
+		c.VMRunner.Images[name] = img
+	}
+	q, oq := &c.VMRunner.Quota, o.VMRunner.Quota
+	overlayNonZero(&q.VMs, oq.VMs)
+	overlayNonZero(&q.CPUs, oq.CPUs)
+	overlayNonZero(&q.Memory, oq.Memory)
+	overlayNonZero(&q.Disk, oq.Disk)
+	overlayNonZero(&q.Lifetime, oq.Lifetime)
+	overlayNonZero(&q.Snapshots, oq.Snapshots)
+	h, oh := &c.VMRunner.HostQuota, o.VMRunner.HostQuota
+	overlayNonZero(&h.VMs, oh.VMs)
+	overlayNonZero(&h.Memory, oh.Memory)
+}
+
+func overlayNonZero[T comparable](dst *T, v T) {
+	var zero T
+	if v != zero {
+		*dst = v
+	}
+}
+
+func (r *VMRunner) expandHome() error {
+	for name, img := range r.Images {
+		rest, ok := strings.CutPrefix(img.File, "~/")
+		if !ok {
+			continue
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		img.File = filepath.Join(home, rest)
+		r.Images[name] = img
+	}
+	return nil
 }
 
 // expandHome replaces a leading "~/" in the paths with the home directory.
@@ -331,6 +426,31 @@ func (c *Config) Validate() error {
 	}
 	if r := time.Duration(c.Audit.Retention); r != 0 && r < 24*time.Hour {
 		return errors.New("audit.retention must be at least a day")
+	}
+	return c.VMRunner.validate()
+}
+
+func (r VMRunner) validate() error {
+	for name, img := range r.Images {
+		if !runnerImageRE.MatchString(name) {
+			return fmt.Errorf("vm_runner.images: invalid name %q: use up to 63 lowercase letters, digits, dots, dashes and underscores", name)
+		}
+		if !filepath.IsAbs(img.File) {
+			return fmt.Errorf("vm_runner.images.%s.file: %q is not an absolute path", name, img.File)
+		}
+	}
+	q, h := r.Quota, r.HostQuota
+	switch {
+	case q.VMs < 0 || q.CPUs < 1 || q.Snapshots < 0:
+		return errors.New("vm_runner.quota: vms and snapshots must not be negative, cpus at least 1")
+	case q.Memory < MinMemory || q.Memory%bytesize.MiB != 0:
+		return fmt.Errorf("vm_runner.quota.memory must be a whole number of MiB, at least %s", MinMemory)
+	case q.Disk < bytesize.GiB:
+		return errors.New("vm_runner.quota.disk must be at least 1GiB")
+	case time.Duration(q.Lifetime) < time.Minute:
+		return errors.New("vm_runner.quota.lifetime must be at least a minute")
+	case h.VMs < 0 || h.Memory%bytesize.MiB != 0:
+		return errors.New("vm_runner.host_quota: vms must not be negative, memory a whole number of MiB")
 	}
 	return nil
 }

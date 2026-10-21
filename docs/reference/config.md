@@ -60,3 +60,19 @@ Audit configures the audit trail that brig keeps of each VM.
 | --- | --- | --- | --- |
 | <a id="audit.journal"></a>`audit.journal` | string | `changes` | Says what the collector mirrors to the user journal: changes (denials, policy and draft changes, sandboxes and gaps), all (allowed requests too) or off. |
 | <a id="audit.retention"></a>`audit.retention` | duration | `0` | Deletes the days of history older than it, at least a day; zero keeps everything. |
+
+## vm_runner
+
+These keys configure the vm runner: the images that agents may start VMs from, and the resources that each sandbox and the host may use.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| <a id="vm_runner.images.NAME.file"></a>`vm_runner.images.NAME.file` | string | `` | The absolute path of a qcow2 image; a leading ~/ is the home directory. |
+| <a id="vm_runner.quota.vms"></a>`vm_runner.quota.vms` | integer | `2` | The most VMs that a sandbox may have at once. |
+| <a id="vm_runner.quota.cpus"></a>`vm_runner.quota.cpus` | integer | `4` | The most virtual CPUs of a sandbox's VMs together. |
+| <a id="vm_runner.quota.memory"></a>`vm_runner.quota.memory` | size | `8GiB` | The most memory of a sandbox's VMs together. |
+| <a id="vm_runner.quota.disk"></a>`vm_runner.quota.disk` | size | `60GiB` | The most disk size of a sandbox's VMs together. |
+| <a id="vm_runner.quota.lifetime"></a>`vm_runner.quota.lifetime` | duration | `4h` | How long a VM lives at most; then brig deletes it. |
+| <a id="vm_runner.quota.snapshots"></a>`vm_runner.quota.snapshots` | integer | `3` | The most snapshots of each VM. A snapshot holds the VM's memory, so it takes up to that much host disk. |
+| <a id="vm_runner.host_quota.vms"></a>`vm_runner.host_quota.vms` | integer | `6` | The most VMs on the host at once. |
+| <a id="vm_runner.host_quota.memory"></a>`vm_runner.host_quota.memory` | size | `24GiB` | The most memory of all VMs together. |
