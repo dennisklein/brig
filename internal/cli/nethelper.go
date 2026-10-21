@@ -77,5 +77,6 @@ func newNetReloadCmd() *cobra.Command {
 	f.StringArrayVar(&o.HostAddrs, "host-addr", nil, "host address with prefix length the firewall was loaded with (repeatable)")
 	f.StringArrayVar(&o.Routes, "route", nil, "destination of a host route the firewall was loaded with (repeatable)")
 	f.StringVar(&o.HostNet, "host-net", "", "file the watcher writes the host's network to")
+	f.StringVar(&o.Fence2, "fence2", "", "how the firewall records drops: itemised, counts only or off")
 	return cmd
 }
