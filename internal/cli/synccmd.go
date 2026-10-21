@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,7 +32,12 @@ func newSyncCmd() *cobra.Command {
 			return err
 		}
 		defer unlock()
-		if len(v.OpenShellConfigs) == 0 {
+		withOpenShell, err := runsOpenShell(v)
+		if err != nil {
+			return err
+		}
+		configs := withOpenShell
+		if configs && len(v.OpenShellConfigs) == 0 {
 			// Removing the last directory leaves providers from an earlier
 			// sync for --prune to delete, so only a VM never synced is refused.
 			st, err := ocsync.LoadState(a.vmFile(v, ocsync.StateFile))
@@ -39,15 +45,21 @@ func newSyncCmd() *cobra.Command {
 				return err
 			}
 			if st.LastSync == nil {
-				return fmt.Errorf("VM %s has no OpenShell config directories; add one with brig update %[1]s --add-openshell-config DIR", v.Name)
+				svcs, _ := a.services.List()
+				if !v.IsService() && len(svcs) == 0 {
+					return fmt.Errorf("VM %s has no OpenShell config directories; add one with brig update %[1]s --add-openshell-config DIR", v.Name)
+				}
+				configs = false
 			}
 		}
-		cli, err := openshell.Find()
-		if err != nil {
-			return err
-		}
-		if _, err := cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
-			return notReadyf("the gateway of VM %s does not answer; is the VM running (brig start %[1]s)? %w", v.Name, err)
+		var cli *openshell.CLI
+		if configs {
+			if cli, err = openshell.Find(); err != nil {
+				return err
+			}
+			if _, err := cli.GatewayVersion(ctx, v.GatewayName()); err != nil {
+				return notReadyf("the gateway of VM %s does not answer; is the VM running (brig start %[1]s)? %w", v.Name, err)
+			}
 		}
 		if len(opts.Workspaces) == 0 {
 			ws, err := envWorkspace()
@@ -58,17 +70,27 @@ func newSyncCmd() *cobra.Command {
 				opts.Workspaces = []string{ws}
 			}
 		}
+		sync := func(out io.Writer) error {
+			var err error
+			if configs {
+				err = a.syncOpenShell(ctx, cli, v, opts, secretTool)
+			}
+			if opts.DryRun {
+				return err
+			}
+			return errors.Join(err, a.syncServices(ctx, v, out))
+		}
 		if format == "json" {
 			rep := syncReport{VM: v.Name, DryRun: opts.DryRun, Changes: []ocsync.Change{}}
 			opts.Record = func(c ocsync.Change) { rep.Changes = append(rep.Changes, c) }
-			err := a.syncOpenShell(ctx, cli, v, opts, secretTool)
+			err := sync(cmd.ErrOrStderr())
 			if err != nil {
 				rep.Error = err.Error()
 			}
 			return errors.Join(writeJSON(cmd.OutOrStdout(), rep), syncFailed(err))
 		}
 		opts.Out, opts.Verbose = cmd.OutOrStdout(), true
-		return syncFailed(a.syncOpenShell(ctx, cli, v, opts, secretTool))
+		return syncFailed(sync(cmd.OutOrStdout()))
 	})
 	cmd.Long = `Apply a VM's OpenShell config directories to its gateway. brig start does
 the same every time the VM starts.
@@ -94,6 +116,13 @@ A config directory may hold:
   policies/default.yaml  the default policy for new sandboxes, which
                          brig use NAME and eval "$(brig env NAME)"
                          export as OPENSHELL_SANDBOX_POLICY
+  services/*.yaml        the secrets of a service (see brig service
+                         --help), in a config directory of its VM:
+                           name: mirror
+                           secrets:
+                             UPSTREAM_TOKEN:
+                               secret_tool:
+                                 lookup: [service, mirror.example.org]
 
 Every workspace is synced on its own: the default workspace first, then
 the others by name, with a "workspace WS:" heading each when there is more
@@ -121,7 +150,13 @@ the credentials are sent. Once the gateway holds credentials that brig
 set, brig start also keeps back new providers, providers that brig did not
 create, and credentials that a provider file now looks up elsewhere, since
 each could send a secret to other endpoints. brig sync applies them and
-says what it changes. Check shared profiles with --dry-run first.`
+says what it changes. Check shared profiles with --dry-run first.
+
+For a gateway VM, brig sync and every start also bring its services in
+line: the relays and profiles of the services that its sandboxes are
+attached to, a new token for a sandbox whose provider is gone, and no token
+for a sandbox that is gone. For a service VM, brig sync hands the service
+its secrets again and restarts it.`
 	cmd.Example = `  brig sync dev --dry-run
   brig sync dev --prune
   brig sync dev --workspace team`
@@ -134,6 +169,24 @@ says what it changes. Check shared profiles with --dry-run first.`
 	f.StringVar(&secretTool, "secret-tool", "", "program to look secrets up with (default: openshell.secret_tool from config.yaml)")
 	addOutputFlag(cmd, &format)
 	return cmd
+}
+
+// syncServices does the part of brig sync that is about services: a service
+// VM gets its secrets again and restarts its workload, and a gateway VM's
+// services are reconciled (see reconcileServices).
+func (a *app) syncServices(ctx context.Context, v *vm.VM, w io.Writer) error {
+	if v.IsService() {
+		return a.startService(ctx, v, true)
+	}
+	if svcs, err := a.services.List(); err == nil && len(svcs) == 0 {
+		return nil
+	}
+	conn, err := a.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	return a.reconcileServices(ctx, conn, v, w)
 }
 
 // syncReport is what brig sync -o json prints: each workspace, profile and

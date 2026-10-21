@@ -407,6 +407,9 @@ func newStopCmd() *cobra.Command {
 func newDeleteCmd() *cobra.Command {
 	var force, yes bool
 	cmd := vmCommand("delete [NAME]", "Delete a VM and all its data", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
+		if v.IsService() {
+			return fmt.Errorf("VM %s is service %[1]s; delete it with brig service delete %[1]s", v.Name)
+		}
 		unlock, err := a.lockLoadedVM(v)
 		if err != nil {
 			return err
@@ -467,6 +470,12 @@ func (a *app) remove(ctx context.Context, conn domains, v *vm.VM, force bool, as
 	if ask != nil {
 		if err := ask(state); err != nil {
 			return err
+		}
+	}
+	if !v.IsService() {
+		// The services must refuse the tokens of the VM's sandboxes.
+		if err := a.revokeGateway(ctx, conn, v, stderr); err != nil {
+			fmt.Fprintf(stderr, "Warning: %s\n", termtext.Escape(err.Error()))
 		}
 	}
 	if err := a.stop(ctx, conn, v, true); err != nil {
@@ -534,6 +543,8 @@ type vmStatus struct {
 // the rest and about states it cannot get.
 func (a *app) status(ctx context.Context) ([]vmStatus, error) {
 	vms, err := a.vms.List()
+	// brig service list shows the VMs of services.
+	vms = slices.DeleteFunc(vms, (*vm.VM).IsService)
 	if len(vms) == 0 {
 		return nil, err
 	}
