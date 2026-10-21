@@ -412,6 +412,23 @@ The whole story: [`how-to/share-directories.md`](../how-to/share-directories.md#
 
 In a terminal: `brig help sandbox-volume`.
 
+### Services<a id="services"></a>
+
+A workload that sandboxes use but never control, such as a model proxy. Each attached sandbox has a token of its own.
+
+Also called: service, brig service, service vm.
+
+See also: [Provider](#provider), [Fence 2, the network profile](#fence-2).
+
+```sh
+brig service list
+brig service attach mirror dev webapp
+```
+
+The whole story: [`concepts/services.md`](../concepts/services.md).
+
+In a terminal: `brig help services`.
+
 ### Snapshot<a id="snapshot"></a>
 
 A copy of one sandbox's /sandbox, kept in the VM on the data disk. It outlives the sandbox and goes with the VM.
