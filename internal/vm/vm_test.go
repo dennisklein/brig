@@ -28,6 +28,45 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
+func TestStoreRoles(t *testing.T) {
+	s := NewStore(paths.Dirs{Data: t.TempDir()})
+	base := VM{UUID: "8a0e3f4b-1d2c-4e5f-9a8b-7c6d5e4f3a2b", Ports: Ports{SSH: 40022, Gateway: 40670}}
+	for _, tc := range []struct {
+		name, role, typ string
+		ok, service     bool
+	}{
+		{"old", "", "", true, false},
+		{"gw", RoleGateway, "", true, false},
+		{"svc", RoleService, "llm-proxy", true, true},
+		{"untyped", RoleService, "", false, false},
+		{"badtype", RoleService, "LLM", false, false},
+		{"typedgw", RoleGateway, "llm-proxy", false, false},
+		{"other", "zone", "", false, false},
+	} {
+		v := base
+		v.Name, v.Role, v.Type = tc.name, tc.role, tc.typ
+		err := s.Save(&v)
+		if (err == nil) != tc.ok {
+			t.Errorf("Save(%s: %q %q) = %v", tc.name, tc.role, tc.typ, err)
+			continue
+		}
+		if !tc.ok {
+			continue
+		}
+		got, err := s.Load(tc.name)
+		if err != nil || got.Role != tc.role || got.Type != tc.typ || got.IsService() != tc.service {
+			t.Errorf("Load(%s) = %+v, %v", tc.name, got, err)
+		}
+	}
+	// A record changed by hand is checked when it is loaded.
+	if err := os.WriteFile(filepath.Join(s.Dir("gw"), "vm.json"), []byte(`{"name":"gw","role":"service"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Load("gw"); err == nil {
+		t.Error("a service without a type loaded")
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	s := NewStore(paths.Dirs{Data: t.TempDir()})
 	if vms, err := s.List(); err != nil || len(vms) != 0 {
