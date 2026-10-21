@@ -50,6 +50,8 @@ type fakeSnapGW struct {
 	cancel    context.CancelFunc
 	calls     []string
 	created   []osclient.CreateRequest
+	// base is the base policy of every sandbox, if set.
+	base json.RawMessage
 }
 
 type fakeSnap struct{ data, manifest string }
@@ -124,6 +126,9 @@ func (g *fakeSnapGW) Templates(context.Context) ([]store.Template, error) { retu
 func (g *fakeSnapGW) Providers(context.Context) ([]store.Provider, error) { return g.providers, nil }
 
 func (g *fakeSnapGW) BasePolicy(context.Context, string, string) (json.RawMessage, error) {
+	if g.base != nil {
+		return g.base, nil
+	}
 	return json.RawMessage(`{"networkPolicies":{"npm":{"name":"npm"}}}`), nil
 }
 

@@ -89,7 +89,9 @@ policy file it came from, rule by rule. A rule is
 
 Sections other than the network rules, such as filesystem_policy, are fixed
 once a sandbox starts; brig lists those that differ and offers nothing for
-them. Reformatting a file is not a difference.
+them. Reformatting a file is not a difference, and neither is the rule
+brig_docker that brig sandbox create --docker adds, unless the file has a rule
+of that name.
 
 The file is looked for among the policies/*.yaml files of the VM's OpenShell
 config directories: the one that agrees with the sandbox in everything but
@@ -181,7 +183,7 @@ func (a *app) policyDiff(ctx context.Context, v *vm.VM, workspace, sandbox, sour
 		if err != nil {
 			return nil, err
 		}
-		rep.Source, rep.Result = &policySource{Path: path, How: how}, policy.Diff(have, doc)
+		rep.Source, rep.Result = &policySource{Path: path, How: how}, policy.Diff(withoutDockerRule(have, doc), doc)
 		rep.Drift = rep.Result.Drift()
 		return rep, nil
 	}
@@ -218,7 +220,7 @@ func (a *app) policyDiff(ctx context.Context, v *vm.VM, workspace, sandbox, sour
 			cands = append(cands, policy.Candidate{Name: f.Name, Path: f.Path, Doc: doc})
 		}
 	}
-	best, tied := policy.Infer(sandbox, have, cands)
+	best, tied := policy.Infer(sandbox, withoutDockerRule(have, nil), cands)
 	if best != nil {
 		return choose(best.Path, "inferred")
 	}
