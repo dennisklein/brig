@@ -144,6 +144,8 @@ func TestProfileCommands(t *testing.T) {
 		g.UpdateProfile(ctx, "a", "/p/a.yaml"),
 		g.DeleteProfile(ctx, "a"),
 		g.DeleteProvider(ctx, "x"),
+		g.AttachProvider(ctx, "sb", "x"),
+		g.DetachProvider(ctx, "sb", "x"),
 	} {
 		if err != nil {
 			t.Fatal(err)
@@ -154,6 +156,8 @@ func TestProfileCommands(t *testing.T) {
 -g brig-dev --workspace default profile update a -f /p/a.yaml
 -g brig-dev --workspace default profile delete a
 -g brig-dev --workspace default provider delete x
+-g brig-dev --workspace default sandbox provider attach sb x --wait
+-g brig-dev --workspace default sandbox provider detach sb x --wait
 `
 	if got := readFile(t, log); got != want {
 		t.Errorf("argv:\n%s\nwant:\n%s", got, want)

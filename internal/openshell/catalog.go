@@ -248,6 +248,20 @@ func (g *Gateway) DeleteProvider(ctx context.Context, name string) error {
 	return err
 }
 
+// AttachProvider attaches the provider name to the sandbox and waits until
+// the sandbox applies it.
+func (g *Gateway) AttachProvider(ctx context.Context, sandbox, name string) error {
+	_, err := g.run(ctx, nil, "sandbox", "provider", "attach", sandbox, name, "--wait")
+	return err
+}
+
+// DetachProvider detaches the provider name from the sandbox and waits until
+// the sandbox applies it.
+func (g *Gateway) DetachProvider(ctx context.Context, sandbox, name string) error {
+	_, err := g.run(ctx, nil, "sandbox", "provider", "detach", sandbox, name, "--wait")
+	return err
+}
+
 // redact removes the credential values from an error of the CLI, which
 // brig prints and records, in case the CLI or the gateway ever echoes one.
 func redact(err error, creds map[string]string) error {
