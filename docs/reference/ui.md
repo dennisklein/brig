@@ -195,6 +195,14 @@ Words: [Gateway](glossary.md#gateway), [Provider](glossary.md#provider), [Fence 
 
 How to: [Unblock an agent that cannot reach a host](glossary.md#unblock).
 
+### Spike VMs<a id="page-spikes"></a>
+
+The throwaway VMs that agents started on this host through a vm runner service, with their screens.
+
+Words: [Spike VM](glossary.md#spike-vm).
+
+How to: [Let an agent test in a throwaway VM](glossary.md#test-in-vm).
+
 ### Not found<a id="page-notfound"></a>
 
 This page does not exist. The jump box finds pages, VMs, sandboxes and help.
@@ -362,6 +370,16 @@ Copies a container image from your Podman into a VM, for sandboxes to run.
 Runs: `brig image push VM IMAGE`
 
 Words: [Sandbox image](glossary.md#sandbox-image).
+
+### Destroy a spike VM<a id="action-spike-destroy"></a>
+
+Powers off a VM that an agent started and deletes its disk and snapshots.
+
+Runs: `brig vm-runner destroy ID`
+
+**The agent that started the VM loses what it did there.**
+
+Words: [Spike VM](glossary.md#spike-vm).
 
 ### Allow<a id="action-allow"></a>
 

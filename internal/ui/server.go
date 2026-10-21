@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"sync/atomic"
 
@@ -41,7 +42,9 @@ type Server struct {
 	files     FileLister
 	// history reads the audit trail; nil where there is none.
 	history audit.Reader
-	home    string
+	// spikeScreen takes a screenshot of a spike VM; nil where there is none.
+	spikeScreen SpikeScreener
+	home        string
 	// ctx ends the live update streams when the server stops.
 	ctx context.Context
 	// goRun starts a goroutine that the owner of the server waits for.
@@ -67,7 +70,9 @@ type serverConfig struct {
 	Files FileLister
 	// History reads the audit trail; nil reads none.
 	History audit.Reader
-	Log     *slog.Logger
+	// SpikeScreen takes screenshots of spike VMs; nil takes none.
+	SpikeScreen SpikeScreener
+	Log         *slog.Logger
 	// Go starts the goroutines of the server, which end with the context.
 	// Nil starts them without a wait.
 	Go func(func())
@@ -97,13 +102,15 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s := &Server{
 		goRun: goRun,
 		st:    c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a, help: h,
-		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
+		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, spikeScreen: c.SpikeScreen, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
 	s.mux.HandleFunc("GET /{$}", s.overview)
 	s.mux.HandleFunc("GET /vms", s.vms)
 	s.mux.HandleFunc("GET /vms/{name}", s.vm)
 	s.mux.HandleFunc("GET /images", s.images)
+	s.mux.HandleFunc("GET /spikes", s.spikes)
+	s.mux.HandleFunc("GET /spikes/{service}/{id}/screen", s.spikeScreenshot)
 	s.mux.HandleFunc("GET /host", s.host)
 	s.mux.HandleFunc("POST /host/check", s.check)
 	s.mux.HandleFunc("GET /activity", s.activity)
@@ -242,6 +249,32 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "images", "Images")
 	v.Events = eventsURL([]string{"rail", "images"}, nil)
 	s.render(w, http.StatusOK, "images", v)
+}
+
+func (s *Server) spikes(w http.ResponseWriter, r *http.Request) {
+	v := s.newView(r, "spikes", "Spike VMs")
+	v.Events = eventsURL([]string{"rail", "spikes"}, nil)
+	s.render(w, http.StatusOK, "spikes", v)
+}
+
+// SpikeScreener takes a screenshot of a spike VM as PNG.
+type SpikeScreener func(ctx context.Context, service, id string) ([]byte, error)
+
+// spikeScreenshot serves the screen of a spike VM that the store knows.
+func (s *Server) spikeScreenshot(w http.ResponseWriter, r *http.Request) {
+	svc, id := r.PathValue("service"), r.PathValue("id")
+	known := slices.ContainsFunc(s.st.Snapshot().Spikes, func(sp store.Spike) bool { return sp.Service == svc && sp.ID == id })
+	if !known || s.spikeScreen == nil {
+		http.NotFound(w, r)
+		return
+	}
+	png, err := s.spikeScreen(r.Context(), svc, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(png)
 }
 
 func (s *Server) host(w http.ResponseWriter, r *http.Request) {

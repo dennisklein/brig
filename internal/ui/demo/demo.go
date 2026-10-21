@@ -93,6 +93,7 @@ func (h *Host) Run(ctx context.Context, addr string) {
 	h.mu.Unlock()
 	h.st.SetDoctor(&store.DoctorReport{Time: now.Add(-3 * time.Minute), Results: Checks()})
 	h.st.SetAudit(Audit(now))
+	h.st.SetSpikes(Spikes(now), "")
 	h.traffic.backfill(now, VMs(now))
 	if h.still {
 		<-ctx.Done()

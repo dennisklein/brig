@@ -36,6 +36,7 @@ import (
 	"github.com/dennisklein/brig/internal/ui/run"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
+	"github.com/dennisklein/brig/internal/vmrunner"
 )
 
 // clock is the time the pages measure from. It is the system clock, except
@@ -133,6 +134,7 @@ func Run(ctx context.Context, o Options) error {
 	var starter run.Starter
 	var files FileLister
 	var history audit.Reader
+	var spikeScreen SpikeScreener
 	if o.Demo {
 		home = demo.Home
 		checkHost = demo.CheckHost
@@ -143,6 +145,7 @@ func Run(ctx context.Context, o Options) error {
 			clock = func() time.Time { return demo.Epoch }
 		}
 		history = demo.History(clock())
+		spikeScreen = demo.SpikeScreen
 		goRun(func() { host.Run(ctx, addr) })
 	} else {
 		brig := o.Brig
@@ -175,6 +178,12 @@ func Run(ctx context.Context, o Options) error {
 		if o.ActivityLog != "" {
 			goRun(func() { collect.Activity(ctx, st, o.ActivityLog) })
 		}
+		if o.RuntimeDir != "" {
+			goRun(func() { collect.Spikes(ctx, st, o.Dirs, o.RuntimeDir) })
+			spikeScreen = func(ctx context.Context, service, id string) ([]byte, error) {
+				return vmrunner.NewAdminClient(vmrunner.AdminSocket(o.RuntimeDir, service)).Screenshot(ctx, id)
+			}
+		}
 	}
 
 	// Commands that dialogs started get Ctrl-C too, so that brig rolls back
@@ -188,7 +197,7 @@ func Run(ctx context.Context, o Options) error {
 
 	srv, err := newServer(ctx, serverConfig{
 		Store: st, Token: token, Port: port, Demo: o.Demo, Home: home,
-		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, History: history, Log: log,
+		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, History: history, SpikeScreen: spikeScreen, Log: log,
 		Go: goRun,
 	})
 	if err != nil {
