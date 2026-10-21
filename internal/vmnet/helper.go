@@ -39,6 +39,16 @@ type HelperOptions struct {
 	Fence2 string
 	// Spool is the listener's spool, as in Config.Spool.
 	Spool string
+	// GuestServicePort is the port a service VM's workload listens on,
+	// forwarded from the service's host port; zero for none.
+	GuestServicePort int
+	// ServicePorts is the file that lists the host ports of the services
+	// attached to the VM's sandboxes, empty for none (see
+	// WriteServicePorts).
+	ServicePorts string
+	// LoadedServicePorts are the service ports that the firewall was
+	// loaded with; the helper passes them to the reloader.
+	LoadedServicePorts []uint16
 }
 
 // RunHelper runs inside pasta's namespace: it loads the firewall for the
@@ -55,9 +65,18 @@ func RunHelper(o HelperOptions) error {
 	c := Config{
 		VM: "helper", Socket: o.Socket, SSHPort: 1, GatewayPort: 1,
 		GuestSSHPort: o.GuestSSHPort, GuestGatewayPort: o.GuestGatewayPort, Profile: profile,
+		GuestServicePort: o.GuestServicePort,
+	}
+	if o.GuestServicePort != 0 {
+		c.ServicePort = 1
 	}
 	if err := c.validate(); err != nil {
 		return err
+	}
+	if o.ServicePorts != "" {
+		if o.LoadedServicePorts, err = ReadServicePorts(o.ServicePorts); err != nil {
+			return err
+		}
 	}
 	hostAddrs, err := parsePrefixes(o.HostAddrs)
 	if err != nil {
@@ -81,7 +100,7 @@ func RunHelper(o HelperOptions) error {
 		return err
 	}
 	mode, why, err := loadFirewall(nftPath, func(mode fence2.Mode) string {
-		return Ruleset(profile, gateways, hostAddrs, routes, mode)
+		return Ruleset(withServicePorts(profile, o.LoadedServicePorts), gateways, hostAddrs, routes, mode)
 	})
 	if err != nil {
 		return err
