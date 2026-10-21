@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+name: vm
+description: Throwaway VMs on the host that agents drive through MCP tools
+# The controller holds the power to start VMs on the host, so it is a broker
+# even though agents control what runs in the VMs.
+kind: broker
+placement: host
+protocol: mcp
+credential:
+  auth: bearer
+# The MCP clients of the agents in brig's templates.
+binaries: [/usr/local/bin/claude, /usr/bin/node, /usr/bin/node-*, /usr/local/bin/opencode]
