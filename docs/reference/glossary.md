@@ -448,6 +448,24 @@ The whole story: [`how-to/keep-agent-state.md`](../how-to/keep-agent-state.md#sn
 
 In a terminal: `brig help snapshot`.
 
+### Spike VM<a id="spike-vm"></a>
+
+A throwaway VM that an agent started on this host through a vm runner service, to test on a whole OS. It has no network.
+
+Also called: vm runner, vm_create, throwaway vm.
+
+See also: [Services](#services), [Sandbox](#sandboxes), [Base image](#base-image).
+
+```sh
+brig vm-runner list
+brig vm-runner screenshot 3f9c1a2e
+brig vm-runner destroy 3f9c1a2e
+```
+
+The whole story: [`how-to/test-in-vms.md`](../how-to/test-in-vms.md).
+
+In a terminal: `brig help spike-vm`.
+
 ### Sync<a id="config-sync"></a>
 
 Applies a VM's config directories to its gateway: profiles, providers with secrets from your keyring, and the default policy.
@@ -541,6 +559,7 @@ In a terminal: `brig help workspace`.
 | <a id="blocked-outside"></a>Find out why a request fails that the policy allows | `brig help blocked-outside` | [`how-to/unblock.md`](../how-to/unblock.md#when-the-policy-allows-it) |
 | <a id="start-of-day"></a>Get going after a reboot | `brig help start-of-day` | [`how-to/daily-workflow.md`](../how-to/daily-workflow.md#start-of-day) |
 | <a id="keep-rules"></a>Keep the rules I added to a sandbox | `brig help keep-rules` | [`how-to/unblock.md`](../how-to/unblock.md#keep-it-for-new-sandboxes) |
+| <a id="test-in-vm"></a>Let an agent test in a throwaway VM | `brig help test-in-vm` | [`how-to/test-in-vms.md`](../how-to/test-in-vms.md) |
 | <a id="upgrade-vm"></a>Move a VM onto a newer base image | `brig help upgrade-vm` | [`how-to/upgrade.md`](../how-to/upgrade.md#vm-and-openshell) |
 | <a id="move-to-new-image"></a>Move sandboxes to a new agent image | `brig help move-to-new-image` | [`how-to/upgrade.md`](../how-to/upgrade.md#sandbox-image) |
 | <a id="rotate-token"></a>Rotate a provider's token | `brig help rotate-token` | [`how-to/secrets.md`](../how-to/secrets.md#rotate-a-token) |

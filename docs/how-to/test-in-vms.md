@@ -87,7 +87,8 @@ brig vm-runner destroy 3f9c1a2e
 
 `brig vm-runner list` shows every VM with the sandbox that started it, and
 `brig vm-runner screenshot` saves a VM's screen as `ID.png`. `brig vm-runner
-destroy` deletes VMs of any sandbox.
+destroy` deletes VMs of any sandbox. The Spike VMs page of `brig ui` shows
+the same, with a live thumbnail of each screen.
 
 `brig service delete vms` destroys all VMs of the service before it stops
 the controller.

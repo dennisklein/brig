@@ -93,6 +93,12 @@ image-push:
   summary: Copies a container image from your Podman into a VM, for sandboxes to run.
   command: brig image push VM IMAGE
   concepts: [sandbox-image]
+spike-destroy:
+  title: Destroy a spike VM
+  summary: Powers off a VM that an agent started and deletes its disk and snapshots.
+  command: brig vm-runner destroy ID
+  danger: The agent that started the VM loses what it did there.
+  concepts: [spike-vm]
 allow:
   title: Allow
   summary: Turns a denied request into one rule for this sandbox only, or approves the rule OpenShell drafted for it.
