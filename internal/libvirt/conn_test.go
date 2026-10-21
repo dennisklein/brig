@@ -43,6 +43,10 @@ type fakeDomain struct {
 	// stats are the typed parameters ConnectGetAllDomainStats returns for
 	// the domain while it runs.
 	stats []golibvirt.TypedParam
+	// screen is the frame DomainScreenshot streams; snapshots holds the
+	// names of the domain's snapshots.
+	screen    []byte
+	snapshots map[string]bool
 }
 
 // fakeClient is an in-memory libvirt daemon that records the calls made.
@@ -60,6 +64,8 @@ type fakeClient struct {
 	// events feeds LifecycleEvents; statsErr fails ConnectGetAllDomainStats.
 	events   chan golibvirt.DomainEventLifecycleMsg
 	statsErr error
+	// reply answers QEMU monitor and guest agent commands.
+	reply func(cmd string) (string, error)
 }
 
 func libvirtErr(code golibvirt.ErrorNumber, msg string) error {
