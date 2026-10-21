@@ -360,3 +360,26 @@ func protoEndpoint(ep map[string]any) {
 		}
 	}
 }
+
+// KeepRule returns the policy to with the network rule key of the policy
+// from, if from has it and to does not; both are protobuf JSON. kept
+// reports whether the rule was added.
+func KeepRule(from, to json.RawMessage, key string) (_ json.RawMessage, kept bool, err error) {
+	src, dst := &sb.SandboxPolicy{}, &sb.SandboxPolicy{}
+	if err := protojson.Unmarshal(from, src); err != nil {
+		return nil, false, err
+	}
+	if err := protojson.Unmarshal(to, dst); err != nil {
+		return nil, false, err
+	}
+	rule, ok := src.GetNetworkPolicies()[key]
+	if _, has := dst.GetNetworkPolicies()[key]; !ok || has {
+		return to, false, nil
+	}
+	if dst.NetworkPolicies == nil {
+		dst.NetworkPolicies = map[string]*sb.NetworkPolicyRule{}
+	}
+	dst.NetworkPolicies[key] = rule
+	data, err := protojson.Marshal(dst)
+	return data, err == nil, err
+}

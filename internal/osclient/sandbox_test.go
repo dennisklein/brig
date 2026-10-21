@@ -18,6 +18,7 @@ import (
 	sb "github.com/NVIDIA/OpenShell/sdk/go/proto/sandboxv1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -242,5 +243,33 @@ func TestPolicyJSONReadsWhatPolicyYAMLWrites(t *testing.T) {
 	}
 	if _, err := PolicyJSON([]byte("version: 1\nnetwork_policies:\n  x:\n    endpoints:\n      - host: a\n        colour: red\n")); err == nil {
 		t.Error("a key that OpenShell lacks was accepted")
+	}
+}
+
+func TestKeepRule(t *testing.T) {
+	from, err := PolicyJSON([]byte("version: 1\nnetwork_policies:\n  docker:\n    endpoints: [{host: h, ports: [1, 2], protocol: tcp}]\n  pypi:\n    endpoints: [{host: pypi.org, port: 443}]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	to, err := PolicyJSON([]byte("version: 1\nlandlock:\n  compatibility: hard_requirement\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, kept, err := KeepRule(from, to, "docker")
+	if err != nil || !kept {
+		t.Fatalf("KeepRule = %v, %v", kept, err)
+	}
+	p := &sb.SandboxPolicy{}
+	if err := protojson.Unmarshal(got, p); err != nil {
+		t.Fatal(err)
+	}
+	if r := p.GetNetworkPolicies(); len(r) != 1 || len(r["docker"].GetEndpoints()[0].GetPorts()) != 2 || p.GetLandlock().GetCompatibility() != "hard_requirement" {
+		t.Errorf("policy %v", p)
+	}
+	if again, kept, err := KeepRule(from, got, "docker"); err != nil || kept || string(again) != string(got) {
+		t.Errorf("KeepRule with the rule there: %v, %v", kept, err)
+	}
+	if again, kept, err := KeepRule(to, got, "docker"); err != nil || kept || string(again) != string(got) {
+		t.Errorf("KeepRule without the rule to keep: %v, %v", kept, err)
 	}
 }
