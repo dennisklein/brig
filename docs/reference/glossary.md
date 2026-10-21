@@ -528,6 +528,7 @@ In a terminal: `brig help workspace`.
 | <a id="move-to-new-image"></a>Move sandboxes to a new agent image | `brig help move-to-new-image` | [`how-to/upgrade.md`](../how-to/upgrade.md#sandbox-image) |
 | <a id="rotate-token"></a>Rotate a provider's token | `brig help rotate-token` | [`how-to/secrets.md`](../how-to/secrets.md#rotate-a-token) |
 | <a id="one-shot"></a>Run a task in a throwaway sandbox | `brig help one-shot` | [`how-to/one-shot-runs.md`](../how-to/one-shot-runs.md) |
+| <a id="docker"></a>Run tests that need Docker in a sandbox | `brig help docker` | [`how-to/docker.md`](../how-to/docker.md) |
 | <a id="look-back"></a>See what a sandbox did and who changed its policy | `brig help look-back` | [`how-to/audit.md`](../how-to/audit.md) |
 | <a id="first-vm"></a>Set up brig on a new host | `brig help first-vm` | [`start/first-vm.md`](../start/first-vm.md) |
 | <a id="set-up-agent"></a>Set up Claude Code, Pi or opencode | `brig help set-up-agent` | [`start/first-agent.md`](../start/first-agent.md) |

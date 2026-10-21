@@ -25,7 +25,8 @@ gateway.
 - **Data disk.** Everything that must survive lives on a separate disk
   mounted at `/home/agent`: OpenShell's state, the providers' secrets, the
   sandbox images in the VM's Podman, every sandbox's workspace and its
-  [snapshots](#snapshots). `brig upgrade` keeps it, `brig delete` deletes it. It is formatted btrfs at
+  [snapshots](#snapshots), and the images and volumes of the VM's
+  [Docker](../how-to/docker.md). `brig upgrade` keeps it, `brig delete` deletes it. It is formatted btrfs at
   first boot, with zstd compression, which shrinks checkouts and
   `node_modules` at little CPU cost. The root disk stays ext4.
 

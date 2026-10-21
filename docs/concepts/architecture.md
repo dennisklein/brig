@@ -65,7 +65,8 @@ network.
 
 Each VM runs headless Fedora. The gateway runs as user `agent`, keeps its
 state on the data disk at `/home/agent`, and starts sandboxes as rootless
-Podman containers. The configuration of each boot (SSH keys, hostname,
+Podman containers. A rootless Docker runs as user `dockerd`, for the
+sandboxes that you let use it; see [Docker in a sandbox](../how-to/docker.md). The configuration of each boot (SSH keys, hostname,
 mounts) is passed as systemd credentials; there is no cloud-init. [Disks and
 images](disks-and-images.md) describes what the VM boots from and what
 survives an upgrade.

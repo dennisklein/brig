@@ -24,6 +24,8 @@ New to brig? Run these in order.
   [Agents](how-to/agents.md)
 - How do I give a sandbox a host directory? [Share
   directories](how-to/share-directories.md)
+- How do I run tests that start containers in a sandbox? [Docker in a
+  sandbox](how-to/docker.md)
 - How do I store or rotate a token, or run in CI? [Secrets](how-to/secrets.md)
 - How do I keep an agent's work when I move it to a new image or delete it?
   [Keep agent state](how-to/keep-agent-state.md)
