@@ -66,6 +66,10 @@ Every command of brig, as [`brig`](brig.md) lists them. Run `brig COMMAND --help
 | [`brig update`](brig-update.md) | Change a VM's resources, mounts, network profile or OpenShell config directories |
 | [`brig upgrade`](brig-upgrade.md) | Move a VM onto a newer base image, keeping its data |
 | [`brig use`](brig-use.md) | Point the openshell CLI in this shell at a VM, or show which one |
+| [`brig vm-runner`](brig-vm-runner.md) | List and destroy the VMs that agents started |
+| [`brig vm-runner destroy`](brig-vm-runner-destroy.md) | Destroy VMs that agents started |
+| [`brig vm-runner list`](brig-vm-runner-list.md) | List the VMs that agents started |
+| [`brig vm-runner screenshot`](brig-vm-runner-screenshot.md) | Save the screen of a VM that an agent started as PNG |
 
 ## Host commands
 
