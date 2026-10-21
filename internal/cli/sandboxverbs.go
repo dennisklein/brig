@@ -21,6 +21,7 @@ import (
 	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/osclient"
+	"github.com/dennisklein/brig/internal/service"
 	"github.com/dennisklein/brig/internal/ui/action"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
@@ -301,6 +302,9 @@ func newSandboxDeleteCmd() *cobra.Command {
 				return err
 			}
 		}
+		if err := detachBeforeDelete(cmd, t); err != nil {
+			return err
+		}
 		return execve("openshell", t.openshell("sandbox", "delete", t.sandbox.Name))
 	})
 	cmd.Aliases = []string{"rm"}
@@ -315,6 +319,44 @@ and brig sandbox snapshot prune removes it.`
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
 	cmd.Flags().BoolVar(&snap, "snapshot", false, "take a snapshot of the sandbox's /sandbox first")
 	return cmd
+}
+
+// detachBeforeDelete revokes the sandbox's tokens for services before brig
+// sandbox delete deletes it. What it cannot clean up only warns: the next
+// start of the VM revokes the tokens of sandboxes that are gone.
+func detachBeforeDelete(cmd *cobra.Command, t sandboxTarget) error {
+	ctx, w := cmd.Context(), cmd.ErrOrStderr()
+	a, err := newApp()
+	if err != nil {
+		return err
+	}
+	byService, _, err := a.gatewayAttachments(t.vm.Name)
+	if err != nil {
+		fmt.Fprintf(w, "Warning: %s\n", termtext.Escape(err.Error()))
+	}
+	attached := false
+	for _, atts := range byService {
+		attached = attached || slices.ContainsFunc(atts, func(att service.Attachment) bool {
+			return att.Is(t.vm.Name, t.workspace, t.sandbox.Name)
+		})
+	}
+	if !attached {
+		return nil
+	}
+	unlock, err := a.lockLoadedVM(t.vm)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	conn, err := a.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if err := a.detachSandbox(ctx, conn, t.vm, t.workspace, t.sandbox.Name, w); err != nil {
+		fmt.Fprintf(w, "Warning: %s\n", termtext.Escape(err.Error()))
+	}
+	return nil
 }
 
 // snapshotBeforeDelete takes the snapshot of brig sandbox delete
