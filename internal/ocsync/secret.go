@@ -111,6 +111,26 @@ func (s SecretTool) Lookup(ctx context.Context, attrs []string) (string, error) 
 	}
 }
 
+// Lookup returns the value of the service's secret name, from where ss
+// binds it: the keyring, through secrets, or brig's environment.
+func (ss ServiceSecrets) Lookup(ctx context.Context, secrets Secrets, name string) (string, error) {
+	c, ok := ss.Secrets[name]
+	if !ok {
+		return "", fmt.Errorf("secret %s of service %s is not bound in %s", name, ss.Name, ss.Path)
+	}
+	var v string
+	var err error
+	if c.Env != "" {
+		v, err = LookupEnv(c.Env)
+	} else {
+		v, err = secrets.Lookup(ctx, c.SecretTool.Lookup)
+	}
+	if err != nil {
+		return "", fmt.Errorf("secret %s of service %s: %w", name, ss.Name, err)
+	}
+	return v, nil
+}
+
 // program returns the path of the program to run.
 func (s SecretTool) program() (string, error) {
 	path := s.Path

@@ -13,6 +13,7 @@
 //	                         the same for the workspace NAME; the top-level
 //	                         directories are for the default workspace
 //	policies/default.yaml    the default policy for new sandboxes
+//	services/*.yaml          the secrets of services (see ServiceSecrets)
 //
 // Profiles and policies contain no secrets and can be shared. Provider files
 // name each credential's secret by its secret-tool lookup attributes, so no
@@ -58,7 +59,33 @@ type Set struct {
 	// several directories: brig only reads these files to compare them with
 	// sandboxes (see PolicyFile).
 	Policies []PolicyFile
+	// Services maps service names to the secrets that services/*.yaml
+	// binds for them.
+	Services map[string]ServiceSecrets
 }
+
+// ServiceSecrets binds the secrets of a service to the keyring, as
+// services/NAME.yaml does:
+//
+//	name: mirror
+//	secrets:
+//	  UPSTREAM_TOKEN:
+//	    secret_tool:
+//	      lookup: [service, mirror.example.org]
+//
+// The keys are the secrets that the service's type declares; each value
+// says where to look the secret up, as a provider's credential does.
+type ServiceSecrets struct {
+	Name    string                `yaml:"name"`
+	Secrets map[string]Credential `yaml:"secrets"`
+	// Path is the file the secrets were read from.
+	Path string `yaml:"-"`
+}
+
+// ReservedPrefix starts the IDs of the profiles and the names of the
+// providers that brig generates for services. Config directories cannot
+// define such names, so that a sync never touches what an attach made.
+const ReservedPrefix = "brig-svc-"
 
 // PolicyFile is a sandbox policy file in a config directory's policies
 // directory, such as policies/webapp.yaml, which is a convention for one
@@ -185,6 +212,9 @@ func Load(dirs []string) (*Set, error) {
 			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 			s.Policies = append(s.Policies, PolicyFile{Name: name, Path: path})
 		}
+		if err := s.loadServices(filepath.Join(dir, "services")); err != nil {
+			return nil, err
+		}
 		policy := filepath.Join(dir, "policies", "default.yaml")
 		if fi, err := os.Stat(policy); err == nil {
 			if !fi.Mode().IsRegular() {
@@ -207,6 +237,48 @@ func Load(dirs []string) (*Set, error) {
 		return cmp.Or(strings.Compare(a.Name, b.Name), strings.Compare(a.Path, b.Path))
 	})
 	return s, nil
+}
+
+// loadServices reads the service secret files in dir, which may be missing.
+// A service's secrets are bound in one file only.
+func (s *Set) loadServices(dir string) error {
+	files, err := yamlFiles(dir)
+	if err != nil {
+		return err
+	}
+	for _, path := range files {
+		data, err := ReadConfigFile(path)
+		if err != nil {
+			return err
+		}
+		src, err := yamlSource(path, data)
+		if err != nil {
+			return err
+		}
+		var ss ServiceSecrets
+		dec := yaml.NewDecoder(bytes.NewReader(src))
+		dec.KnownFields(true)
+		if err := dec.Decode(&ss); err != nil {
+			return fmt.Errorf("%s: %s (secrets take only secret_tool or env references, never values)", path, redactYAMLError(err))
+		}
+		ss.Path = path
+		if !nameRE.MatchString(ss.Name) {
+			return fmt.Errorf("%s: invalid or missing service name %q", path, ss.Name)
+		}
+		for key, c := range ss.Secrets {
+			if err := checkCredential(key, c); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+		}
+		if s.Services == nil {
+			s.Services = map[string]ServiceSecrets{}
+		}
+		if prev, ok := s.Services[ss.Name]; ok {
+			return fmt.Errorf("secrets of service %s are bound in %s and %s", ss.Name, prev.Path, path)
+		}
+		s.Services[ss.Name] = ss
+	}
+	return nil
 }
 
 // WorkspaceSet is what the config directories define for one workspace.
@@ -240,6 +312,9 @@ func (s *Set) loadWorkspace(ws, base string, profileAt, providerAt map[string]st
 		if err != nil {
 			return err
 		}
+		if strings.HasPrefix(p.ID, ReservedPrefix) {
+			return fmt.Errorf("%s: profile IDs that start with %s are brig's, for services", path, ReservedPrefix)
+		}
 		key := ws + "\x00" + p.ID
 		if prev, ok := profileAt[key]; ok {
 			return fmt.Errorf("profile %s is defined in %s and %s", p.ID, prev, path)
@@ -254,6 +329,9 @@ func (s *Set) loadWorkspace(ws, base string, profileAt, providerAt map[string]st
 		p, err := loadProvider(path)
 		if err != nil {
 			return err
+		}
+		if strings.HasPrefix(p.Name, ReservedPrefix) {
+			return fmt.Errorf("%s: provider names that start with %s are brig's, for services", path, ReservedPrefix)
 		}
 		key := ws + "\x00" + p.Name
 		if prev, ok := providerAt[key]; ok {
@@ -552,29 +630,50 @@ func (p Provider) validate() error {
 		return errors.New("a provider needs at least one credential")
 	}
 	for key, c := range p.Credentials {
-		switch {
-		case !envRE.MatchString(key):
-			return fmt.Errorf("credential %q: not an environment variable name", key)
-		case reservedEnvRE.MatchString(key):
-			return fmt.Errorf("credential %q: brig cannot pass a credential of this name", key)
-		case c.SecretTool == nil && c.Env == "":
-			return fmt.Errorf("credential %s: missing secret_tool or env", key)
-		case c.SecretTool != nil && c.Env != "":
-			return fmt.Errorf("credential %s: give secret_tool or env, not both", key)
-		case c.Env != "":
-			if !envSecretRE.MatchString(c.Env) {
-				return fmt.Errorf("credential %s: env must name a variable that starts with %s", key, EnvSecretPrefix)
-			}
-			continue
+		if err := checkCredential(key, c); err != nil {
+			return err
 		}
-		lookup := c.SecretTool.Lookup
-		if len(lookup) < 2 || len(lookup)%2 != 0 || slices.Contains(lookup, "") {
-			return fmt.Errorf("credential %s: secret_tool.lookup needs attribute/value pairs", key)
+	}
+	return nil
+}
+
+// CheckCredentialKey checks the name of a credential, which is the
+// environment variable that holds its placeholder in a sandbox and that brig
+// hands to the openshell CLI in its environment.
+func CheckCredentialKey(key string) error {
+	switch {
+	case !envRE.MatchString(key):
+		return fmt.Errorf("credential %q: not an environment variable name", key)
+	case reservedEnvRE.MatchString(key):
+		return fmt.Errorf("credential %q: brig cannot pass a credential of this name", key)
+	}
+	return nil
+}
+
+// checkCredential checks a credential called key and where its value comes
+// from.
+func checkCredential(key string, c Credential) error {
+	if err := CheckCredentialKey(key); err != nil {
+		return err
+	}
+	switch {
+	case c.SecretTool == nil && c.Env == "":
+		return fmt.Errorf("credential %s: missing secret_tool or env", key)
+	case c.SecretTool != nil && c.Env != "":
+		return fmt.Errorf("credential %s: give secret_tool or env, not both", key)
+	case c.Env != "":
+		if !envSecretRE.MatchString(c.Env) {
+			return fmt.Errorf("credential %s: env must name a variable that starts with %s", key, EnvSecretPrefix)
 		}
-		for i := 0; i < len(lookup); i += 2 {
-			if lookup[i] == NamespaceAttribute {
-				return fmt.Errorf("credential %s: secret_tool.lookup cannot set the attribute %s; brig adds %s %s itself", key, NamespaceAttribute, NamespaceAttribute, NamespaceValue)
-			}
+		return nil
+	}
+	lookup := c.SecretTool.Lookup
+	if len(lookup) < 2 || len(lookup)%2 != 0 || slices.Contains(lookup, "") {
+		return fmt.Errorf("credential %s: secret_tool.lookup needs attribute/value pairs", key)
+	}
+	for i := 0; i < len(lookup); i += 2 {
+		if lookup[i] == NamespaceAttribute {
+			return fmt.Errorf("credential %s: secret_tool.lookup cannot set the attribute %s; brig adds %s %s itself", key, NamespaceAttribute, NamespaceAttribute, NamespaceValue)
 		}
 	}
 	return nil
