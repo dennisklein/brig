@@ -1,0 +1,18 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Runs dockerd in RootlessKit's namespaces, in place of dockerd-rootless.sh's
+# default (DOCKERD= in brig-docker.service).
+#
+# Docker picks a host port for a published container port, as testcontainers
+# asks for, from the local port range of its network namespace. Narrowing that
+# range here keeps those ports to a fixed set, which brig sandbox create
+# --docker allows in the sandbox's policy: OpenShell takes lists of ports, not
+# ranges. The ports lie above the VM's own local port range (32768-60999), so
+# the VM's outgoing connections do not take them. dockerd's own connections,
+# such as image pulls, also use this range, which leaves them 128 ports.
+set -euo pipefail
+
+echo '61000 61127' >/proc/sys/net/ipv4/ip_local_port_range
+exec /usr/bin/dockerd "$@"

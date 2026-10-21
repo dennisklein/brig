@@ -15,14 +15,25 @@ groupadd --gid 1000 agent
 useradd --uid 1000 --gid agent --no-create-home --home-dir /home/agent \
 	--shell /bin/bash agent
 
-# Exactly one subordinate ID range, identical in every image, so that rootless
-# Podman storage on the data disk stays valid across image upgrades.
-echo 'agent:100000:65536' >/etc/subuid
-echo 'agent:100000:65536' >/etc/subgid
+# dockerd runs rootless Docker for the sandboxes that opt in. It owns nothing
+# but its home, which brig bind-mounts from the data disk at every boot (see
+# BootConfig.fstab), so a sandbox that takes over Docker cannot read agent's
+# files, the gateway's state and secrets among them.
+groupadd --gid 1001 dockerd
+useradd --uid 1001 --gid dockerd --no-create-home --home-dir /home/dockerd \
+	--shell /usr/sbin/nologin dockerd
+mkdir -p /home/dockerd
 
-# Start agent's user manager, and with it the gateway, at boot.
+# Exactly one subordinate ID range per user, identical in every image, so that
+# rootless Podman and Docker storage on the data disk stays valid across image
+# upgrades.
+printf '%s\n' agent:100000:65536 dockerd:165536:65536 >/etc/subuid
+printf '%s\n' agent:100000:65536 dockerd:165536:65536 >/etc/subgid
+
+# Start agent's user manager, and with it the gateway, at boot. dockerd's
+# starts too, but only listens on the Docker port until a sandbox uses it.
 mkdir -p /var/lib/systemd/linger
-touch /var/lib/systemd/linger/agent
+touch /var/lib/systemd/linger/agent /var/lib/systemd/linger/dockerd
 
 # Resolve via systemd-resolved, which learns the DNS server from DHCP.
 ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf

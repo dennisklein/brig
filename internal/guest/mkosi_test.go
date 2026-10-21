@@ -4,6 +4,7 @@
 package guest
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -63,6 +64,7 @@ func TestWriteMkosiConfig(t *testing.T) {
 		"shadow-utils", "e2fsprogs", "iproute", "sqlite", "qemu-guest-agent", "dnf5",
 		"selinux-policy-targeted", "policycoreutils", "container-selinux", "podman", "crun",
 		"conmon", "netavark", "aardvark-dns", "passt", "catatonit", "openssl",
+		"moby-engine", "docker-cli", "rootlesskit", "slirp4netns", "procps-ng",
 		"openshell-0.1.2", "openshell-gateway-0.1.2",
 	} {
 		if !slices.Contains(pkgs, want) {
@@ -94,6 +96,7 @@ func TestWriteMkosiConfig(t *testing.T) {
 		"mkosi.extra/etc/containers/storage.conf":                     0o644,
 		"mkosi.extra/usr/libexec/brig":                                fs.ModeDir | 0o755,
 		"mkosi.extra/usr/libexec/brig/sandbox-volumes":                0o755,
+		"mkosi.extra/usr/libexec/brig/dockerd":                        0o755,
 		"mkosi.extra/usr/lib/systemd/user/brig-gateway-proxy.service": 0o644,
 		"mkosi.extra/etc/yum.repos.d/brig.repo":                       0o644,
 		"mkosi.sandbox/etc/pki/rpm-gpg":                               fs.ModeDir | 0o755,
@@ -199,12 +202,21 @@ func TestEmbeddedFiles(t *testing.T) {
 func TestImageMatchesConstants(t *testing.T) {
 	const units = "mkosi.extra/usr/lib/systemd/"
 	uid := strconv.Itoa(UID)
+	dockerUID := strconv.Itoa(DockerUID)
 	for _, tc := range []struct {
 		file  string
 		wants []string
 	}{
 		{"mkosi.postinst.chroot", []string{"--gid " + uid + " " + User + "\n", "--uid " + uid + " ", "--home-dir " + home + " "}},
+		{"mkosi.postinst.chroot", []string{
+			"--gid " + dockerUID + " " + DockerUser + "\n", "--uid " + dockerUID + " ", "--home-dir " + dockerHome + " ",
+			" " + DockerUser + ":165536:65536 ", "linger/" + DockerUser + "\n",
+		}},
 		{"mkosi.extra/etc/ssh/sshd_config.d/10-brig.conf", []string{"AllowUsers " + User + " root\n"}},
+		{"mkosi.extra/usr/libexec/brig/dockerd", []string{fmt.Sprintf("'%d %d'", FirstPublishedPort, LastPublishedPort)}},
+		{units + "user/brig-docker.service", []string{"ConditionUser=" + DockerUser + "\n", "DOCKERD=/usr/libexec/brig/dockerd\n"}},
+		{units + "user/brig-docker-proxy.socket", []string{"ConditionUser=" + DockerUser + "\n", "ListenStream=127.0.0.1:" + strconv.Itoa(DockerPort) + "\n"}},
+		{units + "user/brig-docker-proxy.service", []string{"ConditionUser=" + DockerUser + "\n", " " + strings.Replace(DockerSocket, "/run/user/"+dockerUID, "%t", 1) + "\n"}},
 		{units + "user/brig-gateway-proxy.socket", []string{"ListenStream=" + strconv.Itoa(GatewayPort) + "\n"}},
 		{units + "user/brig-sandbox-volumes.service", []string{" %E/brig/" + path.Base(sandboxVolumes) + "\n"}},
 		{units + "user/openshell-gateway.service.d/50-brig.conf", []string{
