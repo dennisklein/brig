@@ -121,6 +121,26 @@ brig2 /home/agent/c virtiofs ro,nofail,context=system_u:object_r:container_file_
 	}
 }
 
+func TestCredentialsWithoutOpenShell(t *testing.T) {
+	c := testBootConfig()
+	if files := parseTmpfiles(t, credentialData(t, c)["tmpfiles.extra"]); len(files) != 11 {
+		t.Fatalf("a gateway masks units: %v", files)
+	}
+	c.NoOpenShell = true
+	files := parseTmpfiles(t, credentialData(t, c)["tmpfiles.extra"])
+	if got := files["/run/systemd/user"]; got != (tmpfilesEntry{"d", "0755", "root", "root", ""}) {
+		t.Errorf("/run/systemd/user = %+v", got)
+	}
+	for _, unit := range []string{"openshell-gateway.service", "brig-gateway-proxy.socket", "brig-gateway-proxy.service", "brig-sandbox-volumes.service"} {
+		if got := files["/run/systemd/user/"+unit]; got != (tmpfilesEntry{"L+", "-", "-", "-", "/dev/null"}) {
+			t.Errorf("%s is not masked: %+v", unit, got)
+		}
+	}
+	if len(files) != 16 {
+		t.Errorf("tmpfiles.extra has %d entries", len(files))
+	}
+}
+
 func TestCredentialsWithoutSandboxMounts(t *testing.T) {
 	c := testBootConfig()
 	c.Mounts = nil

@@ -212,6 +212,7 @@ func TestImageMatchesConstants(t *testing.T) {
 			"EnvironmentFile=-%E/brig/" + path.Base(gatewayEnv) + "\n",
 		}},
 		{"mkosi.extra/usr/share/brig/gateway-mounts.toml", nil},
+		{units + "system/" + ServiceTarget, nil},
 	} {
 		data, err := mkosiFiles.ReadFile("mkosi/" + tc.file)
 		if err != nil {
@@ -222,6 +223,20 @@ func TestImageMatchesConstants(t *testing.T) {
 			if !strings.Contains(string(data), want) {
 				t.Errorf("%s lacks %q", tc.file, want)
 			}
+		}
+	}
+}
+
+// TestMaskedUnitsExist checks that a service VM without OpenShell masks
+// units that the image has.
+func TestMaskedUnitsExist(t *testing.T) {
+	for _, unit := range OpenShellUserUnits {
+		if unit == "openshell-gateway.service" {
+			// The openshell-gateway package ships it; the image a drop-in.
+			unit += ".d"
+		}
+		if _, err := fs.Stat(mkosiFiles, "mkosi/mkosi.extra/usr/lib/systemd/user/"+unit); err != nil {
+			t.Error(err)
 		}
 	}
 }

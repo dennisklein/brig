@@ -31,6 +31,9 @@ type BootConfig struct {
 	// cannot be recognised later, e.g. after a crash, must fail to mount
 	// rather than be formatted again.
 	FormatDataDisk bool
+	// NoOpenShell keeps the OpenShell gateway and the units that serve it
+	// from starting, for a service VM whose type runs without OpenShell.
+	NoOpenShell bool
 }
 
 // Files in User's home that Credentials writes at every boot.
@@ -104,6 +107,7 @@ var provisioned = []string{
 	home + "/.ssh/authorized_keys",
 	gatewayEnv,
 	sandboxVolumes,
+	userUnitMasks,
 }
 
 // hidesProvisioned returns a provisioned file that a mount at target would
@@ -224,7 +228,28 @@ func (c BootConfig) tmpfiles() string {
 	// admits only the volumes that brig labels.
 	file(gatewayEnv, "0600", User, "OPENSHELL_GATEWAY_CONFIG="+gatewayMountsConfig+"\n")
 	file(sandboxVolumes, "0600", User, sandboxVolumeList(c.Mounts))
+	if c.NoOpenShell {
+		// Masks in /run last for one boot. tmpfiles runs before agent's
+		// user manager, which then finds the units masked.
+		fmt.Fprintf(&b, "d %s 0755 root root -\n", userUnitMasks)
+		for _, unit := range OpenShellUserUnits {
+			fmt.Fprintf(&b, "L+ %s/%s - - - - /dev/null\n", userUnitMasks, unit)
+		}
+	}
 	return b.String()
+}
+
+// userUnitMasks is the directory of runtime user units, which override
+// those of the image.
+const userUnitMasks = "/run/systemd/user"
+
+// OpenShellUserUnits are agent's user units that run or serve the OpenShell
+// gateway, which a service VM without OpenShell masks.
+var OpenShellUserUnits = []string{
+	"openshell-gateway.service",
+	"brig-gateway-proxy.socket",
+	"brig-gateway-proxy.service",
+	"brig-sandbox-volumes.service",
 }
 
 // gatewayMountsConfig is the gateway configuration in the image that lets
