@@ -334,3 +334,79 @@ func TestDomainXMLLimits(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func testSpikeSpec() SpikeSpec {
+	return SpikeSpec{
+		Name:      "brig-spike-0123abcd",
+		UUID:      "0b5e2c1a-7d3f-4e8a-9c21-5f6a7b8c9d0e",
+		CPUs:      2,
+		Memory:    4 * bytesize.GiB,
+		Disk:      "/runner/vms/0123abcd/disk.qcow2",
+		BaseImage: "/images/fedora-44.qcow2",
+		Owner:     `dev/default/web"app<&>`,
+	}
+}
+
+func TestSpikeDomainXML(t *testing.T) {
+	x, err := SpikeDomainXML(testSpikeSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d libvirtxml.Domain
+	if err := d.Unmarshal(x); err != nil {
+		t.Fatalf("%v\n%s", err, x)
+	}
+	if d.Type != "kvm" || d.Name != "brig-spike-0123abcd" || d.VCPU.Value != 2 || d.Memory.Value != 4096 {
+		t.Errorf("domain = %s %s %d CPUs %d MiB", d.Type, d.Name, d.VCPU.Value, d.Memory.Value)
+	}
+	// BIOS: no firmware attribute, no loader, no NVRAM.
+	if d.OS.Firmware != "" || d.OS.Loader != nil || d.OS.NVRam != nil || d.OS.Type.Machine != "q35" {
+		t.Errorf("os = %+v", d.OS)
+	}
+	if f := d.CPU.Features; len(f) != 2 || f[0].Name != "vmx" || f[0].Policy != "disable" || f[1].Name != "svm" || f[1].Policy != "disable" {
+		t.Errorf("cpu features = %+v, want vmx and svm disabled", f)
+	}
+	if f := d.Features; f.PS2 == nil || f.PS2.State != "off" || f.VMPort == nil || f.VMPort.State != "off" {
+		t.Errorf("ps2 %+v, vmport %+v", f.PS2, f.VMPort)
+	}
+	devs := d.Devices
+	if len(devs.Interfaces) != 0 || len(devs.Filesystems) != 0 || len(devs.Serials) != 0 || len(devs.Graphics) != 0 ||
+		len(devs.Hostdevs) != 0 || len(devs.Sounds) != 0 || len(devs.RedirDevs) != 0 || len(devs.Smartcards) != 0 {
+		t.Errorf("spike VM has devices that reach the host: %s", x)
+	}
+	if len(devs.Disks) != 1 || devs.Disks[0].Source.File.File != "/runner/vms/0123abcd/disk.qcow2" ||
+		devs.Disks[0].BackingStore.Source.File.File != "/images/fedora-44.qcow2" || !selfContained(devs.Disks[0].BackingStore.BackingStore) {
+		t.Errorf("disks = %+v", devs.Disks)
+	}
+	if v := devs.Videos; len(v) != 1 || v[0].Model.Type != "virtio" {
+		t.Errorf("videos = %+v", v)
+	}
+	if in := devs.Inputs; len(in) != 2 || in[0].Type != "tablet" || in[0].Bus != "virtio" || in[1].Type != "keyboard" || in[1].Bus != "virtio" {
+		t.Errorf("inputs = %+v", in)
+	}
+	if c := devs.Channels; len(c) != 1 || c[0].Target.VirtIO.Name != "org.qemu.guest_agent.0" {
+		t.Errorf("channels = %+v", c)
+	}
+	if !strings.Contains(d.Metadata.XML, `xmlns:brig="https://github.com/dennisklein/brig"`) ||
+		!strings.Contains(d.Metadata.XML, `role="spike"`) ||
+		!strings.Contains(d.Metadata.XML, `owner="dev/default/web&#34;app&lt;&amp;&gt;"`) {
+		t.Errorf("metadata = %s", d.Metadata.XML)
+	}
+}
+
+func TestSpikeDomainXMLInvalid(t *testing.T) {
+	for name, mod := range map[string]func(*SpikeSpec){
+		"name":   func(s *SpikeSpec) { s.Name = "a b" },
+		"uuid":   func(s *SpikeSpec) { s.UUID = "x" },
+		"cpus":   func(s *SpikeSpec) { s.CPUs = 0 },
+		"memory": func(s *SpikeSpec) { s.Memory = 1000 },
+		"disk":   func(s *SpikeSpec) { s.Disk = "disk.qcow2" },
+		"base":   func(s *SpikeSpec) { s.BaseImage = "" },
+	} {
+		s := testSpikeSpec()
+		mod(&s)
+		if _, err := SpikeDomainXML(s); err == nil {
+			t.Errorf("%s: invalid spec accepted", name)
+		}
+	}
+}

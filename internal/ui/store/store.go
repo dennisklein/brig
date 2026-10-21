@@ -10,10 +10,12 @@
 package store
 
 import (
+	"reflect"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/vm"
@@ -32,6 +34,8 @@ const (
 	// TopicOutput changes while a running task writes output, which only
 	// the task cards show.
 	TopicOutput Topic = "output"
+	// TopicSpikes changes when the VMs that agents started change.
+	TopicSpikes Topic = "spikes"
 )
 
 // Snapshot is everything brig ui knows at one moment.
@@ -64,7 +68,34 @@ type Snapshot struct {
 	Traffic []Traffic
 	// Audit is the state of the audit trail.
 	Audit Audit
+	// Spikes are the VMs that agents started through vm runner services,
+	// oldest first.
+	Spikes []Spike
+	// SpikesErr says why Spikes may be incomplete, such as a vm runner
+	// that does not answer.
+	SpikesErr string
 }
+
+// Spike is a VM that an agent started through a vm runner service.
+type Spike struct {
+	// Service is the vm runner service, ID the VM's ID there.
+	Service, ID string
+	// Sandbox is the sandbox that started it, as GATEWAY/WORKSPACE/SANDBOX.
+	Sandbox string
+	Image   string
+	// State is the domain state: running, shut off, paused, missing or
+	// unknown.
+	State     string
+	CPUs      int
+	Memory    bytesize.Size
+	Disk      bytesize.Size
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	Snapshots []string
+}
+
+// Running reports whether the VM's domain runs.
+func (s Spike) Running() bool { return s.State == "running" }
 
 // Config is the part of config.yaml that the dialogs prefill.
 type Config struct {
@@ -332,6 +363,18 @@ func (s *Store) SetVMs(v VMState) {
 			sn.NewestImage = &v.Images[0]
 		}
 	})
+}
+
+// SetSpikes replaces the VMs that agents started, and errMsg, which says
+// why they may be incomplete. It notifies only when they changed.
+func (s *Store) SetSpikes(spikes []Spike, errMsg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if reflect.DeepEqual(s.snap.Spikes, spikes) && s.snap.SpikesErr == errMsg {
+		return
+	}
+	s.snap.Spikes, s.snap.SpikesErr = spikes, errMsg
+	s.notify(TopicSpikes)
 }
 
 // SetDoctor replaces the outcome of the host check.

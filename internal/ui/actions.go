@@ -97,6 +97,10 @@ var dialogSpecs = map[string]dialogSpec{
 		Defaults: func(d *dialog) { d.def("fedora", fmt.Sprint(d.Snap.Config.Defaults.FedoraRelease)) },
 	},
 	"image-prune": {OK: "Prune", Open: "Prune…", Title: func(*dialog) string { return "Prune base images" }},
+	"spike-destroy": {
+		OK: "Destroy VM", Open: "Destroy…", Danger: true,
+		Title: func(d *dialog) string { return "Destroy VM " + d.Form.Get("id") },
+	},
 	"audit-prune": {
 		OK: "Delete history", Open: "Prune…", Danger: true, Title: vmTitle("Prune the audit history of %s"),
 		Defaults: pruneDefaults,

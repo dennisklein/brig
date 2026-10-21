@@ -47,6 +47,7 @@
 <h6>brig</h6>
 <a class="nav{{if eq .Page "vms"}} on{{end}}" href="/vms"><span class="ico">▥</span>VMs<span class="count">{{running .Snap.VMs}}/{{len .Snap.VMs}}</span></a>
 <a class="nav{{if eq .Page "images"}} on{{end}}" href="/images"><span class="ico">◧</span>Images<span class="count">{{len .Snap.Images}}</span></a>
+{{with .Snap.Spikes}}<a class="nav{{if eq $.Page "spikes"}} on{{end}}" href="/spikes"><span class="ico">◫</span>Spike VMs<span class="count">{{len .}}</span></a>{{else}}{{if eq .Page "spikes"}}<a class="nav on" href="/spikes"><span class="ico">◫</span>Spike VMs</a>{{end}}{{end}}
 <a class="nav{{if eq .Page "host"}} on{{end}}" href="/host"><span class="ico">✓</span>Host</a>
 <a class="nav{{if eq .Page "activity"}} on{{end}}" href="/activity"><span class="ico">≡</span>Activity</a>
 <h6>OpenShell</h6>
@@ -210,6 +211,20 @@
 {{range $i, $img := .Snap.Images}}<tr><td class="mono">{{$img.ID}}{{if eq $i 0}} <span class="pill ok">newest</span>{{end}}</td><td class="num">{{$img.Fedora}}</td><td class="mono">{{$img.OpenShell}}</td><td>{{rel $img.CreatedAt}}</td>
   <td>{{range $img.UsedBy}}<a class="chip" href="/vms/{{.}}">{{.}}</a> {{else}}<span class="faint">no VM</span>{{end}}</td></tr>
 {{else}}<tr><td colspan="5" class="empty">No base image yet. Build one, or create a VM and brig builds it first.</td></tr>{{end}}
+</tbody></table>
+{{end}}
+
+{{/* Spike VMs. */}}
+
+{{define "spikes"}}
+{{with .Snap.SpikesErr}}<div class="callout warn">{{.}}</div>{{end}}
+<table><thead><tr><th>Screen</th><th>ID</th><th>Sandbox</th><th>Image</th><th>State</th><th class="num">CPUs</th><th>Memory</th><th>Disk</th><th>Deleted in</th><th></th></tr></thead><tbody>
+{{range .Snap.Spikes}}<tr>
+  <td>{{if .Running}}<a href="{{spikeScreen .}}" target="_blank" rel="noopener"><img class="thumb" loading="lazy" src="{{spikeScreen .}}" alt="Screen of VM {{.ID}}" width="160"></a>{{else}}<span class="faint">–</span>{{end}}</td>
+  <td class="mono">{{.ID}}</td><td>{{.Sandbox}}</td><td class="mono">{{.Image}}</td><td>{{template "pill" .State}}</td>
+  <td class="num">{{.CPUs}}</td><td>{{size .Memory}}</td><td>{{size .Disk}}</td><td>{{until .ExpiresAt}}</td>
+  <td>{{template "act" (act $ "spike-destroy" "" "danger" "service" .Service "id" .ID)}}</td></tr>
+{{else}}<tr><td colspan="10" class="empty">No agent has started a VM.</td></tr>{{end}}
 </tbody></table>
 {{end}}
 

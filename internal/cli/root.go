@@ -124,7 +124,7 @@ lists the concepts and how-tos that brig help TOPIC explains.
 	for _, c := range []*cobra.Command{
 		newCreateCmd(), newUpCmd(), newListCmd(), newShowCmd(), newStartCmd(), newStopCmd(),
 		newUpdateCmd(), newUpgradeCmd(), newSyncCmd(), newDeleteCmd(), newSSHCmd(), newConsoleCmd(), newEnvCmd(), newUseCmd(),
-		newSandboxCmd(), newServiceCmd(), newPolicyCmd(), newSecretCmd(), newAgentCmd(), newAuditCmd(),
+		newSandboxCmd(), newServiceCmd(), newVMRunnerCmd(), newPolicyCmd(), newSecretCmd(), newAgentCmd(), newAuditCmd(),
 	} {
 		c.GroupID = "vm"
 		cmd.AddCommand(c)
@@ -137,7 +137,7 @@ lists the concepts and how-tos that brig help TOPIC explains.
 	addHelpTopics(cmd)
 	// These own the terminal, or must keep standard output exactly as is;
 	// ui runs until stopped and is no work to show.
-	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"secret", "set"}, {"agent", "init"}, {"agent", "build"}, {"ui"}} {
+	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"secret", "set"}, {"agent", "init"}, {"agent", "build"}, {"ui"}, {"vm-runner", "serve"}} {
 		if c, _, err := cmd.Find(path); err == nil && c != cmd {
 			if c.Annotations == nil {
 				c.Annotations = map[string]string{}

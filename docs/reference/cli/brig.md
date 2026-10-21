@@ -66,6 +66,7 @@ gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.
 | [`brig upgrade`](brig-upgrade.md) | Move a VM onto a newer base image, keeping its data |
 | [`brig use`](brig-use.md) | Point the openshell CLI in this shell at a VM, or show which one |
 | [`brig version`](brig-version.md) | Print the brig version |
+| [`brig vm-runner`](brig-vm-runner.md) | List and destroy the VMs that agents started |
 
 ## See also
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -41,6 +42,14 @@ type client interface {
 	DomainSetMemoryStatsPeriod(dom golibvirt.Domain, period int32, flags golibvirt.DomainMemoryModFlags) error
 	ConnectGetAllDomainStats(doms []golibvirt.Domain, stats, flags uint32) ([]golibvirt.DomainStatsRecord, error)
 	LifecycleEvents(ctx context.Context) (<-chan golibvirt.DomainEventLifecycleMsg, error)
+	DomainScreenshot(dom golibvirt.Domain, stream io.Writer, screen, flags uint32) (golibvirt.OptString, error)
+	DomainSendKey(dom golibvirt.Domain, codeset, holdtime uint32, keycodes []uint32, flags uint32) error
+	QEMUDomainMonitorCommand(dom golibvirt.Domain, cmd string, flags uint32) (string, error)
+	QEMUDomainAgentCommand(dom golibvirt.Domain, cmd string, timeout int32, flags uint32) (golibvirt.OptString, error)
+	DomainSnapshotCreateXML(dom golibvirt.Domain, xml string, flags uint32) (golibvirt.DomainSnapshot, error)
+	DomainSnapshotLookupByName(dom golibvirt.Domain, name string, flags uint32) (golibvirt.DomainSnapshot, error)
+	DomainRevertToSnapshot(snap golibvirt.DomainSnapshot, flags uint32) error
+	DomainSnapshotDelete(snap golibvirt.DomainSnapshot, flags golibvirt.DomainSnapshotDeleteFlags) error
 	Disconnect() error
 }
 

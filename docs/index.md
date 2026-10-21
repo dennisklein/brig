@@ -29,6 +29,8 @@ New to brig? Run these in order.
   [Keep agent state](how-to/keep-agent-state.md)
 - How do I run one task in a throwaway sandbox? [One-shot
   runs](how-to/one-shot-runs.md)
+- How do I let an agent test on a whole OS, in a VM of its own? [Test in
+  throwaway VMs](how-to/test-in-vms.md)
 - How do I move to a newer OpenShell or Fedora? [Upgrade](how-to/upgrade.md)
 - What did a sandbox reach, and who allowed it? [Look
   back](how-to/audit.md)

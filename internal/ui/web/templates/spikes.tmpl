@@ -1,0 +1,8 @@
+{{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
+{{/* SPDX-License-Identifier: Apache-2.0 */}}
+
+{{define "content"}}
+<div class="head"><div class="titles"><h1>Spike VMs</h1><div class="sub"><span>{{term "spike-vm" "VMs that agents started"}} through a vm runner service. They have no network; agents drive them with screenshots, input and the guest agent.</span></div></div></div>
+<section class="panel tw" sse-swap="spikes">{{template "spikes" .}}</section>
+<p class="note">brig deletes each VM when its lifetime ends or its sandbox is detached from the service. vm_runner in config.yaml sets the images and the quotas.</p>
+{{end}}

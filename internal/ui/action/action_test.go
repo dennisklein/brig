@@ -23,6 +23,7 @@ func demoContext() action.Context {
 	return action.Context{Home: demo.Home, Snap: store.Snapshot{
 		VMs: demo.VMs(now), Images: imgs, NewestImage: &imgs[0],
 		Profiles: demo.Profiles(), Config: demo.Config(), Gateways: demo.Gateways(now), Audit: demo.Audit(now),
+		Spikes: demo.Spikes(now),
 	}}
 }
 
@@ -43,6 +44,9 @@ func TestBuild(t *testing.T) {
 		err  string // part of the refusal
 	}{
 		{"start", "start", form("vm", "airgap"), "brig start airgap", ""},
+		{"spike destroy", "spike-destroy", form("service", "vms", "id", "3f9c1a2e"), "brig vm-runner destroy --service vms 3f9c1a2e", ""},
+		{"spike destroy unknown", "spike-destroy", form("service", "vms", "id", "00000000"), "", "no VM 00000000"},
+		{"spike destroy other service", "spike-destroy", form("service", "other", "id", "3f9c1a2e"), "", "no VM 3f9c1a2e"},
 		{"start running", "start", form("vm", "dev"), "", "running already"},
 		{"start unknown", "start", form("vm", "nope"), "", "no VM nope"},
 		{"start bad name", "start", form("vm", "../x"), "", "invalid VM name"},
@@ -272,7 +276,8 @@ func TestRegistered(t *testing.T) {
 	want := []string{
 		"allow", "audit-prune", "config-add", "config-rm", "create", "delete", "image-build", "image-prune", "image-push", "mount-add",
 		"mount-rm", "policy-save", "policy-save-preview", "profile", "reject", "resources", "sandbox-attach", "sandbox-create",
-		"sandbox-delete", "sandbox-detach", "sandbox-start", "sandbox-stop", "start", "stop", "sync", "sync-preview", "upgrade",
+		"sandbox-delete", "sandbox-detach", "sandbox-start", "sandbox-stop", "spike-destroy", "start", "stop", "sync", "sync-preview",
+		"upgrade",
 	}
 	got := action.IDs()
 	slices.Sort(got)

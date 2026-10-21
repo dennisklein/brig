@@ -22,14 +22,14 @@ import (
 )
 
 // pageNames are the page templates, one file each in web/templates.
-var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound", "sandboxes", "sandbox", "gateway", "traffic", "topology"}
+var pageNames = []string{"overview", "vms", "vm", "images", "spikes", "host", "activity", "notfound", "sandboxes", "sandbox", "gateway", "traffic", "topology"}
 
 // fragments are the parts of pages that live updates replace: each is a
 // template of the same name, rendered again when one of its topics changes,
 // and sent as the SSE event of that name.
 var fragments = map[string][]store.Topic{
 	"tasks":           {store.TopicTasks, store.TopicOutput, store.TopicActivity},
-	"rail":            {store.TopicVMs, store.TopicGateways, store.TopicTraffic},
+	"rail":            {store.TopicVMs, store.TopicGateways, store.TopicTraffic, store.TopicSpikes},
 	"overview-sub":    {store.TopicVMs, store.TopicActivity},
 	"vm-cards":        {store.TopicVMs, store.TopicGateways, store.TopicAudit},
 	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways, store.TopicTraffic, store.TopicAudit},
@@ -37,6 +37,7 @@ var fragments = map[string][]store.Topic{
 	"vm-table":        {store.TopicVMs, store.TopicTasks, store.TopicActivity},
 	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity, store.TopicGateways},
 	"images":          {store.TopicVMs},
+	"spikes":          {store.TopicSpikes, store.TopicTasks},
 	"host-checks":     {store.TopicHost},
 	"host-audit":      {store.TopicAudit},
 	"activity-list":   {store.TopicActivity},
@@ -246,6 +247,10 @@ func firstLine(s string) string {
 func funcs(home string) template.FuncMap {
 	m := template.FuncMap{
 		"rel":   rel,
+		"until": until,
+		"spikeScreen": func(sp store.Spike) string {
+			return "/spikes/" + url.PathEscape(sp.Service) + "/" + url.PathEscape(sp.ID) + "/screen"
+		},
 		"since": since,
 		"clock": func(t time.Time) string { return t.Local().Format("15:04:05") },
 		"stamp": func(t time.Time) string { return t.Local().Format("2006-01-02 15:04:05") },
@@ -429,6 +434,15 @@ func rel(t time.Time) string {
 	return since(t) + " ago"
 }
 
+// until says how long it is until t: "3 hours", or "now" once it passed.
+func until(t time.Time) string {
+	if !clock().Before(t) {
+		return "now"
+	}
+	d := t.Sub(clock())
+	return since(clock().Add(-d))
+}
+
 // since says how long ago t was, without "ago": "just now" is "now".
 func since(t time.Time) string {
 	d := clock().Sub(t)
@@ -491,6 +505,7 @@ func palette(sn store.Snapshot, q string) []paletteItem {
 		{"Overview", "page", "/"},
 		{"VMs", "page", "/vms"},
 		{"Images", "page", "/images"},
+		{"Spike VMs", "page", "/spikes"},
 		{"Host checks", "page", "/host"},
 		{"Activity", "page", "/activity"},
 		{"Sandboxes", "page", "/sandboxes"},

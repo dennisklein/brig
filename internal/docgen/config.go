@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
@@ -158,10 +159,7 @@ func defaultText(v reflect.Value) string {
 	case bytesize.Size:
 		return code(x.String())
 	case config.Duration:
-		if x == 0 {
-			return code("0")
-		}
-		return code(fmt.Sprint(x))
+		return code(durationText(time.Duration(x)))
 	case string:
 		return code(x)
 	case int:
@@ -173,6 +171,22 @@ func defaultText(v reflect.Value) string {
 		return code("[]")
 	}
 	return code(fmt.Sprint(v.Interface()))
+}
+
+// durationText writes d as config.yaml would: 0, 90d, 12w or 4h.
+func durationText(d time.Duration) string {
+	const day, week = 24 * time.Hour, 7 * 24 * time.Hour
+	switch {
+	case d == 0:
+		return "0"
+	case d%week == 0:
+		return fmt.Sprintf("%dw", d/week)
+	case d%day == 0:
+		return fmt.Sprintf("%dd", d/day)
+	}
+	s := d.String()
+	s = strings.TrimSuffix(s, "0s")
+	return strings.TrimSuffix(s, "0m")
 }
 
 // minimums are the least values that config.Validate accepts for some keys.
@@ -198,6 +212,24 @@ func keyDocs(docs *goDocs, t reflect.Type, v reflect.Value, prefix string) ([]co
 		f := t.Field(i)
 		tag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 		if tag == "" || tag == "-" {
+			continue
+		}
+		// Nested tables, such as vm_runner.quota and vm_runner.images.NAME,
+		// list their keys below their own.
+		if ft := f.Type; ft.Kind() == reflect.Struct && ft != sizeType && ft != durationType {
+			keys, err := keyDocs(docs, ft, v.Field(i), prefix+tag+".")
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, keys...)
+			continue
+		}
+		if ft := f.Type; ft.Kind() == reflect.Map && ft.Elem().Kind() == reflect.Struct {
+			keys, err := keyDocs(docs, ft.Elem(), reflect.New(ft.Elem()).Elem(), prefix+tag+".NAME.")
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, keys...)
 			continue
 		}
 		typ, err := typeName(f.Type)
@@ -245,7 +277,9 @@ func configPages(repo string) (files, error) {
 		if err != nil {
 			return nil, err
 		}
-		sections = append(sections, section{name: tag, doc: paragraphs(strings.Replace(cfgDocs.types[st.Name()], "NetworkProfile ", "A network profile ", 1)), keys: keys})
+		doc := strings.Replace(cfgDocs.types[st.Name()], "NetworkProfile ", "A network profile ", 1)
+		doc = strings.Replace(doc, "VMRunner configures", "These keys configure", 1)
+		sections = append(sections, section{name: tag, doc: paragraphs(doc), keys: keys})
 	}
 
 	var b strings.Builder

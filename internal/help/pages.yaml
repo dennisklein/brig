@@ -72,6 +72,11 @@ topology:
   summary: Every path from this host to the endpoints sandboxes reach, and those they tried and could not.
   concepts: [gateway, provider, fence-1]
   tasks: [unblock]
+spikes:
+  title: Spike VMs
+  summary: The throwaway VMs that agents started on this host through a vm runner service, with their screens.
+  concepts: [spike-vm]
+  tasks: [test-in-vm]
 notfound:
   title: Not found
   summary: This page does not exist. The jump box finds pages, VMs, sandboxes and help.
