@@ -132,7 +132,7 @@ func TestHostHeader(t *testing.T) {
 	ts.login()
 	for host, want := range map[string]int{
 		"127.0.0.1:7878":      http.StatusOK,
-		"localhost:7878":      http.StatusOK,
+		"localhost:7878":      http.StatusMisdirectedRequest,
 		"rebind.example:7878": http.StatusMisdirectedRequest,
 		"127.0.0.1:7879":      http.StatusMisdirectedRequest,
 		"127.0.0.1":           http.StatusMisdirectedRequest,
