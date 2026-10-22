@@ -271,7 +271,7 @@ func (a *app) startService(ctx context.Context, v *vm.VM, restart bool) error {
 		if err := inVM(ctx, a.sshTarget(v, true), serviceScript(true, action), serviceFiles(secrets, tokens)); err != nil {
 			return fmt.Errorf("starting service %s: %w", svc.Name, err)
 		}
-		if err := serviceDriver(t).Started(ctx, a.serviceEnv(svc, t)); err != nil {
+		if err := a.serviceDriver(t).Started(ctx, a.serviceEnv(svc, t)); err != nil {
 			return err
 		}
 		if r, ok := hostRunners[t.Name]; ok {
@@ -432,7 +432,7 @@ func (a *app) attachService(ctx context.Context, conn domains, svc *service.Serv
 	}
 	att = service.Attachment{Gateway: gw.Name, Workspace: ws, Sandbox: sb, Provider: provider, Created: time.Now().UTC()}
 	env := a.serviceEnv(svc, t)
-	d := serviceDriver(t)
+	d := a.serviceDriver(t)
 	token, err := d.Issue(ctx, env, &att)
 	if err != nil {
 		return att, fmt.Errorf("issuing a token: %w", err)
@@ -479,7 +479,7 @@ func (a *app) attachService(ctx context.Context, conn domains, svc *service.Serv
 // locks of the attachment's gateway VM, if it exists, and of svc, in that
 // order.
 func (a *app) detachService(ctx context.Context, conn domains, svc *service.Service, t service.Type, att service.Attachment, clean bool, w io.Writer) error {
-	rerr := serviceDriver(t).Revoke(ctx, a.serviceEnv(svc, t), att)
+	rerr := a.serviceDriver(t).Revoke(ctx, a.serviceEnv(svc, t), att)
 	if rerr != nil {
 		rerr = fmt.Errorf("revoking the token of %s: %w", att.Owner(), rerr)
 	}
@@ -735,7 +735,7 @@ func (a *app) reconcileService(ctx context.Context, conn domains, v *vm.VM, svc 
 
 // reissue gives att, whose provider is gone from its gateway g, a new token.
 func (a *app) reissue(ctx context.Context, conn domains, g serviceGateway, svc *service.Service, t service.Type, att service.Attachment) error {
-	d := serviceDriver(t)
+	d := a.serviceDriver(t)
 	env := a.serviceEnv(svc, t)
 	if err := d.Revoke(ctx, env, att); err != nil {
 		return err

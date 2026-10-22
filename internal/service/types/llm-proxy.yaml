@@ -1,0 +1,19 @@
+name: llm-proxy
+description: Model proxy (LiteLLM) with a key and a budget per sandbox
+kind: broker
+placement: vm
+openshell: true
+# LiteLLM and its Postgres run in this sandbox of the service VM's own
+# OpenShell gateway, where the model keys are providers: LiteLLM sees only
+# their placeholders.
+sandbox: {name: litellm, port: 4000}
+protocol: rest
+credential:
+  # Claude Code sends ANTHROPIC_AUTH_TOKEN as a bearer token; Pi and
+  # opencode read LLM_PROXY_KEY.
+  env: [ANTHROPIC_AUTH_TOKEN, LLM_PROXY_KEY]
+  auth: bearer
+binaries: [/usr/local/bin/claude, /usr/bin/node, /usr/bin/node-*, /usr/local/bin/opencode]
+network_profile: default
+resources: {cpus: 2, memory: 4GiB}
+secrets: [MASTER_KEY, SALT_KEY]
