@@ -11,12 +11,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/localweb"
+	"github.com/GSI-HPC/go-clikit/localweb/localwebtest"
 
 	"github.com/dennisklein/brig/internal/ui/demo"
 	"github.com/dennisklein/brig/internal/ui/store"
@@ -42,6 +45,29 @@ type testServer struct {
 
 func newTestServer(t *testing.T) *testServer {
 	t.Helper()
+	return newTestServerOn(t, testBound)
+}
+
+// newLiveServer is a test server that listens on a free port of 127.0.0.1,
+// for the tests that sign in with localwebtest.
+func newLiveServer(t *testing.T) (*testServer, *localwebtest.Client) {
+	t.Helper()
+	b, err := localweb.Listen(t.Context(), "127.0.0.1:0", localweb.ListenOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServerOn(t, b)
+	hs := httptest.NewUnstartedServer(ts.h)
+	_ = hs.Listener.Close()
+	hs.Listener = b.Listeners[0]
+	hs.Start()
+	t.Cleanup(hs.Close)
+	return ts, localwebtest.Login(t, hs.URL, ts.token)
+}
+
+// newTestServerOn is a test server whose Host check answers to bound.
+func newTestServerOn(t *testing.T, bound *localweb.Bound) *testServer {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	st := store.New()
@@ -55,7 +81,7 @@ func newTestServer(t *testing.T) *testServer {
 	}
 	ts := &testServer{t: t, st: st, token: "the-token", starts: &fakeStarter{st: st}, files: &fakeFiles{}}
 	srv, err := newServer(ctx, serverConfig{
-		Store: st, Token: ts.token, Bound: testBound, Home: "/home/dklein",
+		Store: st, Token: ts.token, Bound: bound, Home: "/home/dklein",
 		CheckHost: func(context.Context, *store.Store) { ts.checks.Add(1) },
 		Starter:   ts.starts,
 		Files:     ts.files,
@@ -95,8 +121,16 @@ func (ts *testServer) login() {
 	if ts.cookie == nil || !ts.cookie.HttpOnly || ts.cookie.SameSite != http.SameSiteStrictMode || ts.cookie.Name != "brig_ui_7878" {
 		ts.t.Fatalf("session cookie: %+v", ts.cookie)
 	}
-	ts.csrf = ts.srv.auth.sessions[ts.cookie.Value]
+	// The page hands the session's CSRF token to htmx.
+	m := csrfInPage.FindStringSubmatch(ts.get("/host").Body.String())
+	if m == nil {
+		ts.t.Fatal("the page holds no CSRF token")
+	}
+	ts.csrf = m[1]
 }
+
+// csrfInPage finds the CSRF token in the hx-headers of a page.
+var csrfInPage = regexp.MustCompile(`hx-headers='\{"X-Brig-CSRF": "([^"]+)"\}'`)
 
 // get requests target in the session.
 func (ts *testServer) get(target string) *httptest.ResponseRecorder {
@@ -121,6 +155,37 @@ func TestTokenExchange(t *testing.T) {
 	r.AddCookie(&http.Cookie{Name: ts.cookie.Name, Value: "made-up"}) //nolint:gosec // G124: a forged cookie
 	if w := ts.do(r); w.Code != http.StatusForbidden {
 		t.Errorf("unknown session: %d, want 403", w.Code)
+	}
+}
+
+// A browser that signed in with the token reads pages, and posts with the
+// CSRF token that its page holds.
+func TestSignedInBrowser(t *testing.T) {
+	_, c := newLiveServer(t)
+	resp := c.Get(t, "/host")
+	page, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	m := csrfInPage.FindSubmatch(page)
+	if err != nil || resp.StatusCode != http.StatusOK || m == nil {
+		t.Fatalf("GET /host: %s, %v, token in page: %v", resp.Status, err, m != nil)
+	}
+	post := func() int {
+		resp := c.PostForm(t, "/host/check", url.Values{"x": {"y"}})
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := post(); got != http.StatusForbidden {
+		t.Errorf("POST without the CSRF token: %d, want 403", got)
+	}
+	c.Header.Set(csrfHeader, string(m[1]))
+	if got := post(); got != http.StatusOK {
+		t.Errorf("POST with the CSRF token: %d, want 200", got)
+	}
+	// A form is read up to 64 KiB.
+	resp = c.PostForm(t, "/host/check", url.Values{"x": {strings.Repeat("y", 65<<10)}})
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("POST of 65 KiB: %d, want 413", resp.StatusCode)
 	}
 }
 
@@ -466,6 +531,7 @@ func TestFetchMetadata(t *testing.T) {
 		{"image of another port", "GET", "/vms", "same-site", "no-cors", "image", http.StatusForbidden},
 		{"fetch of another site", "GET", "/vms", "cross-site", "cors", "empty", http.StatusForbidden},
 		{"form post of another port", "POST", "/host/check", "same-site", "navigate", "document", http.StatusForbidden},
+		{"events by link", "GET", "/events?f=rail", "same-site", "navigate", "document", http.StatusForbidden},
 		{"files by link", "GET", "/sandboxes/dev/default/webapp/files?path=/sandbox", "same-site", "navigate", "document", http.StatusForbidden},
 		{"files of own page", "GET", "/sandboxes/dev/default/webapp/files?path=/sandbox", "same-origin", "cors", "empty", http.StatusOK},
 	} {

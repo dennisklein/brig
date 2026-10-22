@@ -18,9 +18,6 @@ import (
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
-// maxForm is the most a dialog may post, in bytes.
-const maxForm = 64 << 10
-
 // A dialog's form is posted twice: to /a/ID/preview as it changes, which
 // answers with the command it would run, and to /a/ID/run, which builds the
 // command again from the same fields and runs that. The browser never
@@ -428,16 +425,6 @@ func maps(q url.Values) url.Values {
 	return out
 }
 
-// postedForm returns the fields that the request posted.
-func (s *Server) postedForm(w http.ResponseWriter, r *http.Request) (url.Values, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxForm)
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "the form is unreadable or too large", http.StatusBadRequest)
-		return nil, false
-	}
-	return r.PostForm, true
-}
-
 // evaluate builds the command of the form and decides whether it may run.
 func (s *Server) evaluate(a action.Action, f url.Values) previewView {
 	spec := dialogSpecs[a.ID]
@@ -463,11 +450,8 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	f, ok := s.postedForm(w, r)
-	if !ok {
-		return
-	}
-	s.fragmentResponse(w, http.StatusOK, "preview", s.evaluate(a, f))
+	// The session has read the form, up to 64 KiB, before this runs.
+	s.fragmentResponse(w, http.StatusOK, "preview", s.evaluate(a, r.PostForm))
 }
 
 // runAction runs the command of the form as a task.
@@ -476,10 +460,7 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	f, ok := s.postedForm(w, r)
-	if !ok {
-		return
-	}
+	f := r.PostForm
 	p := s.evaluate(a, f)
 	switch {
 	case p.Err != "":
