@@ -103,7 +103,38 @@ type Spec struct {
 	// User is the login that names the Claude and Anthropic secrets in the
 	// keyring.
 	User string
+	// LLMProxy, if set, sends the agent's model calls to an llm-proxy
+	// service, which holds the model keys, in place of a provider of the
+	// agent's own.
+	LLMProxy *LLMProxy
 }
+
+// LLMProxy is the llm-proxy service that an agent calls.
+type LLMProxy struct {
+	Service string
+	// Port is the service's port, where sandboxes reach it at
+	// http://host.openshell.internal:PORT.
+	Port int
+	// Subscription says that the proxy calls Anthropic with a Claude
+	// subscription token, which Anthropic takes only with the OAuth beta
+	// that Claude Code then names in its requests.
+	Subscription bool
+}
+
+// The variables in which an attach of the llm-proxy service puts the
+// placeholder of the sandbox's key (see its type's credential.env).
+const (
+	proxyClaudeEnv = "ANTHROPIC_AUTH_TOKEN"
+	proxyKeyEnv    = "LLM_PROXY_KEY"
+)
+
+// SubscriptionBeta is the beta that Anthropic wants with a Claude
+// subscription token.
+const SubscriptionBeta = "oauth-2025-04-20"
+
+// SandboxHost is the name at which a sandbox reaches the host's services;
+// service.SandboxHost is the same.
+const SandboxHost = "host.openshell.internal"
 
 // Plan is what brig agent init writes for a Spec.
 type Plan struct {
@@ -123,6 +154,9 @@ type Definition struct {
 	Template string `yaml:"template"`
 	// Providers are what a new sandbox of the agent attaches.
 	Providers []string `yaml:"providers"`
+	// Services are the brig services that a new sandbox of the agent is
+	// attached to, such as an llm-proxy.
+	Services []string `yaml:"services,omitempty"`
 	// Command is what starts the agent in a sandbox; informational.
 	Command string `yaml:"command"`
 }
@@ -162,11 +196,14 @@ func ParseDefinition(data []byte) (Definition, error) {
 
 // marshal formats d as an agent.yaml with a comment for each setting.
 func (d Definition) marshal() []byte {
-	return fmt.Appendf(nil, `image: %-28s # brig agent build adds a date tag
+	b := fmt.Appendf(nil, `image: %-28s # brig agent build adds a date tag
 template: %-25s # kept pointing at the newest build
 providers: %-24s # what a new sandbox of this agent attaches
-command: %-26s # shown by Connect; informational
-`, d.Image, d.Template, "["+strings.Join(d.Providers, ", ")+"]", d.Command)
+`, d.Image, d.Template, "["+strings.Join(d.Providers, ", ")+"]")
+	if len(d.Services) > 0 {
+		b = fmt.Appendf(b, "services: %-25s # the brig services it is attached to\n", "["+strings.Join(d.Services, ", ")+"]")
+	}
+	return fmt.Appendf(b, "command: %-26s # shown by Connect; informational\n", d.Command)
 }
 
 // data is what the templates see.
@@ -176,6 +213,13 @@ type data struct {
 	EndpointURL  string
 	EndpointHost string
 	EndpointPort string
+	// KeyEnv holds the endpoint's key, or its placeholder, for Pi and
+	// opencode.
+	KeyEnv string
+	// ProxyURL is the llm-proxy's URL for Claude Code, and ProxyBetas the
+	// betas it adds to its requests.
+	ProxyURL   string
+	ProxyBetas string
 }
 
 // endpoint is a parsed Spec.Endpoint.
@@ -216,6 +260,15 @@ func New(spec Spec) (*Plan, error) {
 	if spec.GitHub != "" && !loginRE.MatchString(spec.GitHub) {
 		return nil, fmt.Errorf("invalid GitHub login %q", spec.GitHub)
 	}
+	if px := spec.LLMProxy; px != nil {
+		if spec.Endpoint != "" || spec.Anthropic {
+			return nil, errors.New("an agent of the llm-proxy calls no --endpoint and no --anthropic: the proxy holds the model keys")
+		}
+		if px.Port < 1 || px.Port > 65535 || !nameRE.MatchString(px.Service) {
+			return nil, fmt.Errorf("invalid llm-proxy service %q at port %d", px.Service, px.Port)
+		}
+		spec.Endpoint = fmt.Sprintf("http://%s:%d/v1", SandboxHost, px.Port)
+	}
 	var ep endpoint
 	if spec.Endpoint != "" {
 		var err error
@@ -224,28 +277,48 @@ func New(spec Spec) (*Plan, error) {
 		}
 	}
 	p := &Plan{Name: spec.Name}
-	d := data{Model: spec.Model, EndpointURL: ep.url, EndpointHost: ep.host, EndpointPort: ep.port}
+	d := data{Model: spec.Model, EndpointURL: ep.url, EndpointHost: ep.host, EndpointPort: ep.port, KeyEnv: "LLM_API_KEY"}
+	px := spec.LLMProxy
+	if px != nil {
+		d.KeyEnv = proxyKeyEnv
+		p.Definition.Services = []string{px.Service}
+	}
 	var providers []string
 	dir := "agents/" + spec.Name + "/"
 	switch spec.Kind {
 	case Claude:
-		if spec.Endpoint != "" || spec.Model != "" || spec.Anthropic {
+		if px == nil && (spec.Endpoint != "" || spec.Model != "" || spec.Anthropic) {
 			return nil, errors.New("claude takes a subscription token; --endpoint, --model and --anthropic are for pi and opencode")
+		}
+		if px != nil {
+			if spec.Model != "" {
+				return nil, errors.New("claude picks its model itself; --model is for pi and opencode")
+			}
+			// Claude Code adds /v1/messages to the base URL itself.
+			d.ProxyURL = strings.TrimSuffix(ep.url, "/v1")
+			if px.Subscription {
+				d.ProxyBetas = SubscriptionBeta
+			}
 		}
 		d.Version = ClaudeVersion
 		p.add(Shared, dir+"Containerfile", 0o644, "", render(d, "claude/Containerfile"))
 		p.add(Shared, dir+"claude-sandbox", 0o755, "", file("claude/claude-sandbox"))
-		p.add(Shared, dir+"managed-settings.json", 0o644, "", file("claude/managed-settings.json"))
+		p.add(Shared, dir+"managed-settings.json", 0o644, "", render(d, "claude/managed-settings.json"))
 		p.add(Shared, dir+"etc/CLAUDE.md", 0o644, "", file("claude/etc/CLAUDE.md"))
 		p.add(Shared, dir+"skills/.gitkeep", 0o644, "", nil)
-		p.add(Shared, "profiles/claude-code.yaml", 0o644, "profile:claude-code", file("shared/claude-code.yaml"))
-		p.add(Secrets, "providers/claude-code.yaml", 0o644, "provider:claude-code",
-			providerFile("claude-code", "claude-code", "CLAUDE_CODE_OAUTH_TOKEN", "service", "claude.ai", "user", spec.User))
-		providers = append(providers, "claude-code")
+		if px == nil {
+			p.add(Shared, "profiles/claude-code.yaml", 0o644, "profile:claude-code", file("shared/claude-code.yaml"))
+			p.add(Secrets, "providers/claude-code.yaml", 0o644, "provider:claude-code",
+				providerFile("claude-code", "claude-code", "CLAUDE_CODE_OAUTH_TOKEN", "service", "claude.ai", "user", spec.User))
+			providers = append(providers, "claude-code")
+		}
 		p.Definition.Command = "claude-sandbox"
 	case Pi:
 		if spec.Anthropic {
 			return nil, errors.New("--anthropic is for opencode; Pi talks to an --endpoint")
+		}
+		if px != nil && spec.Model == "" {
+			return nil, errors.New("pi needs --model ID: a model_name of the llm-proxy's llm-proxy.yaml")
 		}
 		if spec.Endpoint == "" || spec.Model == "" {
 			return nil, errors.New("pi needs --endpoint URL and --model ID: the OpenAI-compatible API it talks to")
@@ -256,8 +329,10 @@ func New(spec Spec) (*Plan, error) {
 		p.add(Shared, dir+"etc/settings.json", 0o644, "", render(d, "pi/etc/settings.json"))
 		p.add(Shared, dir+"etc/models.json", 0o644, "", render(d, "pi/etc/models.json"))
 		p.add(Shared, dir+"etc/AGENTS.md", 0o644, "", file("pi/etc/AGENTS.md"))
-		p.addLLM(d, ep)
-		providers = append(providers, "llm")
+		if px == nil {
+			p.addLLM(d, ep)
+			providers = append(providers, "llm")
+		}
 		p.Definition.Command = "pi-sandbox"
 	case OpenCode:
 		d.Version = OpenCodeVersion
@@ -275,8 +350,12 @@ func New(spec Spec) (*Plan, error) {
 			providers = append(providers, "anthropic")
 		case spec.Endpoint != "" && spec.Model != "":
 			p.add(Shared, dir+"etc/opencode.json", 0o644, "", render(d, "opencode/etc/opencode-endpoint.json"))
-			p.addLLM(d, ep)
-			providers = append(providers, "llm")
+			if px == nil {
+				p.addLLM(d, ep)
+				providers = append(providers, "llm")
+			}
+		case px != nil:
+			return nil, errors.New("opencode needs --model ID: a model_name of the llm-proxy's llm-proxy.yaml")
 		default:
 			return nil, errors.New("opencode needs --endpoint URL and --model ID, or --anthropic for Anthropic's API with an API key")
 		}

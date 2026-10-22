@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/dennisklein/brig/internal/agent"
 	"github.com/dennisklein/brig/internal/llmproxy"
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
@@ -144,5 +147,36 @@ func TestKeepModelKeysOff(t *testing.T) {
 	}
 	if err := a.keepModelKeysOff(sv, svcSet, ocsync.Options{}); err != nil || len(names(svcSet)) != 1 {
 		t.Errorf("service VM: %q, %v", names(svcSet), err)
+	}
+}
+
+func TestAgentLLMProxy(t *testing.T) {
+	a := testApp(t)
+	cmd := &cobra.Command{}
+	var errOut bytes.Buffer
+	cmd.SetErr(&errOut)
+	o := agentInitOpts{spec: agent.Spec{Kind: agent.Claude}}
+	if px, err := a.agentLLMProxy(cmd, o); px != nil || err != nil {
+		t.Fatalf("no service: %+v, %v", px, err)
+	}
+	testLLMProxy(t, a, subscriptionConfig)
+	px, err := a.agentLLMProxy(cmd, o)
+	if err != nil || px == nil || px.Service != "models" || px.Port != 41234 || !px.Subscription {
+		t.Fatalf("the only proxy: %+v, %v", px, err)
+	}
+	if !strings.Contains(errOut.String(), "through service models") {
+		t.Errorf("no note: %q", errOut.String())
+	}
+	for _, o := range []agentInitOpts{
+		{spec: agent.Spec{Kind: agent.Claude}, noProxy: true},
+		{spec: agent.Spec{Kind: agent.Pi, Endpoint: "https://llm.example.com/v1"}},
+		{spec: agent.Spec{Kind: agent.OpenCode, Anthropic: true}},
+	} {
+		if px, err := a.agentLLMProxy(cmd, o); px != nil || err != nil {
+			t.Errorf("%+v: %+v, %v", o, px, err)
+		}
+	}
+	if _, err := a.agentLLMProxy(cmd, agentInitOpts{spec: agent.Spec{Kind: agent.Pi}, llmProxy: "nope"}); err == nil {
+		t.Error("--llm-proxy of a missing service")
 	}
 }

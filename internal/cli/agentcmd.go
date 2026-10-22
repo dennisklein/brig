@@ -43,6 +43,10 @@ type agentInitOpts struct {
 	secretsDir string
 	vm         string
 	force      bool
+	// llmProxy names the llm-proxy service that the agent calls; noProxy
+	// keeps it from calling the only one there is.
+	llmProxy string
+	noProxy  bool
 }
 
 func newAgentInitCmd() *cobra.Command {
@@ -72,6 +76,13 @@ use an OpenAI-compatible --endpoint with a --model, and share one llm profile
 and provider; opencode can instead use --anthropic, Anthropic's API with an API
 key. --github LOGIN adds a github provider. The image versions are pinned
 and move with brig releases.
+
+--llm-proxy SERVICE sends the agent's model calls to that service of type
+llm-proxy, which holds the model keys (see brig service --help): the agent
+gets no provider for them, its sandboxes are attached to the service, and
+pi and opencode take a --model that the proxy offers. With one llm-proxy
+service and neither --endpoint nor --anthropic, that one is the default;
+--no-llm-proxy keeps the agent's own provider.
 
 Without --vm it prints the commands that finish the setup. With --vm it runs
 them, naming each: it attaches the directories to the VM, asks for the
@@ -104,6 +115,10 @@ command that starts a sandbox.`,
 	f.StringVar(&o.spec.Endpoint, "endpoint", "", "pi, opencode: the base URL of an OpenAI-compatible API")
 	f.StringVar(&o.spec.Model, "model", "", "pi, opencode: the model to use at the endpoint; with --anthropic, an Anthropic model ID (optional)")
 	f.BoolVar(&o.spec.Anthropic, "anthropic", false, "opencode: use Anthropic's API with an API key")
+	f.StringVar(&o.llmProxy, "llm-proxy", "", "send the model calls to this llm-proxy service (default: the only one, unless --endpoint or --anthropic)")
+	f.BoolVar(&o.noProxy, "no-llm-proxy", false, "give the agent its own model provider even when an llm-proxy service exists")
+	cmd.MarkFlagsMutuallyExclusive("llm-proxy", "no-llm-proxy")
+	_ = cmd.RegisterFlagCompletionFunc("llm-proxy", completeServiceNames)
 	f.StringVar(&o.spec.GitHub, "github", "", "also write a github provider whose token is in the keyring for this login")
 	f.StringVar(&o.vm, "vm", "", "also attach the directories to this VM, store missing secrets, sync and build the image")
 	f.BoolVar(&o.force, "force", false, "overwrite files that exist with other content")
@@ -172,6 +187,9 @@ func (a *app) agentInit(cmd *cobra.Command, o agentInitOpts) error {
 		return err
 	}
 	if o.spec.User, err = currentUser(); err != nil {
+		return err
+	}
+	if o.spec.LLMProxy, err = a.agentLLMProxy(cmd, o); err != nil {
 		return err
 	}
 	plan, err := agent.New(o.spec)
@@ -333,7 +351,11 @@ func (s agentSetup) attachArgs(vmName string, attached []string) []string {
 // sandboxArgs returns the arguments of brig sandbox create that start a
 // sandbox of the agent.
 func (s agentSetup) sandboxArgs(vmName string) []string {
-	args := []string{"sandbox", "create", vmName, "--connect", "--", "--name", "webapp", "--template", s.plan.Definition.Template}
+	args := []string{"sandbox", "create", vmName, "--connect"}
+	for _, svc := range s.plan.Definition.Services {
+		args = append(args, "--service", svc)
+	}
+	args = append(args, "--", "--name", "webapp", "--template", s.plan.Definition.Template)
 	for _, p := range s.plan.Definition.Providers {
 		args = append(args, "--provider", p)
 	}

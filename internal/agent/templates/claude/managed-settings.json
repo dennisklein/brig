@@ -1,5 +1,11 @@
 {
   "env": {
+{{- if .ProxyURL}}
+    "ANTHROPIC_BASE_URL": "{{.ProxyURL}}",
+{{- if .ProxyBetas}}
+    "ANTHROPIC_BETAS": "{{.ProxyBetas}}",
+{{- end}}
+{{- end}}
     "DISABLE_UPDATES": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "DISABLE_ERROR_REPORTING": "1",

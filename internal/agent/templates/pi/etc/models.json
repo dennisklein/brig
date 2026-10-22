@@ -3,7 +3,7 @@
     "llm": {
       "baseUrl": "{{.EndpointURL}}",
       "api": "openai-completions",
-      "apiKey": "$LLM_API_KEY",
+      "apiKey": "${{.KeyEnv}}",
       "models": [{ "id": "{{.Model}}" }]
     }
   }

@@ -15,6 +15,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/spf13/cobra"
+
+	"github.com/dennisklein/brig/internal/agent"
 	"github.com/dennisklein/brig/internal/llmproxy"
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
@@ -179,6 +182,59 @@ func (a *app) llmProxyImage(ctx context.Context, env service.Env, ref string) er
 		}
 	}
 	return a.pushImage(ctx, v, ref, os.Stderr, io.Discard)
+}
+
+// agentLLMProxy returns the llm-proxy service that brig agent init points
+// the agent at: the one --llm-proxy names, else the only one there is,
+// unless the agent has a model API of its own.
+func (a *app) agentLLMProxy(cmd *cobra.Command, o agentInitOpts) (*agent.LLMProxy, error) {
+	if o.noProxy {
+		return nil, nil
+	}
+	name := o.llmProxy
+	if name == "" {
+		if o.spec.Endpoint != "" || o.spec.Anthropic {
+			return nil, nil
+		}
+		svcs, err := a.services.List()
+		if err != nil {
+			return nil, err
+		}
+		var found []string
+		for _, svc := range svcs {
+			if svc.Type == llmproxy.TypeName {
+				found = append(found, svc.Name)
+			}
+		}
+		if len(found) != 1 {
+			if len(found) > 1 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "There are llm-proxy services %s; give --llm-proxy to use one.\n", strings.Join(found, ", "))
+			}
+			return nil, nil
+		}
+		name = found[0]
+		fmt.Fprintf(cmd.ErrOrStderr(), "The agent calls its models through service %s; --no-llm-proxy gives it a provider of its own.\n", name)
+	}
+	svc, err := a.loadService(name)
+	if err != nil {
+		return nil, err
+	}
+	if svc.Type != llmproxy.TypeName {
+		return nil, fmt.Errorf("--llm-proxy: service %s is of type %s, not %s", svc.Name, svc.Type, llmproxy.TypeName)
+	}
+	px := &agent.LLMProxy{Service: svc.Name, Port: svc.Port}
+	if o.spec.Kind == agent.Claude {
+		t, err := serviceType(svc.Type)
+		if err != nil {
+			return nil, err
+		}
+		setup, err := a.llmProxySetup(a.serviceEnv(svc, t))
+		if err != nil {
+			return nil, fmt.Errorf("--llm-proxy: Claude Code needs to know whether service %s uses a subscription token: %w", svc.Name, err)
+		}
+		px.Subscription = setup.Config.Subscription()
+	}
+	return px, nil
 }
 
 // keepModelKeysOff takes out of set, the config directories of the gateway
