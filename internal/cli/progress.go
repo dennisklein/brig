@@ -17,7 +17,6 @@ import (
 	"github.com/GSI-HPC/go-clikit/progress/display"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
-	"golang.org/x/sys/unix"
 
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/version"
@@ -93,28 +92,6 @@ func skipsProgress(cmd *cobra.Command) bool {
 		}
 	}
 	return false
-}
-
-// isTerminal reports whether f is a terminal.
-func isTerminal(f *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(f.Fd()), unix.TCGETS)
-	return err == nil
-}
-
-// theme returns the Classic theme drawn in as many colours as the terminal
-// behind standard error shows. Where standard error is no terminal, or a dumb
-// one, it is the zero Theme: plain lines for a log want no escape code.
-func theme(onTerminal bool, getenv func(string) string) display.Theme {
-	if !onTerminal || getenv("TERM") == "dumb" {
-		return display.Theme{}
-	}
-	switch {
-	case getenv("NO_COLOR") != "":
-		return display.Classic.In(display.NoColours)
-	case getenv("COLORTERM") != "" || strings.Contains(getenv("TERM"), "256"):
-		return display.Classic.In(display.Colours256)
-	}
-	return display.Classic.In(display.Colours16)
 }
 
 // commandName names cmd for its span, such as "start dev".
@@ -215,13 +192,13 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 		LogOptions: progress.LogOptions{Version: version.Version()},
 		Trace:      inheritedTrace,
 		Stderr:     os.Stderr,
-		OnTerminal: isTerminal(os.Stderr),
+		OnTerminal: cliprogress.IsTerminal(os.Stderr),
 		Dumb:       os.Getenv("TERM") == "dumb",
 		IntoPipe:   cliprogress.IsPipe(os.Stdout),
 		Size:       func() (int, int, error) { return cliprogress.TerminalSize(os.Stderr) },
 		Foreground: func() bool { return cliprogress.InForeground(os.Stderr) },
 		ASCII:      !cliprogress.UTF8Locale(os.Getenv),
-		Theme:      theme(isTerminal(os.Stderr), os.Getenv),
+		Theme:      cliprogress.ThemeFor(display.Classic, cliprogress.IsTerminal(os.Stderr), os.Getenv),
 		Classify:   progressClass(cmd.Context()),
 	}
 	if p.options != nil {
@@ -238,7 +215,7 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 	stderr := cmd.ErrOrStderr()
 	cmd.SetErr(overFile(run.Writer(stderr), stderr))
 	// Only a standard output on the terminal can tear the display.
-	if isTerminal(os.Stdout) {
+	if cliprogress.IsTerminal(os.Stdout) {
 		cmd.SetOut(run.Writer(cmd.OutOrStdout()))
 	}
 	p.run.Store(run)

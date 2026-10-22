@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/GSI-HPC/go-clikit/progress"
+	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 )
 
 // isInteractive reports whether brig may ask questions: whether in and out
@@ -21,7 +22,7 @@ import (
 var isInteractive = func(in io.Reader, out io.Writer) bool {
 	i, ok := in.(*os.File)
 	o, ok2 := fileOf(out)
-	return ok && ok2 && isTerminal(i) && isTerminal(o)
+	return ok && ok2 && cliprogress.IsTerminal(i) && cliprogress.IsTerminal(o)
 }
 
 // fileWriter is a writer, such as the progress display's, that writes to

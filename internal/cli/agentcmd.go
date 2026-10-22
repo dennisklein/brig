@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -384,7 +385,7 @@ func (s agentSetup) run(ctx context.Context) error {
 	pending := s.missingSecrets(ctx)
 	interactive := false
 	if f, ok := s.cmd.InOrStdin().(*os.File); ok {
-		interactive = isTerminal(f)
+		interactive = cliprogress.IsTerminal(f)
 	}
 	var later []string
 	for _, p := range pending {
