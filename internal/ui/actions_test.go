@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,6 +25,10 @@ type fakeStarter struct {
 	st    *store.Store
 	mu    sync.Mutex
 	specs []run.Spec
+	// canceled are the tasks Cancel was asked to stop; cancelErr is its
+	// answer.
+	canceled  []string
+	cancelErr error
 }
 
 func (f *fakeStarter) Start(s run.Spec) (string, error) {
@@ -34,8 +39,21 @@ func (f *fakeStarter) Start(s run.Spec) (string, error) {
 	return "task1", nil
 }
 
+func (f *fakeStarter) Cancel(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.canceled = append(f.canceled, id)
+	return f.cancelErr
+}
+
 func (f *fakeStarter) Running() int           { return 0 }
 func (f *fakeStarter) Shutdown(time.Duration) {}
+
+func (f *fakeStarter) canceledTasks() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.canceled)
+}
 
 func (f *fakeStarter) started() []run.Spec {
 	f.mu.Lock()
@@ -531,5 +549,44 @@ func TestTerminalDialog(t *testing.T) {
 		if w := ts.get(target); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d", target, w.Code)
 		}
+	}
+}
+
+func TestCancelTask(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	ts.st.AddTask(store.Task{ID: "busy", Display: "brig sync dev", Status: store.TaskRunning})
+	ts.st.AddTask(store.Task{ID: "stopping", Display: "brig stop dev", Status: store.TaskRunning, Canceling: true})
+	body := ts.get("/").Body.String()
+	for _, want := range []string{`hx-post="/tasks/busy/cancel"`, "Stopping…"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, `hx-post="/tasks/stopping/cancel"`) {
+		t.Error("a task that is stopping offers Stop")
+	}
+
+	if w := ts.post("/tasks/busy/cancel", nil); w.Code != http.StatusNoContent {
+		t.Errorf("cancel: %d, want 204", w.Code)
+	}
+	if got := ts.starts.canceledTasks(); !slices.Equal(got, []string{"busy"}) {
+		t.Errorf("canceled %v, want [busy]", got)
+	}
+	// A GET changes nothing.
+	if w := ts.get("/tasks/busy/cancel"); w.Code == http.StatusNoContent {
+		t.Error("GET of cancel was accepted")
+	}
+	if w := ts.post("/tasks/nope/cancel", nil); w.Code != http.StatusNotFound {
+		t.Errorf("cancel of an unknown task: %d, want 404", w.Code)
+	}
+	ts.starts.cancelErr = run.ErrNotRunning
+	if w := ts.post("/tasks/busy/cancel", nil); w.Code != http.StatusConflict {
+		t.Errorf("cancel of a task that ended: %d, want 409", w.Code)
+	}
+	ts.starts.cancelErr = errors.New("kill: not permitted")
+	w := ts.post("/tasks/busy/cancel", nil)
+	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), "not permitted") {
+		t.Errorf("cancel that failed: %d %q, want 500 without the cause", w.Code, w.Body.String())
 	}
 }

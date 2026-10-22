@@ -126,6 +126,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("POST /a/{id}/preview", s.preview)
 	s.mux.HandleFunc("POST /a/{id}/run", s.runAction)
 	s.mux.HandleFunc("POST /tasks/{id}/dismiss", s.dismiss)
+	s.mux.HandleFunc("POST /tasks/{id}/cancel", s.cancelTask)
 	s.mux.HandleFunc("GET /events", s.events)
 	s.mux.HandleFunc("/", s.notFound)
 	return s, nil

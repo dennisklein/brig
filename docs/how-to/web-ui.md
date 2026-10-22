@@ -79,8 +79,9 @@ Every change is a dialog that shows the `brig` or `openshell` command it runs,
 with a Copy button, and runs exactly that command; the browser never sends a
 command line. Deleting a VM or a sandbox asks you to type its name. A running
 command is a card with its steps and, if it failed, its output. A VM's
-buttons wait while a command works on it. Ctrl-C in the terminal that runs
-`brig ui` interrupts the running commands the way it does in a shell, so brig
+buttons wait while a command works on it. A running command's card has a
+Stop button, and Ctrl-C in the terminal that runs `brig ui` stops all of
+them. Both interrupt the command once, the way Ctrl-C does in a shell, so brig
 rolls back. The UI shows and takes no secrets: store them with [brig secret
 set](secrets.md).
 
