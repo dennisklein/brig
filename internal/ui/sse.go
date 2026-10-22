@@ -29,6 +29,11 @@ const (
 // extension swaps into the element with that sse-swap name. The query
 // names the fragments (f) and what they need: the VM (vm) and its tab (tab),
 // or what liveOpenShell reads.
+//
+// The stream opens with every fragment, as the page may have been rendered
+// before a change that the stream does not hear of. Then changes gather for
+// coalesceEvery, and each fragment that depends on a changed topic is
+// rendered and sent.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	names := q["f"]
@@ -56,6 +61,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// Subscribe before the first render, so that no change falls between
+	// the two.
 	sub := s.st.Subscribe()
 	defer sub.Close()
 
@@ -65,9 +72,36 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	// The browser reconnects after this long when the stream breaks.
 	_, _ = io.WriteString(w, "retry: 2000\n\n")
-	flusher.Flush()
 
 	csrf := csrfFrom(r.Context())
+	// send renders the fragments that want accepts, from the current
+	// snapshot, and writes them. It returns an error when the stream breaks.
+	send := func(want func(name string) bool) error {
+		v := &view{Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo, CSRF: csrf, Asset: s.assets.url, Tab: tab(q.Get("tab"))}
+		if vmName != "" {
+			v.VM, _ = v.Snap.VM(vmName)
+		}
+		liveOpenShell(v, q)
+		for _, n := range names {
+			if !want(n) {
+				continue
+			}
+			html, err := s.tmpl.fragment(n, v)
+			if err != nil {
+				s.log.Error("rendering fragment", "fragment", n, "err", err)
+				continue
+			}
+			if err := writeEvent(w, n, html); err != nil {
+				return err
+			}
+		}
+		flusher.Flush()
+		return nil
+	}
+	if send(func(string) bool { return true }) != nil {
+		return
+	}
+
 	pending := map[store.Topic]bool{}
 	var timer <-chan time.Time
 	keepAlive := time.NewTicker(keepAliveEvery)
@@ -95,26 +129,13 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		case <-timer:
 		}
 		timer = nil
-		v := &view{Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo, CSRF: csrf, Asset: s.assets.url, Tab: tab(q.Get("tab"))}
-		if vmName != "" {
-			v.VM, _ = v.Snap.VM(vmName)
-		}
-		liveOpenShell(v, q)
-		for _, n := range names {
-			if !slices.ContainsFunc(fragments[n], func(t store.Topic) bool { return pending[t] }) {
-				continue
-			}
-			html, err := s.tmpl.fragment(n, v)
-			if err != nil {
-				s.log.Error("rendering fragment", "fragment", n, "err", err)
-				continue
-			}
-			if err := writeEvent(w, n, html); err != nil {
-				return
-			}
-		}
+		err := send(func(n string) bool {
+			return slices.ContainsFunc(fragments[n], func(t store.Topic) bool { return pending[t] })
+		})
 		clear(pending)
-		flusher.Flush()
+		if err != nil {
+			return
+		}
 	}
 }
 
