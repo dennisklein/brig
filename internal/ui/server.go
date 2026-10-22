@@ -6,12 +6,11 @@ package ui
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"strconv"
 	"sync/atomic"
+
+	"github.com/GSI-HPC/go-clikit/localweb"
 
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/help"
@@ -20,16 +19,11 @@ import (
 	"github.com/dennisklein/brig/internal/vm"
 )
 
-// contentSecurityPolicy allows only brig ui's own files: no inline script
-// or style, no other origin, no framing.
-const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
-	"font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-
 // Server serves brig ui's pages and live updates for one store.
 type Server struct {
 	st        *store.Store
 	auth      *auth
-	port      int
+	bound     *localweb.Bound
 	tmpl      *templates
 	assets    *assets
 	help      *help.Help
@@ -53,7 +47,9 @@ type Server struct {
 type serverConfig struct {
 	Store *store.Store
 	Token string
-	Port  int
+	// Bound is what brig ui listens on; the Host header of a request must
+	// name it.
+	Bound *localweb.Bound
 	Demo  bool
 	// Home is shown as ~ in paths.
 	Home string
@@ -96,7 +92,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	}
 	s := &Server{
 		goRun: goRun,
-		st:    c.Store, auth: newAuth(c.Token, c.Port), port: c.Port, tmpl: t, assets: a, help: h,
+		st:    c.Store, auth: newAuth(c.Token, int(c.Bound.Addrs[0].Port())), bound: c.Bound, tmpl: t, assets: a, help: h,
 		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	s.mux.Handle("GET /static/", a)
@@ -134,37 +130,19 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 
 // Handler returns the server's handler with every check in front of it.
 func (s *Server) Handler() http.Handler {
-	return s.headers(s.checkHostHeader(s.auth.middleware(s.mux)))
+	return localweb.Headers("")(localweb.NoStore(localweb.Hosts(s.bound.Answers, s.refuse)(s.auth.middleware(s.mux))))
 }
 
-// headers sets the security headers of every response.
-func (s *Server) headers(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("Content-Security-Policy", contentSecurityPolicy)
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Cross-Origin-Opener-Policy", "same-origin")
-		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		h.Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
-}
-
-// checkHostHeader refuses requests for any host name but ours, so that a
-// web page whose name resolves to 127.0.0.1 (DNS rebinding) cannot read
-// brig ui as its own origin. Not even localhost is ours: a browser may
-// resolve it to ::1, where another user's process can listen on our port.
-func (s *Server) checkHostHeader(next http.Handler) http.Handler {
-	host := "127.0.0.1:" + strconv.Itoa(s.port)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != host {
-			http.Error(w, "brig ui answers only to "+host, http.StatusMisdirectedRequest)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// refuse answers a request that a check of localweb refuses: with its
+// message, and a line that says where to find the address to open. The
+// reason goes to the log, which holds no secret.
+func (s *Server) refuse(w http.ResponseWriter, _ *http.Request, f localweb.Refusal) {
+	s.log.Debug("refused a request", "status", f.Status, "reason", f.Reason)
+	h := w.Header()
+	h.Set("Content-Type", "text/plain; charset=utf-8")
+	h.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(f.Status)
+	_, _ = w.Write([]byte(f.Message + "\nOpen the address that brig ui printed in your terminal, or run brig ui again.\n"))
 }
 
 // csrf context helpers.
@@ -310,16 +288,4 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "", "Not found")
 	v.Events = eventsURL([]string{"rail"}, nil)
 	s.render(w, http.StatusNotFound, "notfound", v)
-}
-
-// listen opens brig ui's listener on 127.0.0.1: on port, or a free port if
-// port is 0. Only the user's own processes get through it.
-func listen(port int, log *slog.Logger) (net.Listener, error) {
-	l, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err != nil {
-		return nil, err
-	}
-	return &peerListener{Listener: l, uid: os.Getuid(), owner: procNetTCPOwner, refused: func(err error) {
-		log.Warn("closed a connection", "err", err)
-	}}, nil
 }

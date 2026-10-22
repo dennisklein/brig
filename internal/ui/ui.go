@@ -18,7 +18,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/http"
 	neturl "net/url"
 	"os"
 	"os/exec"
@@ -27,6 +26,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/GSI-HPC/go-clikit/localweb"
 
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/openshell"
@@ -121,16 +122,23 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 
-	l, err := listen(o.Port, log)
+	// Only the user's own processes get through the listener: other users
+	// can reach 127.0.0.1 too.
+	bound, err := localweb.Listen(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(o.Port)), localweb.ListenOptions{})
 	if errors.Is(err, syscall.EADDRINUSE) {
 		return fmt.Errorf("port %d is in use; pick another with --port, or leave it out", o.Port)
 	}
 	if err != nil {
 		return err
 	}
-	defer func() { _ = l.Close() }()
-	port := l.Addr().(*net.TCPAddr).Port
-	addr := "127.0.0.1:" + strconv.Itoa(port)
+	defer func() { _ = bound.Close() }()
+	l, err := localweb.PeerListener(bound.Listeners[0], os.Getuid(), func(err error) {
+		log.Warn("refused a connection", "err", err)
+	})
+	if err != nil {
+		return fmt.Errorf("restricting the listener to your processes: %w", err)
+	}
+	addr := bound.Host()
 	token := newSecret()
 	url := "http://" + addr + "/?token=" + token
 
@@ -208,19 +216,13 @@ func Run(ctx context.Context, o Options) error {
 	}()
 
 	srv, err := newServer(ctx, serverConfig{
-		Store: st, Token: token, Port: port, Demo: o.Demo, Home: home,
+		Store: st, Token: token, Bound: bound, Demo: o.Demo, Home: home,
 		DevAssets: o.DevAssets, CheckHost: checkHost, Starter: starter, Files: files, History: history, Log: log,
 		Go: goRun,
 	})
 	if err != nil {
 		return err
 	}
-	hs := &http.Server{
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-	}
-
 	if inst != nil {
 		if err := inst.publish(runtimeRecord{URL: url, PID: os.Getpid()}); err != nil {
 			return err
@@ -247,18 +249,10 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 
-	errc := make(chan error, 1)
-	go func() { errc <- hs.Serve(l) }()
-	select {
-	case err := <-errc:
-		return err
-	case <-ctx.Done():
-	}
 	// The live update streams end with ctx; then the rest drains.
-	cancel()
-	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer scancel()
-	return hs.Shutdown(sctx)
+	return localweb.Serve(ctx, []net.Listener{l}, srv.Handler(), localweb.ServeOptions{
+		ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	})
 }
 
 // maxRecord bounds the size of a runtime record that running reads.
