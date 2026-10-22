@@ -5,7 +5,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 
@@ -176,6 +178,23 @@ func inheritedTrace() progress.TraceContext {
 	return tc
 }
 
+// progressClass returns the fallback rule of the classes the spans of a
+// command end with, for an error that the kit's own rules leave open. The
+// kit tells an error that wraps context.Canceled by itself. A child that the
+// interrupt killed fails with "signal: interrupt" alone, so once interrupt,
+// the context of the command line, has ended, a failure of a child that a
+// signal ended is canceled. Any other failure stays the target's: a
+// rollback that fails after the interrupt is a failure, not work that the
+// interrupt stopped.
+func progressClass(interrupt context.Context) func(error) progress.Class {
+	return func(err error) progress.Class {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok && interrupt.Err() != nil && ee.ExitCode() == -1 {
+			return progress.ClassCanceled
+		}
+		return progress.ClassNone
+	}
+}
+
 // start runs as the root's PersistentPreRunE.
 func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags) error {
 	if skipsProgress(cmd) {
@@ -198,6 +217,7 @@ func (p *progressRun) start(cmd *cobra.Command, args []string, f *progressFlags)
 		Foreground: func() bool { return cliprogress.InForeground(os.Stderr) },
 		ASCII:      !cliprogress.UTF8Locale(os.Getenv),
 		Theme:      theme(isTerminal(os.Stderr), os.Getenv),
+		Classify:   progressClass(cmd.Context()),
 	}
 	if p.options != nil {
 		p.options(&o)
