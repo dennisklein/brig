@@ -1,0 +1,53 @@
+#!/bin/sh
+# llm-proxy-start: start Postgres and the LiteLLM proxy in the llm-proxy
+# sandbox. At every start of the service, brig puts the config and the keys
+# into $LLM_PROXY_RUN; until then, this waits. The keys then live only in
+# this shell's environment. LiteLLM starts again when it ends, as when brig
+# stops it to load a new config or new keys.
+set -eu
+state=${LLM_PROXY_STATE:-/sandbox}
+run=${LLM_PROXY_RUN:-/dev/shm/brig}
+port=${LLM_PROXY_PORT:-4000}
+pgdata=$state/pgdata
+sock=$state/pgsock
+
+umask 077
+mkdir -p "$sock"
+if [ ! -s "$pgdata/PG_VERSION" ]; then
+	initdb -D "$pgdata" -U litellm -E UTF8 --auth-local=trust --auth-host=trust >/dev/null
+fi
+# A Unix socket in a directory that only this user can enter, for LiteLLM's
+# Prisma client, and the sandbox's own loopback, for the parts of LiteLLM
+# that drop the socket from the URL.
+pg_ctl -D "$pgdata" -w -s -l "$state/postgres.log" \
+	-o "-c listen_addresses=127.0.0.1 -c unix_socket_directories=$sock" start
+if ! psql -h "$sock" -U litellm -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'litellm'" | grep -q 1; then
+	createdb -h "$sock" -U litellm litellm
+fi
+
+i=0
+until [ -s "$run/keys.env" ] && [ -s "$run/config.yaml" ]; do
+	i=$((i + 1))
+	if [ "$i" -gt 600 ]; then
+		echo "llm-proxy-start: brig put no config into $run in 10 minutes" >&2
+		exit 1
+	fi
+	sleep 1
+done
+export DATABASE_URL="postgresql://litellm@localhost/litellm?host=$sock"
+
+while :; do
+	if [ -s "$run/keys.env" ]; then
+		# LITELLM_MASTER_KEY and LITELLM_SALT_KEY
+		set -a
+		. "$run/keys.env"
+		set +a
+		rm -f "$run/keys.env"
+	fi
+	litellm --config "$run/config.yaml" --host 127.0.0.1 --port "$port" &
+	echo $! >"$run/litellm.pid"
+	status=0
+	wait $! || status=$?
+	echo "llm-proxy-start: LiteLLM ended with status $status; starting it again" >&2
+	sleep 2
+done
