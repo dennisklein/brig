@@ -16,6 +16,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -206,7 +207,7 @@ func runAudit(cmd *cobra.Command, args []string, o auditOptions, format outputFo
 			return err
 		}
 		if format == "json" {
-			return writeJSON(w, reach)
+			return cliout.WriteJSON(w, reach)
 		}
 		return printSummary(w, reach, len(all) > 1)
 	}
@@ -414,7 +415,7 @@ func (a *app) auditStatus(cmd *cobra.Command, args []string, format outputFormat
 	}
 	w := cmd.OutOrStdout()
 	if format == "json" {
-		err = writeJSON(w, out)
+		err = cliout.WriteJSON(w, out)
 	} else {
 		err = printAuditStatus(w, out)
 	}

@@ -6,10 +6,8 @@ package cli
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -189,12 +187,6 @@ func hideDefaults(cmd *cobra.Command, names ...string) {
 			f.DefValue = ""
 		}
 	}
-}
-
-func writeJSON(w io.Writer, v any) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
 }
 
 // completeVMs completes the first argument with VM names.

@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
@@ -139,7 +140,7 @@ func newImageListCmd() *cobra.Command {
 				for i, img := range imgs {
 					out[i] = entry{img, append([]string{}, users[img.ID]...)}
 				}
-				return writeJSON(cmd.OutOrStdout(), out)
+				return cliout.WriteJSON(cmd.OutOrStdout(), out)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "ID\tFEDORA\tOPENSHELL\tCREATED\tUSED BY")
@@ -263,7 +264,7 @@ NAME, the VM is the one that brig use selected.`
 			return err
 		}
 		if format == "json" {
-			return writeJSON(cmd.OutOrStdout(), struct {
+			return cliout.WriteJSON(cmd.OutOrStdout(), struct {
 				VM    string `json:"vm"`
 				Image string `json:"image"`
 			}{v.Name, ref})

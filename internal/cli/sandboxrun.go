@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -744,7 +745,7 @@ func writeRunResult(file string, r *runResult) error {
 	if err != nil {
 		return fmt.Errorf("writing the run's record: %w", err)
 	}
-	if err := writeJSON(f, r); err != nil {
+	if err := cliout.WriteJSON(f, r); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("writing the run's record: %w", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -215,7 +216,7 @@ func size(n int64) string {
 
 func printSnapshots(w io.Writer, snaps []snapshot, format outputFormat) error {
 	if format == "json" {
-		return writeJSON(w, snaps)
+		return cliout.WriteJSON(w, snaps)
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "SNAPSHOT\tWORKSPACE\tIMAGE\tSIZE\tEXCLUSIVE\tNOTE")

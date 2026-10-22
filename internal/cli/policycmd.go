@@ -15,6 +15,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -322,7 +323,7 @@ func (a *app) rememberPolicySource(v *vm.VM, workspace, sandbox, path string) er
 
 func printPolicyReport(w io.Writer, rep *policyReport, format outputFormat) error {
 	if format == "json" {
-		return writeJSON(w, rep)
+		return cliout.WriteJSON(w, rep)
 	}
 	if rep.Source == nil {
 		fmt.Fprintf(w, "Cannot tell which policy file sandbox %s of VM %s came from.\n", termtext.Escape(rep.Sandbox), termtext.Escape(rep.VM))

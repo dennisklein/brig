@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/ocsync"
@@ -65,7 +66,7 @@ func newSyncCmd() *cobra.Command {
 			if err != nil {
 				rep.Error = err.Error()
 			}
-			return errors.Join(writeJSON(cmd.OutOrStdout(), rep), syncFailed(err))
+			return errors.Join(cliout.WriteJSON(cmd.OutOrStdout(), rep), syncFailed(err))
 		}
 		opts.Out, opts.Verbose = cmd.OutOrStdout(), true
 		return syncFailed(a.syncOpenShell(ctx, cli, v, opts, secretTool))

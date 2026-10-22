@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -82,7 +83,7 @@ BRIG_WORKSPACE does not narrow it.`,
 				}
 			}
 			if format == "json" {
-				if err := writeJSON(cmd.OutOrStdout(), deleted); err != nil {
+				if err := cliout.WriteJSON(cmd.OutOrStdout(), deleted); err != nil {
 					errs = append(errs, err)
 				}
 			}

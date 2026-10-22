@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/fanout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
@@ -484,7 +485,7 @@ func printSandboxes(w io.Writer, rows []sandboxRow, format outputFormat, withVM 
 		if rows == nil {
 			rows = []sandboxRow{}
 		}
-		return writeJSON(w, rows)
+		return cliout.WriteJSON(w, rows)
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if withVM {
