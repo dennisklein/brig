@@ -78,3 +78,14 @@ func TestWriteImageContext(t *testing.T) {
 		t.Errorf("ImageRef() = %q", ref)
 	}
 }
+
+// TestGuideNamesTheVersion keeps the version in the how-to in step.
+func TestGuideNamesTheVersion(t *testing.T) {
+	data, err := os.ReadFile("../../docs/how-to/llm-proxy.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "LiteLLM "+LiteLLMVersion+",") {
+		t.Errorf("docs/how-to/llm-proxy.md does not name LiteLLM %s", LiteLLMVersion)
+	}
+}

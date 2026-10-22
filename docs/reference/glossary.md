@@ -212,6 +212,23 @@ The whole story: [`how-to/share-directories.md`](../how-to/share-directories.md#
 
 In a terminal: `brig help mount`.
 
+### llm-proxy<a id="llm-proxy"></a>
+
+A service that runs LiteLLM with the model keys, and gives each attached sandbox a LiteLLM key of its own with a budget.
+
+Also called: litellm, virtual key, model proxy, budget.
+
+See also: [Services](#services), [Placeholder](#placeholder), [Provider](#provider).
+
+```sh
+brig service create models --type llm-proxy --openshell-config ~/brig/models
+brig agent init claude --vm dev
+```
+
+The whole story: [`how-to/llm-proxy.md`](../how-to/llm-proxy.md).
+
+In a terminal: `brig help llm-proxy`.
+
 ### Needs you<a id="needs-you"></a>
 
 What blocks an agent or will bite later: failed syncs, host checks, older images, denied requests. Each item has its fix next to it.

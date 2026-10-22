@@ -15,6 +15,13 @@ instructions and extensions) goes into the image, so a new image brings new
 versions; what the agent writes (settings, sessions, checkouts) goes under
 `/sandbox`, the only directory that is writable and persists.
 
+Each agent below has a model key of its own, as a provider on its gateway.
+With an [llm-proxy](llm-proxy.md) service, `brig agent init` points the agent
+at the proxy instead: no model provider, a base URL of
+`http://host.openshell.internal:PORT` in the image, and `services:` in
+`agent.yaml`, so that `brig sandbox create --service` attaches each new
+sandbox. `--no-llm-proxy` keeps the files below.
+
 ## Pi
 
 [Pi](https://pi.dev) has no official image, so you build one. Everything you

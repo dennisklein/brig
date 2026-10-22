@@ -25,6 +25,8 @@ New to brig? Run these in order.
 - How do I give a sandbox a host directory? [Share
   directories](how-to/share-directories.md)
 - How do I store or rotate a token, or run in CI? [Secrets](how-to/secrets.md)
+- How do I keep model keys out of the gateways, with a budget per sandbox?
+  [Route model calls through llm-proxy](how-to/llm-proxy.md)
 - How do I keep an agent's work when I move it to a new image or delete it?
   [Keep agent state](how-to/keep-agent-state.md)
 - How do I run one task in a throwaway sandbox? [One-shot
