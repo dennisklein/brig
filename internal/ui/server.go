@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/GSI-HPC/go-clikit/localweb"
+	"github.com/GSI-HPC/go-clikit/localweb/session"
 
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/help"
@@ -19,10 +20,14 @@ import (
 	"github.com/dennisklein/brig/internal/vm"
 )
 
+// csrfHeader carries the session's CSRF token on every request that
+// changes something. htmx sends it from the hx-headers of <body>.
+const csrfHeader = "X-Brig-CSRF"
+
 // Server serves brig ui's pages and live updates for one store.
 type Server struct {
 	st        *store.Store
-	auth      *auth
+	sessions  *session.Sessions
 	bound     *localweb.Bound
 	tmpl      *templates
 	assets    *assets
@@ -92,9 +97,20 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	}
 	s := &Server{
 		goRun: goRun,
-		st:    c.Store, auth: newAuth(c.Token, int(c.Bound.Addrs[0].Port())), bound: c.Bound, tmpl: t, assets: a, help: h,
+		st:    c.Store, bound: c.Bound, tmpl: t, assets: a, help: h,
 		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
+	// The cookie goes to pages on other ports of 127.0.0.1 too, which count
+	// as the same site, so the sessions come behind localweb.SameOrigin.
+	// Its name ends in the port.
+	s.sessions, err = session.New(session.Options{Token: c.Token, Cookie: "brig_ui_", Header: csrfHeader, Refuse: s.refuse})
+	if err != nil {
+		return nil, err
+	}
+	// What a page asks for itself must start at one of our own pages, and
+	// not at a link on another: no navigation from another page lists the
+	// files of a sandbox or opens a stream.
+	own := localweb.SameOrigin(localweb.Origin{Refuse: s.refuse})
 	s.mux.Handle("GET /static/", a)
 	s.mux.HandleFunc("GET /{$}", s.overview)
 	s.mux.HandleFunc("GET /vms", s.vms)
@@ -105,7 +121,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("GET /activity", s.activity)
 	s.mux.HandleFunc("GET /sandboxes", s.sandboxes)
 	s.mux.HandleFunc("GET /sandboxes/{vm}/{workspace}/{name}", s.sandbox)
-	s.mux.HandleFunc("GET /sandboxes/{vm}/{workspace}/{name}/files", s.sandboxFiles)
+	s.mux.Handle("GET /sandboxes/{vm}/{workspace}/{name}/files", own(http.HandlerFunc(s.sandboxFiles)))
 	s.mux.HandleFunc("GET /sandboxes/{vm}/{workspace}/{name}/history", s.sandboxHistory)
 	s.mux.HandleFunc("GET /gateway", s.firstGateway)
 	s.mux.HandleFunc("GET /gateways/{vm}", s.gateway)
@@ -123,14 +139,15 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	s.mux.HandleFunc("POST /a/{id}/run", s.runAction)
 	s.mux.HandleFunc("POST /tasks/{id}/dismiss", s.dismiss)
 	s.mux.HandleFunc("POST /tasks/{id}/cancel", s.cancelTask)
-	s.mux.HandleFunc("GET /events", s.events)
+	s.mux.Handle("GET /events", own(http.HandlerFunc(s.events)))
 	s.mux.HandleFunc("/", s.notFound)
 	return s, nil
 }
 
 // Handler returns the server's handler with every check in front of it.
 func (s *Server) Handler() http.Handler {
-	return localweb.Headers("")(localweb.NoStore(localweb.Hosts(s.bound.Answers, s.refuse)(s.auth.middleware(s.mux))))
+	navigate := localweb.SameOrigin(localweb.Origin{Navigate: true, Refuse: s.refuse})
+	return localweb.Headers("")(localweb.NoStore(localweb.Hosts(s.bound.Answers, s.refuse)(navigate(s.sessions.Middleware(s.mux)))))
 }
 
 // refuse answers a request that a check of localweb refuses: with its
@@ -145,22 +162,11 @@ func (s *Server) refuse(w http.ResponseWriter, _ *http.Request, f localweb.Refus
 	_, _ = w.Write([]byte(f.Message + "\nOpen the address that brig ui printed in your terminal, or run brig ui again.\n"))
 }
 
-// csrf context helpers.
-
-func withCSRF(ctx context.Context, csrf string) context.Context {
-	return context.WithValue(ctx, csrfKey{}, csrf)
-}
-
-func csrfFrom(ctx context.Context) string {
-	s, _ := ctx.Value(csrfKey{}).(string)
-	return s
-}
-
 // newView returns the view of a request, from the current snapshot.
 func (s *Server) newView(r *http.Request, page, title string) *view {
 	return &view{
 		Page: page, Title: title, Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo,
-		CSRF: csrfFrom(r.Context()), Asset: s.assets.url,
+		CSRF: session.CSRF(r.Context()), Asset: s.assets.url,
 	}
 }
 

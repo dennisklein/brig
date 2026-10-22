@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/localweb"
+	"github.com/GSI-HPC/go-clikit/localweb/session"
 
 	"github.com/dennisklein/brig/internal/audit"
 	"github.com/dennisklein/brig/internal/openshell"
@@ -139,7 +140,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("restricting the listener to your processes: %w", err)
 	}
 	addr := bound.Host()
-	token := newSecret()
+	token := session.NewToken()
 	url := "http://" + addr + "/?token=" + token
 
 	ctx, cancel := context.WithCancel(ctx)

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/localweb/session"
+
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -73,7 +75,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	// The browser reconnects after this long when the stream breaks.
 	_, _ = io.WriteString(w, "retry: 2000\n\n")
 
-	csrf := csrfFrom(r.Context())
+	csrf := session.CSRF(r.Context())
 	// send renders the fragments that want accepts, from the current
 	// snapshot, and writes them. It returns an error when the stream breaks.
 	send := func(want func(name string) bool) error {
