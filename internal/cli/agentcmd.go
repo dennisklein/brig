@@ -648,7 +648,7 @@ func (a *app) agentBuild(cmd *cobra.Command, v *vm.VM, ws, name, tag string, noP
 		fmt.Fprintf(errw, "VM %s has %s already.\n", v.Name, ref)
 	} else {
 		fmt.Fprintf(errw, "$ brig image push %s %s\n", v.Name, ref)
-		if err := a.pushImage(ctx, v, ref, cmd, errw); err != nil {
+		if err := a.pushImage(ctx, v, ref, errw, errw); err != nil {
 			return err
 		}
 	}
