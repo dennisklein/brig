@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
@@ -342,16 +341,15 @@ func printPolicyReport(w io.Writer, rep *policyReport, format outputFormat) erro
 		return nil
 	}
 	if len(rep.Rules) > 0 {
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "STATE\tRULE\tNOTE")
+		t := cliout.Table{Columns: columns("STATE", "RULE", "NOTE")}
 		for _, r := range rep.Rules {
 			note := ""
 			if r.Audit {
 				note = "audit mode: logs, does not block"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", r.State, termtext.Escape(r.Key), note)
+			t.Add(fmt.Sprint(r.State), r.Key, note)
 		}
-		if err := tw.Flush(); err != nil {
+		if err := t.Write(w, false); err != nil {
 			return err
 		}
 	}

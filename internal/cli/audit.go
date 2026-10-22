@@ -12,8 +12,8 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/cliout"
@@ -282,8 +282,7 @@ func printSummary(w io.Writer, reach []audit.Reach, vms bool) error {
 		_, err := fmt.Fprintln(w, "No requests match.")
 		return err
 	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SANDBOX\tENDPOINT\tALLOWED\tDENIED\tFIRST\tLAST\tBINARIES\tRULE")
+	t := cliout.Table{Columns: columns("SANDBOX", "ENDPOINT", "ALLOWED", "DENIED", "FIRST", "LAST", "BINARIES", "RULE")}
 	for _, x := range reach {
 		where := x.Sandbox
 		if x.Workspace != openshell.DefaultWorkspace {
@@ -299,11 +298,11 @@ func printSummary(w io.Writer, reach []audit.Reach, vms bool) error {
 			}
 			rules = append(rules, r)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n", termtext.Escape(where), termtext.Escape(x.Endpoint), x.Allowed, x.Denied,
+		t.Add(where, x.Endpoint, strconv.Itoa(x.Allowed), strconv.Itoa(x.Denied),
 			x.First.Local().Format("02 Jan 15:04"), x.Last.Local().Format("02 Jan 15:04"),
-			termtext.Escape(orDash(strings.Join(x.Binaries, ","))), termtext.Escape(orDash(strings.Join(rules, ", "))))
+			orDash(strings.Join(x.Binaries, ",")), orDash(strings.Join(rules, ", ")))
 	}
-	return tw.Flush()
+	return t.Write(w, false)
 }
 
 // diskSize is a size on disk for display.
@@ -454,8 +453,7 @@ func ago(t, now time.Time) string {
 
 func printAuditStatus(w io.Writer, s auditStatusJSON) error {
 	now := time.Now()
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "VM\tCOLLECTOR\tSINCE\tLAST EVENT\tGAPS 24H\tON DISK")
+	t := cliout.Table{Columns: columns("VM", "COLLECTOR", "SINCE", "LAST EVENT", "GAPS 24H", "ON DISK")}
 	for _, v := range s.VMs {
 		state, since, gaps := v.Collector, "–", "–"
 		if v.Collector == audit.StateVMDeleted && !v.Deleted.IsZero() {
@@ -464,9 +462,9 @@ func printAuditStatus(w io.Writer, s auditStatusJSON) error {
 		if v.Collector == audit.UnitRunning {
 			since, gaps = v.Since.Local().Format("2 Jan 15:04"), fmt.Sprint(v.Gaps24h)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", termtext.Escape(v.VM), state, since, ago(v.LastEvent, now), gaps, diskSize(v.Disk))
+		t.Add(v.VM, state, since, ago(v.LastEvent, now), gaps, diskSize(v.Disk))
 	}
-	if err := tw.Flush(); err != nil {
+	if err := t.Write(w, false); err != nil {
 		return err
 	}
 	for _, v := range s.VMs {
@@ -487,8 +485,7 @@ func printAuditStatus(w io.Writer, s auditStatusJSON) error {
 		parts []audit.Part
 	}{{"SANDBOX", s.Breakdown.Sandboxes}, {"KIND", s.Breakdown.Kinds}, {"MONTH", s.Breakdown.Months}} {
 		fmt.Fprintln(w)
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintf(tw, "%s\tROWS\tON DISK\n", part.title)
+		t := cliout.Table{Columns: columns(part.title, "ROWS", "ON DISK")}
 		for _, p := range part.parts {
 			name := p.Name
 			switch {
@@ -497,9 +494,9 @@ func printAuditStatus(w io.Writer, s auditStatusJSON) error {
 			case part.title == "SANDBOX" && !p.Deleted.IsZero():
 				name += " (deleted " + p.Deleted.Local().Format("2 Jan") + ")"
 			}
-			fmt.Fprintf(tw, "%s\t%d\t%s\n", termtext.Escape(name), p.Rows, diskSize(p.Disk))
+			t.Add(name, strconv.FormatInt(p.Rows, 10), diskSize(p.Disk))
 		}
-		if err := tw.Flush(); err != nil {
+		if err := t.Write(w, false); err != nil {
 			return err
 		}
 	}

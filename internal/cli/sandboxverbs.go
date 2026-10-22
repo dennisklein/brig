@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/cliout"
@@ -487,15 +486,11 @@ func printSandboxes(w io.Writer, rows []sandboxRow, format outputFormat, withVM 
 		}
 		return cliout.WriteJSON(w, rows)
 	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	t := cliout.Table{Columns: columns("WORKSPACE", "NAME", "PHASE", "IMAGE", "PROVIDERS", "CREATED")}
 	if withVM {
-		fmt.Fprint(tw, "VM\t")
+		t.Columns = append(columns("VM"), t.Columns...)
 	}
-	fmt.Fprintln(tw, "WORKSPACE\tNAME\tPHASE\tIMAGE\tPROVIDERS\tCREATED")
 	for _, r := range rows {
-		if withVM {
-			fmt.Fprintf(tw, "%s\t", termtext.Escape(r.VM))
-		}
 		image := r.Image
 		if r.Template != "" {
 			image = "template " + r.Template
@@ -508,8 +503,11 @@ func printSandboxes(w io.Writer, rows []sandboxRow, format outputFormat, withVM 
 		if r.Problem != "" {
 			phase += " (" + r.Problem + ")"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", termtext.Escape(r.Workspace), termtext.Escape(r.Name), termtext.Escape(phase),
-			termtext.Escape(image), termtext.Escape(strings.Join(r.Providers, ",")), created)
+		cells := []string{r.Workspace, r.Name, phase, image, strings.Join(r.Providers, ","), created}
+		if withVM {
+			cells = append([]string{r.VM}, cells...)
+		}
+		t.Add(cells...)
 	}
-	return tw.Flush()
+	return t.Write(w, false)
 }

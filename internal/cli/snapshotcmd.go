@@ -9,7 +9,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/cliout"
@@ -218,8 +217,7 @@ func printSnapshots(w io.Writer, snaps []snapshot, format outputFormat) error {
 	if format == "json" {
 		return cliout.WriteJSON(w, snaps)
 	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SNAPSHOT\tWORKSPACE\tIMAGE\tSIZE\tEXCLUSIVE\tNOTE")
+	t := cliout.Table{Columns: columns("SNAPSHOT", "WORKSPACE", "IMAGE", "SIZE", "EXCLUSIVE", "NOTE")}
 	for _, sn := range snaps {
 		var note []string
 		if sn.Gone {
@@ -228,10 +226,9 @@ func printSnapshots(w io.Writer, snaps []snapshot, format outputFormat) error {
 		if sn.Recreate {
 			note = append(note, "recreate unfinished")
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", termtext.Escape(sn.Name()), termtext.Escape(sn.Workspace), termtext.Escape(sn.Image),
-			size(sn.Size), size(sn.Exclusive), strings.Join(note, ", "))
+		t.Add(sn.Name(), sn.Workspace, sn.Image, size(sn.Size), size(sn.Exclusive), strings.Join(note, ", "))
 	}
-	return tw.Flush()
+	return t.Write(w, false)
 }
 
 // warnSnapshotSpace warns when what the snapshots of v hold alone is more

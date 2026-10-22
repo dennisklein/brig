@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/config"
@@ -187,6 +188,16 @@ func hideDefaults(cmd *cobra.Command, names ...string) {
 			f.DefValue = ""
 		}
 	}
+}
+
+// columns returns the columns of a table with the given headings, none wide
+// and none right-aligned.
+func columns(names ...string) []cliout.Column {
+	cols := make([]cliout.Column, len(names))
+	for i, n := range names {
+		cols[i] = cliout.Column{Name: n}
+	}
+	return cols
 }
 
 // completeVMs completes the first argument with VM names.
