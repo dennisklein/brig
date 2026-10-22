@@ -201,8 +201,10 @@ func Run(ctx context.Context, o Options) error {
 	defer func() {
 		if n := starter.Running(); n > 0 {
 			fmt.Fprintf(o.Stderr, "Interrupting %d running brig command(s); they roll back what they began.\n", n)
-			starter.Shutdown(interruptGrace)
 		}
+		// Also without a running command: Shutdown refuses the starts that
+		// come after it, and waits for one that is just starting.
+		starter.Shutdown(interruptGrace)
 	}()
 
 	srv, err := newServer(ctx, serverConfig{

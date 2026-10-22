@@ -41,6 +41,12 @@ wait)
 	sleep 30 &
 	wait
 	;;
+twice)
+	trap 'echo x >> "$FAKE_MARK.int"; sleep 1; exit 130' INT
+	touch "$FAKE_MARK"
+	sleep 30 &
+	wait
+	;;
 daemon)
 	( sleep 3 ) &
 	echo "left a daemon behind"
@@ -205,6 +211,53 @@ func TestShutdownInterrupts(t *testing.T) {
 	}
 	if r.Running() != 0 {
 		t.Error("a child still runs")
+	}
+}
+
+// waitForMark waits until the script has installed its trap.
+func waitForMark(t *testing.T, mark string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(mark); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the script did not start")
+}
+
+// A second SIGINT would kill brig in the middle of its rollback, so a child
+// gets one, however often the runner is asked to stop it.
+func TestShutdownInterruptsOnce(t *testing.T) {
+	r, st := newRunner(t)
+	mark := filepath.Join(t.TempDir(), "trap-installed")
+	t.Setenv("FAKE_MARK", mark)
+	id, err := r.Start(Spec{Command: command("twice")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForMark(t, mark)
+	r.interruptAll()
+	r.interruptAll()
+	r.Shutdown(5 * time.Second)
+	if task := await(t, st, id); task.Status != store.TaskFailed {
+		t.Errorf("task: %+v", task)
+	}
+	got, err := os.ReadFile(mark + ".int")
+	if err != nil || string(got) != "x\n" {
+		t.Errorf("the child got %q (%v); want one SIGINT", got, err)
+	}
+}
+
+func TestStartFailsDuringShutdown(t *testing.T) {
+	r, _ := newRunner(t)
+	r.Shutdown(time.Second)
+	if _, err := r.Start(Spec{Command: command("ok")}); !errors.Is(err, ErrClosing) {
+		t.Errorf("Start after Shutdown: %v, want ErrClosing", err)
+	}
+	if r.Running() != 0 {
+		t.Error("a child runs")
 	}
 }
 
