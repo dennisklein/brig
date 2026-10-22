@@ -26,17 +26,29 @@ const procNetTCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm
 func TestSocketOwner(t *testing.T) {
 	client := netip.MustParseAddrPort("127.0.0.1:54321")
 	server := netip.MustParseAddrPort("127.0.0.1:7878")
-	uid, err := socketOwner(strings.NewReader(procNetTCP), client, server)
+	uid, err := socketOwner(strings.NewReader(procNetTCP), tcpEstablished, client, server)
 	if err != nil || uid != 1001 {
 		t.Errorf("client socket: uid %d, %v; want 1001", uid, err)
 	}
-	if _, err := socketOwner(strings.NewReader(procNetTCP), netip.MustParseAddrPort("127.0.0.1:1"), server); err == nil {
+	if _, err := socketOwner(strings.NewReader(procNetTCP), tcpEstablished, netip.MustParseAddrPort("127.0.0.1:1"), server); err == nil {
 		t.Error("found a socket that is not there")
 	}
 	for port, why := range map[string]string{"54322": "in TIME_WAIT", "54323": "without an inode"} {
-		if _, err := socketOwner(strings.NewReader(procNetTCP), netip.MustParseAddrPort("127.0.0.1:"+port), server); err == nil {
+		if _, err := socketOwner(strings.NewReader(procNetTCP), tcpEstablished, netip.MustParseAddrPort("127.0.0.1:"+port), server); err == nil {
 			t.Errorf("found a socket %s", why)
 		}
+	}
+}
+
+func TestSocketOwnerOfAListener(t *testing.T) {
+	server := netip.MustParseAddrPort("127.0.0.1:7878")
+	unspecified := netip.AddrPortFrom(netip.IPv4Unspecified(), 0)
+	uid, err := socketOwner(strings.NewReader(procNetTCP), tcpListen, server, unspecified)
+	if err != nil || uid != 1000 {
+		t.Errorf("listener: uid %d, %v; want 1000", uid, err)
+	}
+	if _, err := socketOwner(strings.NewReader(procNetTCP), tcpListen, netip.MustParseAddrPort("127.0.0.1:7879"), unspecified); err == nil {
+		t.Error("found a listener that is not there")
 	}
 }
 

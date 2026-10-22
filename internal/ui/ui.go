@@ -35,7 +35,6 @@ import (
 	"github.com/dennisklein/brig/internal/ui/demo"
 	"github.com/dennisklein/brig/internal/ui/run"
 	"github.com/dennisklein/brig/internal/ui/store"
-	"github.com/dennisklein/brig/internal/vm"
 )
 
 // clock is the time the pages measure from. It is the system clock, except
@@ -70,6 +69,12 @@ type Options struct {
 	RuntimeDir string
 	Stdout     io.Writer
 	Stderr     io.Writer
+
+	// procRoot is the /proc that names the owner of a socket; empty for
+	// /proc.
+	procRoot string
+	// flock takes the lock of the runtime directory; nil is flock(2).
+	flock func(fd, how int) error
 }
 
 const (
@@ -90,13 +95,27 @@ type runtimeRecord struct {
 // it opens that one's URL and returns.
 func Run(ctx context.Context, o Options) error {
 	log := slog.New(slog.NewTextHandler(o.Stderr, nil))
-	record := ""
+	var inst *instance
 	if !o.Demo && o.RuntimeDir != "" {
-		record = filepath.Join(o.RuntimeDir, "brig", "ui.json")
-		if r, ok := running(record); ok {
+		var err error
+		if inst, err = newInstance(o.RuntimeDir); err != nil {
+			return fmt.Errorf("preparing the runtime directory: %w", err)
+		}
+		if o.procRoot != "" {
+			inst.procRoot = o.procRoot
+		}
+		if o.flock != nil {
+			inst.flock = o.flock
+		}
+		if err := inst.lock(); err != nil {
+			return fmt.Errorf("locking the runtime directory: %w", err)
+		}
+		// The lock is dropped once the record is written, or on an error.
+		defer inst.unlock()
+		if r, ok := inst.running(); ok {
 			fmt.Fprintf(o.Stdout, "brig ui is already running: %s\n", r.URL)
 			if !o.NoOpen {
-				openBrowser(o.RuntimeDir, r.URL, log)
+				openBrowser(inst.dir, r.URL, log)
 			}
 			return nil
 		}
@@ -200,18 +219,30 @@ func Run(ctx context.Context, o Options) error {
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 
-	if record != "" {
-		if err := writeRecord(record, runtimeRecord{URL: url, PID: os.Getpid()}); err != nil {
+	if inst != nil {
+		if err := inst.publish(runtimeRecord{URL: url, PID: os.Getpid()}); err != nil {
 			return err
 		}
-		defer func() { _ = os.Remove(record) }()
+		inst.unlock()
+		defer inst.retire()
 	}
 	if o.Demo {
 		fmt.Fprintln(o.Stdout, "brig ui is serving made-up VMs; nothing touches this host.")
 	}
 	fmt.Fprintf(o.Stdout, "brig ui: %s\nPress Ctrl-C to stop.\n", url)
 	if !o.NoOpen {
-		openBrowser(o.RuntimeDir, url, log)
+		dir := ""
+		if inst != nil {
+			dir = inst.dir
+		} else if dir, err = os.MkdirTemp("", "brig-ui-"); err != nil {
+			log.Warn("could not make a directory for the page that opens brig ui; open the URL above yourself", "err", err)
+		} else {
+			// The browser reads the page while brig ui runs.
+			defer func() { _ = os.RemoveAll(dir) }()
+		}
+		if dir != "" {
+			openBrowser(dir, url, log)
+		}
 	}
 
 	errc := make(chan error, 1)
@@ -272,41 +303,6 @@ func recordURL(raw string) (*neturl.URL, bool) {
 	return u, true
 }
 
-// running returns the record of a brig ui that still runs.
-func running(path string) (runtimeRecord, bool) {
-	r, ok := readRecord(path)
-	if !ok {
-		return r, false
-	}
-	// Signal 0 checks that the process exists and is ours; a PID used
-	// again by another process does not listen at the URL.
-	if syscall.Kill(r.PID, 0) != nil {
-		return r, false
-	}
-	u, ok := recordURL(r.URL)
-	if !ok {
-		return r, false
-	}
-	c, err := net.DialTimeout("tcp4", u.Host, time.Second)
-	if err != nil {
-		return r, false
-	}
-	_ = c.Close()
-	return r, true
-}
-
-// writeRecord writes the runtime record, readable only by the user.
-func writeRecord(path string, r runtimeRecord) error {
-	if err := paths.EnsurePrivate(filepath.Dir(path)); err != nil {
-		return err
-	}
-	data, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-	return vm.WriteFileAtomic(path, append(data, '\n'), 0o600)
-}
-
 // openTemplate is a page that sends the browser on to the URL. The browser
 // opens this file rather than the URL itself, so that the token never
 // stands in a command line, which other users can read in /proc.
@@ -316,19 +312,16 @@ var openTemplate = template.Must(template.New("").Parse(`<!doctype html>
 `))
 
 // openBrowser opens url in the user's browser, through a private file in
-// runtimeDir when there is one. A failure is only logged: the URL is
-// printed anyway.
-func openBrowser(runtimeDir, url string, log *slog.Logger) {
-	target := url
-	if runtimeDir != "" {
-		path := filepath.Join(runtimeDir, "brig", "ui-open.html")
-		if err := writeOpenFile(path, url); err != nil {
-			log.Warn("could not write the page that opens brig ui", "err", err)
-		} else {
-			target = path
-		}
+// dir, a directory of the user's alone. A failure is only logged: the URL is
+// printed anyway. Without the file no browser opens, as the URL would stand
+// in xdg-open's command line, which other users can read in /proc.
+func openBrowser(dir, url string, log *slog.Logger) {
+	path := filepath.Join(dir, "ui-open.html")
+	if err := writeOpenFile(path, url); err != nil {
+		log.Warn("could not write the page that opens brig ui; open the URL above yourself", "err", err)
+		return
 	}
-	cmd := exec.Command("xdg-open", target)
+	cmd := exec.Command("xdg-open", path)
 	if err := cmd.Start(); err != nil {
 		log.Warn("could not open a browser; open the URL above yourself", "err", err)
 		return
@@ -337,9 +330,6 @@ func openBrowser(runtimeDir, url string, log *slog.Logger) {
 }
 
 func writeOpenFile(path, url string) error {
-	if err := paths.EnsurePrivate(filepath.Dir(path)); err != nil {
-		return err
-	}
 	f, err := os.CreateTemp(filepath.Dir(path), ".ui-open-*")
 	if err != nil {
 		return err
