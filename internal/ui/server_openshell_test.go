@@ -119,28 +119,13 @@ func TestOpenShellEvents(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(nil, 1<<20)
-	if !sc.Scan() {
-		t.Fatalf("stream ended: %v", sc.Err())
-	}
+	openingEvents(t, sc, "sandbox", "vm-table")
 	ts.st.UpdateGateway("dev", func(gw *store.Gateway) bool {
 		gw.State = store.GatewayUnreachable
 		gw.Err = "brig-dev does not answer"
 		return true
 	})
-	var name, data string
-	var lines []string
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" && name != "" {
-			data = strings.Join(lines, "\n")
-			break
-		}
-		if n, ok := strings.CutPrefix(line, "event: "); ok {
-			name = n
-		} else if d, ok := strings.CutPrefix(line, "data: "); ok {
-			lines = append(lines, d)
-		}
-	}
+	name, data := nextEvent(t, sc)
 	// A gateway change sends the sandbox, on its tab, and not the VM table.
 	if name != "sandbox" || !strings.Contains(data, "brig-dev does not answer") || !strings.Contains(data, "policy get webapp --full") {
 		t.Errorf("got event %q: %.300s", name, data)

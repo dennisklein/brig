@@ -321,6 +321,43 @@ func TestStaticFiles(t *testing.T) {
 	}
 }
 
+// nextEvent reads the next event of a stream, and skips the retry time and
+// the comments before it.
+func nextEvent(t *testing.T, sc *bufio.Scanner) (name, data string) {
+	t.Helper()
+	var lines []string
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case line == "" && name != "":
+			return name, strings.Join(lines, "\n")
+		case strings.HasPrefix(line, "event: "):
+			name = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			lines = append(lines, strings.TrimPrefix(line, "data: "))
+		}
+	}
+	t.Fatalf("stream ended: %v", sc.Err())
+	return "", ""
+}
+
+// openingEvents reads the events that a stream opens with, one for each of
+// the fragments, and returns them by name.
+func openingEvents(t *testing.T, sc *bufio.Scanner, fragments ...string) map[string]string {
+	t.Helper()
+	got := map[string]string{}
+	for range fragments {
+		name, data := nextEvent(t, sc)
+		got[name] = data
+	}
+	for _, f := range fragments {
+		if _, ok := got[f]; !ok {
+			t.Errorf("the stream did not open with %q; it sent %d events", f, len(got))
+		}
+	}
+	return got
+}
+
 func TestEvents(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
@@ -348,22 +385,12 @@ func TestEvents(t *testing.T) {
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(nil, 1<<20)
-	next := func() (string, string) {
-		var name string
-		var data []string
-		for sc.Scan() {
-			line := sc.Text()
-			switch {
-			case line == "" && name != "":
-				return name, strings.Join(data, "\n")
-			case strings.HasPrefix(line, "event: "):
-				name = strings.TrimPrefix(line, "event: ")
-			case strings.HasPrefix(line, "data: "):
-				data = append(data, strings.TrimPrefix(line, "data: "))
-			}
-		}
-		t.Fatalf("stream ended: %v", sc.Err())
-		return "", ""
+	next := func() (string, string) { return nextEvent(t, sc) }
+
+	// The stream opens with every fragment, whatever changes next.
+	opening := openingEvents(t, sc, "vm-table", "host-checks")
+	if !strings.Contains(opening["vm-table"], "<table") || !strings.Contains(opening["host-checks"], "Host") {
+		t.Errorf("opening events: %.200v", opening)
 	}
 
 	// A change to the VMs sends the table, and only the table.
@@ -443,5 +470,36 @@ func TestFetchMetadata(t *testing.T) {
 		if got := ts.do(r).Code; got != c.want {
 			t.Errorf("%s: %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// A change that lands after the page was rendered, before the stream opens,
+// is in what the stream opens with: the page is not left stale until the
+// next change.
+func TestEventsOpenWithAChangeBetweenPageAndStream(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	srv := httptest.NewServer(ts.h)
+	defer srv.Close()
+
+	sn := ts.st.Snapshot()
+	vms := append([]store.VM(nil), sn.VMs...)
+	vms[0].Name = "betweenpageandstream"
+	ts.st.SetVMs(store.VMState{VMs: vms, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=vm-table", nil)
+	req.Host = "127.0.0.1:7878"
+	req.AddCookie(ts.cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(nil, 1<<20)
+	if got := openingEvents(t, sc, "vm-table")["vm-table"]; !strings.Contains(got, "betweenpageandstream") {
+		t.Errorf("the stream opened without the change: %.200s", got)
 	}
 }

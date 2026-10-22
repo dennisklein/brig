@@ -239,26 +239,11 @@ func TestTrafficEvents(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(nil, 1<<20)
-	if !sc.Scan() {
-		t.Fatalf("stream ended: %v", sc.Err())
-	}
+	openingEvents(t, sc, "traffic-table", "vm-table")
 	addTraffic(ts)
-	var name string
-	var data []string
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" && name != "" {
-			break
-		}
-		if n, ok := strings.CutPrefix(line, "event: "); ok {
-			name = n
-		} else if d, ok := strings.CutPrefix(line, "data: "); ok {
-			data = append(data, d)
-		}
-	}
+	name, got := nextEvent(t, sc)
 	// New traffic sends the table, with the page's filters, and not the
 	// VM table.
-	got := strings.Join(data, "\n")
 	if name != "traffic-table" || !strings.Contains(got, "registry.npmjs.org") || strings.Contains(got, "uploads.github.com") || strings.Contains(got, "_provider_github") {
 		t.Errorf("got event %q: %.400s", name, got)
 	}
