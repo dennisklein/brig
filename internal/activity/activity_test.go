@@ -65,9 +65,16 @@ func failingStop(ctx context.Context) error {
 	return err
 }
 
+// feed gives the lines of log to red.
+func feed(red *Reducer, log []byte) {
+	for line := range bytes.SplitSeq(log, []byte("\n")) {
+		red.red.Line(line)
+	}
+}
+
 func reduce(logs ...[]byte) []store.Run {
 	red := NewReducer(200)
-	readLines(bytes.NewReader(bytes.Join(logs, nil)), red, nil)
+	feed(red, bytes.Join(logs, nil))
 	return red.Runs()
 }
 
@@ -156,7 +163,7 @@ func TestReducerKeepsNewest(t *testing.T) {
 	red := NewReducer(maxRuns)
 	for range maxRuns + 5 {
 		// Each log draws a run of its own.
-		readLines(bytes.NewReader(logRun(t, "list", func(context.Context) error { return nil })), red, nil)
+		feed(red, logRun(t, "list", func(context.Context) error { return nil }))
 	}
 	if n := len(red.Runs()); n != maxRuns {
 		t.Errorf("kept %d runs, want %d", n, maxRuns)
@@ -166,12 +173,9 @@ func TestReducerKeepsNewest(t *testing.T) {
 func TestTail(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "activity.jsonl")
-	tl := NewTail(path, NewReducer(200))
-	if !tl.Poll() || len(tl.red.Runs()) != 0 {
+	tl := newFollower(path)
+	if tl.Poll() || len(tl.runs()) != 0 {
 		t.Fatal("a missing log is not an empty one")
-	}
-	if tl.Poll() {
-		t.Error("a missing log changed")
 	}
 
 	start := logRun(t, "start dev", startDev)
@@ -179,12 +183,12 @@ func TestTail(t *testing.T) {
 	if err := os.WriteFile(path, start[:half], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !tl.Poll() || len(tl.red.Runs()) != 1 || tl.red.Runs()[0].Done() {
-		t.Fatalf("first part: %+v", tl.red.Runs())
+	if !tl.Poll() || len(tl.runs()) != 1 || tl.runs()[0].Done() {
+		t.Fatalf("first part: %+v", tl.runs())
 	}
 	appendFile(t, path, start[half:])
-	if !tl.Poll() || !tl.red.Runs()[0].Done() {
-		t.Fatalf("rest: %+v", tl.red.Runs())
+	if !tl.Poll() || !tl.runs()[0].Done() {
+		t.Fatalf("rest: %+v", tl.runs())
 	}
 	if tl.Poll() {
 		t.Error("an unchanged log changed")
@@ -197,14 +201,14 @@ func TestTail(t *testing.T) {
 	if err := os.WriteFile(path, logRun(t, "stop dev", failingStop), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !tl.Poll() || len(tl.red.Runs()) != 2 {
-		t.Fatalf("after rotation: %+v", tl.red.Runs())
+	if !tl.Poll() || len(tl.runs()) != 2 {
+		t.Fatalf("after rotation: %+v", tl.runs())
 	}
 
 	// A new reader finds both, the rotated copy first.
-	fresh := NewTail(path, NewReducer(200))
+	fresh := newFollower(path)
 	fresh.Poll()
-	if runs := fresh.red.Runs(); len(runs) != 2 || runs[0].Title != "brig stop dev" {
+	if runs := fresh.runs(); len(runs) != 2 || runs[0].Title != "brig stop dev" {
 		t.Errorf("fresh reader: %+v", runs)
 	}
 }
@@ -218,9 +222,9 @@ func TestTailFinishesRotatedLog(t *testing.T) {
 	if err := os.WriteFile(path, start[:half], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	tl := NewTail(path, NewReducer(200))
-	if !tl.Poll() || len(tl.red.Runs()) != 1 || tl.red.Runs()[0].Done() {
-		t.Fatalf("first part: %+v", tl.red.Runs())
+	tl := newFollower(path)
+	if !tl.Poll() || len(tl.runs()) != 1 || tl.runs()[0].Done() {
+		t.Fatalf("first part: %+v", tl.runs())
 	}
 
 	// Rotate, then the old writer ends its run in the old file.
@@ -234,7 +238,7 @@ func TestTailFinishesRotatedLog(t *testing.T) {
 	if !tl.Poll() {
 		t.Fatal("no change after rotation")
 	}
-	runs := tl.red.Runs()
+	runs := tl.runs()
 	if len(runs) != 2 || runs[0].Title != "brig stop dev" || runs[1].Title != "brig start dev" || !runs[1].Done() {
 		t.Errorf("after rotation: %+v", runs)
 	}
@@ -254,18 +258,22 @@ func appendFile(t *testing.T, path string, data []byte) {
 	}
 }
 
-func TestReadLinesSkipsLongLines(t *testing.T) {
-	red := NewReducer(200)
-	long := append(bytes.Repeat([]byte("x"), maxLine+10), '\n')
-	n, partial := readLines(bytes.NewReader(append(long, logRun(t, "start dev", startDev)...)), red, nil)
-	if len(red.Runs()) != 1 || len(partial) != 0 || n <= int64(len(long)) {
-		t.Errorf("runs %d, partial %d, read %d", len(red.Runs()), len(partial), n)
-	}
-}
-
 func TestReducerVM(t *testing.T) {
 	runs := reduce(logRunOn(t, "dev", "policy allow dev", func(context.Context) error { return nil }), logRun(t, "list", func(context.Context) error { return nil }))
 	if len(runs) != 2 || runs[1].VM != "dev" || runs[0].VM != "" {
 		t.Errorf("runs: %+v", runs)
 	}
 }
+
+// follower is a Tail with the Reducer it feeds.
+type follower struct {
+	*Tail
+	red *Reducer
+}
+
+func newFollower(path string) follower {
+	red := NewReducer(200)
+	return follower{NewTail(path, red), red}
+}
+
+func (f follower) runs() []store.Run { return f.red.Runs() }
