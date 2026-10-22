@@ -40,6 +40,9 @@ const (
 	outputEvery = 500 * time.Millisecond
 )
 
+// ErrClosing is the error of Start once Shutdown has begun.
+var ErrClosing = errors.New("brig ui is shutting down")
+
 // Spec describes a command to run as a task.
 type Spec struct {
 	// Action is the ID of the action that built the command.
@@ -83,8 +86,19 @@ type Runner struct {
 	KeepOK time.Duration
 
 	mu      sync.Mutex
-	running map[string]*exec.Cmd
+	running map[string]*child
+	// closing is set once Shutdown has begun: no task starts after it.
+	closing bool
 	wg      sync.WaitGroup
+}
+
+// child is a running task's process.
+type child struct {
+	cmd *exec.Cmd
+	// interrupted is set once the child got its SIGINT. brig takes the
+	// first SIGINT as Ctrl-C and rolls back; a second one would kill it in
+	// the middle of the rollback, so it never gets one.
+	interrupted bool
 }
 
 // Start implements Starter.
@@ -92,6 +106,24 @@ func (r *Runner) Start(s Spec) (string, error) {
 	if len(s.Command.Argv) == 0 {
 		return "", errors.New("no command to run")
 	}
+	r.mu.Lock()
+	if r.closing {
+		r.mu.Unlock()
+		return "", ErrClosing
+	}
+	// Shutdown waits for this task from now on, also while it starts.
+	r.wg.Add(1)
+	r.mu.Unlock()
+	id, err := r.start(s)
+	if err != nil {
+		r.wg.Done()
+	}
+	return id, err
+}
+
+// start starts the child of a task that Start has counted in the wait
+// group, and the goroutine that follows it, which ends the count.
+func (r *Runner) start(s Spec) (string, error) {
 	trace, span := randomHex(16), randomHex(8)
 	var cmd *exec.Cmd
 	var endSpan func(error)
@@ -131,11 +163,15 @@ func (r *Runner) Start(s Spec) (string, error) {
 	r.Store.AddTask(t)
 	r.mu.Lock()
 	if r.running == nil {
-		r.running = map[string]*exec.Cmd{}
+		r.running = map[string]*child{}
 	}
-	r.running[t.ID] = cmd
+	late := r.closing
+	r.running[t.ID] = &child{cmd: cmd, interrupted: late}
 	r.mu.Unlock()
-	r.wg.Add(1)
+	if late {
+		// Shutdown began while the child started.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+	}
 	go r.wait(t.ID, s.Command.Argv[0], cmd, tail, endSpan)
 	return t.ID, nil
 }
@@ -193,23 +229,37 @@ loop:
 // rolls back and cleans up as it does for Ctrl-C, and kills those that have
 // not ended after grace.
 func (r *Runner) Shutdown(grace time.Duration) {
-	r.signal(syscall.SIGINT)
+	r.interruptAll()
 	done := make(chan struct{})
 	go func() { r.wg.Wait(); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(grace):
-		r.signal(syscall.SIGKILL)
+		r.kill()
 		<-done
 	}
 }
 
-// signal sends sig to the process group of every running child.
-func (r *Runner) signal(sig syscall.Signal) {
+// interruptAll stops new tasks and sends SIGINT to the process group of
+// every running child that has not had one yet.
+func (r *Runner) interruptAll() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, cmd := range r.running {
-		_ = syscall.Kill(-cmd.Process.Pid, sig)
+	r.closing = true
+	for _, c := range r.running {
+		if !c.interrupted {
+			c.interrupted = true
+			_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGINT)
+		}
+	}
+}
+
+// kill sends SIGKILL to the process group of every running child.
+func (r *Runner) kill() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, c := range r.running {
+		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
 
