@@ -64,6 +64,25 @@ type Snapshot struct {
 	Traffic []Traffic
 	// Audit is the state of the audit trail.
 	Audit Audit
+	// Services are brig's services, sorted by name.
+	Services []Service
+}
+
+// Service is a brig service, as brig service list shows it.
+type Service struct {
+	Name      string
+	Type      string
+	Placement string
+	// Port is the service's port on the host's loopback interface.
+	Port int
+	// State is the domain state of the service's VM, as for a VM, or
+	// "host" for a service on the host.
+	State string
+	// Attachments is the number of sandboxes with a token for the service.
+	Attachments int
+	// UI is the URL of the service's own web UI, if its type has one and
+	// the service runs.
+	UI string
 }
 
 // Config is the part of config.yaml that the dialogs prefill.
@@ -321,12 +340,14 @@ type VMState struct {
 	Images   []Image
 	Profiles map[string]config.NetworkProfile
 	Config   Config
+	Services []Service
 }
 
 // SetVMs replaces what the brig collector reads.
 func (s *Store) SetVMs(v VMState) {
 	s.update(TopicVMs, func(sn *Snapshot) {
 		sn.VMs, sn.VMsErr, sn.Images, sn.Profiles, sn.Config = v.VMs, v.Err, v.Images, v.Profiles, v.Config
+		sn.Services = v.Services
 		sn.NewestImage = nil
 		if len(v.Images) > 0 {
 			sn.NewestImage = &v.Images[0]

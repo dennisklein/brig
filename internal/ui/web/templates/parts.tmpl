@@ -120,6 +120,19 @@
 </tbody></table>
 {{end}}
 
+{{/* The services, under the VMs; brig service manages them. */}}
+
+{{define "service-table"}}{{with .Snap.Services}}
+<div class="head"><div class="titles"><h2>{{term "services" "Services"}}</h2><div class="sub">Workloads that sandboxes use with a token of their own; manage them with <code>brig service</code>.</div></div></div>
+<section class="panel tw"><table><thead><tr><th>Name</th><th>Type</th><th>State</th><th class="num">Port</th><th class="num">Sandboxes</th><th></th></tr></thead><tbody>
+{{range .}}<tr>
+  <td>{{.Name}}</td><td class="mono">{{.Type}}</td><td>{{template "pill" .State}}</td>
+  <td class="num mono">{{.Port}}</td><td class="num">{{.Attachments}}</td>
+  <td class="act">{{with .UI}}<a class="btn sm" href="{{.}}" target="_blank" rel="noopener noreferrer">Open its UI</a>{{end}}</td>
+</tr>{{end}}
+</tbody></table></section>
+{{end}}{{end}}
+
 {{/* A VM: the header, the tabs and the tab's body, replaced as a whole. */}}
 
 {{define "vm"}}{{$v := .VM}}{{if not $v.Name}}
