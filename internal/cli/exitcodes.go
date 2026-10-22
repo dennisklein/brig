@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/GSI-HPC/go-clikit/cobratree"
+
 	"github.com/dennisklein/brig/internal/image"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -18,6 +20,7 @@ import (
 // an outcome.
 const (
 	exitFailure    = 1
+	exitUsage      = 2
 	exitNotFound   = 3
 	exitExists     = 4
 	exitNotReady   = 5
@@ -40,6 +43,7 @@ type ExitCode struct {
 // comes first and the catch-all last, as brig --help lists them.
 var exitCodes = []ExitCode{
 	{0, "", "success", "The command did what you asked."},
+	{exitUsage, "usage", "usage error", "The command line is wrong: a flag or a command that brig does not know, or arguments that the command does not take."},
 	{exitNotFound, "not_found", "not found", "The VM, image or other object that you named does not exist."},
 	{exitExists, "exists", "exists already", "The VM or other object that you asked to create exists already."},
 	{exitNotReady, "not_ready", "not ready (VM, gateway or sandbox)", "The VM does not run, its gateway does not answer, or the sandbox is not ready."},
@@ -122,6 +126,8 @@ func exitStatus(err error) int {
 	switch {
 	case errors.As(err, &c):
 		return c.code
+	case cobratree.IsUsage(err):
+		return exitUsage
 	case errors.Is(err, vm.ErrNotFound), errors.Is(err, image.ErrNotFound):
 		return exitNotFound
 	}

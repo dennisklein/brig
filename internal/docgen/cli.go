@@ -142,7 +142,7 @@ func (g *cliGen) synopsis(c *cobra.Command) []string {
 		lines[0] = "brig COMMAND [OPTIONS]"
 	} else {
 		lines[0] = c.Parent().CommandPath() + " " + lines[0]
-		if len(g.subcommands(c)) > 0 && !c.Runnable() {
+		if len(g.subcommands(c)) > 0 && cli.IsGroup(c) {
 			lines[0] += " COMMAND"
 		}
 	}

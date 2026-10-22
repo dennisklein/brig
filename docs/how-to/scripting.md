@@ -26,8 +26,9 @@ error on standard output as well, as `{"error": "...", "reason": "not_ready",
 
 ## Exit status
 
-brig's exit status says why a command failed: not found, exists already, not
-ready, or a failed sync, each with its own status and JSON `reason`. [Exit
+brig's exit status says why a command failed: a usage error, not found, exists
+already, not ready, or a failed sync, each with its own status and JSON
+`reason`. [Exit
 codes](../reference/exit-codes.md) lists them, as does `brig --help`. `brig
 policy diff` uses 1 and 7 for its outcomes (see its `--help`), and `brig
 sandbox exec` and `brig sandbox run` exit with the command's status.

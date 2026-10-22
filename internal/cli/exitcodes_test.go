@@ -29,7 +29,7 @@ func TestExitStatusTellsFailuresApart(t *testing.T) {
 		{[]string{"show", "nosuch"}, exitNotFound},
 		{[]string{"create", "dev"}, exitExists},
 		{[]string{"sync", "dev"}, exitNotReady},
-		{[]string{"show", "-o", "yaml"}, exitFailure},
+		{[]string{"show", "-o", "yaml"}, exitUsage},
 	} {
 		_, err := run(t, tc.args...)
 		if got := exitStatus(err); got != tc.want {

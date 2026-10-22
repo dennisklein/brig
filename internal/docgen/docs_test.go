@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/dennisklein/brig/internal/cli"
 	"github.com/dennisklein/brig/internal/help"
 )
 
@@ -354,7 +355,7 @@ func checkBrig(root *cobra.Command, args []string) error {
 			switch {
 			case next != nil:
 				c = next
-			case !c.Runnable() && len(c.Commands()) > 0:
+			case cli.IsGroup(c):
 				return fmt.Errorf("%s has no command %s", c.CommandPath(), a)
 			default:
 				descend = false
