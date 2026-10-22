@@ -40,6 +40,9 @@ const (
 	outputEvery = 500 * time.Millisecond
 )
 
+// ErrNotRunning is what Cancel returns for a task that is not running.
+var ErrNotRunning = errors.New("the command is not running")
+
 // ErrClosing is the error of Start once Shutdown has begun.
 var ErrClosing = errors.New("brig ui is shutting down")
 
@@ -64,6 +67,9 @@ type Starter interface {
 	Start(s Spec) (string, error)
 	// Running returns how many tasks run.
 	Running() int
+	// Cancel asks the running task id to stop, as Ctrl-C does. It returns
+	// ErrNotRunning for a task that is not running.
+	Cancel(id string) error
 	// Shutdown asks running tasks to end and waits for them, up to grace.
 	Shutdown(grace time.Duration)
 }
@@ -223,6 +229,30 @@ loop:
 	if err == nil && r.KeepOK > 0 {
 		time.AfterFunc(r.KeepOK, func() { r.Store.RemoveTask(id) })
 	}
+}
+
+// Cancel implements Starter: it interrupts the child, so that brig rolls
+// back as it does for Ctrl-C. A child that has had its interrupt is
+// stopping already.
+func (r *Runner) Cancel(id string) error {
+	r.mu.Lock()
+	c, ok := r.running[id]
+	again := ok && c.interrupted
+	if ok {
+		c.interrupted = true
+	}
+	r.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("task %s: %w", id, ErrNotRunning)
+	}
+	if again {
+		return nil
+	}
+	r.Store.UpdateTask(id, store.TopicTasks, func(t *store.Task) { t.Canceling = true })
+	if err := syscall.Kill(-c.cmd.Process.Pid, syscall.SIGINT); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("stopping task %s: %w", id, err)
+	}
+	return nil
 }
 
 // Shutdown implements Starter: it interrupts the children, so that brig

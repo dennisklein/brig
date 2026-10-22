@@ -55,6 +55,8 @@ type Host struct {
 	quit    chan struct{}
 	wg      sync.WaitGroup
 	running atomic.Int32
+	// stops end the commands that play, by task ID; mu guards it.
+	stops map[string]chan struct{}
 
 	traffic *traffic
 	// still stops the clock at Epoch: the meters stay and no request comes.

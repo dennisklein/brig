@@ -23,7 +23,7 @@
 
 {{define "task"}}
 <div class="task {{.Status}}" id="task-{{.ID}}">
-  <div class="th">{{if .Done}}<span class="dot{{if eq .Status "failed"}} bad{{end}}"></span>{{else}}<span class="spin" aria-hidden="true">◐</span>{{end}}<b class="mono">{{.Display}}</b>{{if .Done}}<button type="button" class="btn ghost sm" hx-post="/tasks/{{.ID}}/dismiss" hx-target="#tasks" hx-swap="innerHTML" aria-label="Dismiss">×</button>{{end}}</div>
+  <div class="th">{{if .Done}}<span class="dot{{if eq .Status "failed"}} bad{{end}}"></span>{{else}}<span class="spin" aria-hidden="true">◐</span>{{end}}<b class="mono">{{.Display}}</b>{{if .Done}}<button type="button" class="btn ghost sm" hx-post="/tasks/{{.ID}}/dismiss" hx-target="#tasks" hx-swap="innerHTML" aria-label="Dismiss">×</button>{{else if .Canceling}}<button type="button" class="btn sm" disabled>Stopping…</button>{{else}}<button type="button" class="btn sm" hx-post="/tasks/{{.ID}}/cancel" hx-swap="none" hx-confirm="Stop this command? brig rolls back what it began.">Stop</button>{{end}}</div>
   {{with .Run}}{{template "tree" .Steps}}{{else}}{{if not .Done}}<div class="faint small">Starting…</div>{{end}}{{end}}
   {{with .Err}}<div class="callout bad">{{.}}</div>{{end}}
   {{if .Output}}{{if or .ShowOutput (eq .Status "failed")}}<pre class="out">{{.Output}}</pre>{{end}}{{end}}

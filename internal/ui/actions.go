@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -526,6 +527,25 @@ func (s *Server) dismiss(w http.ResponseWriter, r *http.Request) {
 		s.st.RemoveTask(t.ID)
 	}
 	s.fragmentResponse(w, http.StatusOK, "tasks", s.newView(r, "", ""))
+}
+
+// cancelTask asks a running task to stop, as Ctrl-C does: brig rolls back
+// and the task card shows the rest.
+func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := s.st.Snapshot().Task(id); !ok {
+		s.notFound(w, r)
+		return
+	}
+	switch err := s.starter.Cancel(id); {
+	case errors.Is(err, run.ErrNotRunning):
+		http.Error(w, "this command is not running", http.StatusConflict)
+	case err != nil:
+		s.log.Error("stopping a task", "task", id, "err", err)
+		http.Error(w, "brig ui could not stop this command; its log says why", http.StatusInternalServerError)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // fragmentResponse writes the named fragment.

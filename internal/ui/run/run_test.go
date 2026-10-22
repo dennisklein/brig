@@ -383,3 +383,41 @@ func TestChildEnv(t *testing.T) {
 		t.Errorf("without a log: %q", env)
 	}
 }
+
+func TestCancelInterruptsOnce(t *testing.T) {
+	r, st := newRunner(t)
+	mark := filepath.Join(t.TempDir(), "trap-installed")
+	t.Setenv("FAKE_MARK", mark)
+	id, err := r.Start(Spec{Command: command("twice")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForMark(t, mark)
+	if err := r.Cancel(id); err != nil {
+		t.Fatal(err)
+	}
+	if task, _ := st.Snapshot().Task(id); !task.Canceling {
+		t.Error("the task does not show that it is stopping")
+	}
+	// Stopping it again, or shutting down, sends no second SIGINT.
+	if err := r.Cancel(id); err != nil {
+		t.Errorf("second Cancel: %v", err)
+	}
+	r.Shutdown(5 * time.Second)
+	if task := await(t, st, id); task.Status != store.TaskFailed {
+		t.Errorf("task: %+v", task)
+	}
+	if got, err := os.ReadFile(mark + ".int"); err != nil || string(got) != "x\n" {
+		t.Errorf("the child got %q (%v); want one SIGINT", got, err)
+	}
+	if err := r.Cancel(id); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("Cancel of a task that ended: %v, want ErrNotRunning", err)
+	}
+}
+
+func TestCancelKnowsNoSuchTask(t *testing.T) {
+	r, _ := newRunner(t)
+	if err := r.Cancel("nope"); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("Cancel: %v, want ErrNotRunning", err)
+	}
+}

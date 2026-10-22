@@ -60,10 +60,32 @@ func (h *Host) Start(sp run.Spec) (string, error) {
 		ID: id, Action: sp.Action, Display: sp.Command.Display, VM: sp.VM, Trace: trace,
 		Start: time.Now(), Status: store.TaskRunning, ShowOutput: sp.ShowOutput, Next: sp.Next, NextForm: sp.NextForm,
 	})
+	stop := make(chan struct{})
+	h.mu.Lock()
+	if h.stops == nil {
+		h.stops = map[string]chan struct{}{}
+	}
+	h.stops[id] = stop
+	h.mu.Unlock()
 	h.wg.Add(1)
 	h.running.Add(1)
-	go h.play(id, trace, sp, p)
+	go h.play(id, trace, sp, p, stop)
 	return id, nil
+}
+
+// Cancel implements run.Starter: the command ends at its next step, as brig
+// does after Ctrl-C.
+func (h *Host) Cancel(id string) error {
+	h.mu.Lock()
+	stop, ok := h.stops[id]
+	delete(h.stops, id)
+	h.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("task %s: %w", id, run.ErrNotRunning)
+	}
+	h.st.UpdateTask(id, store.TopicTasks, func(t *store.Task) { t.Canceling = true })
+	close(stop)
+	return nil
 }
 
 // Running implements run.Starter.
@@ -81,14 +103,21 @@ func (h *Host) Shutdown(time.Duration) {
 
 // play plays out the command as the task id: a step after the other, shown in
 // the activity log under the task's trace.
-func (h *Host) play(id, trace string, sp run.Spec, p plan) {
+func (h *Host) play(id, trace string, sp run.Spec, p plan, stop <-chan struct{}) {
 	defer h.wg.Done()
 	defer h.running.Add(-1)
+	defer func() {
+		h.mu.Lock()
+		delete(h.stops, id)
+		h.mu.Unlock()
+	}()
 	r := store.Run{ID: id, Trace: trace, Title: title(sp.Command.Argv), Start: time.Now(), Program: sp.Command.Argv[0], Version: "demo"}
 	h.setRun(r)
 	wait := func() bool {
 		select {
 		case <-h.quit:
+			return false
+		case <-stop:
 			return false
 		case <-time.After(stepEvery):
 			return true
@@ -98,6 +127,11 @@ func (h *Host) play(id, trace string, sp run.Spec, p plan) {
 		r.Steps = append(r.Steps, store.Span{Kind: "step", Name: s.name})
 		h.setRun(r)
 		if !wait() {
+			select {
+			case <-stop:
+				h.canceled(id, &r)
+			default:
+			}
 			return
 		}
 		span := &r.Steps[i]
@@ -140,6 +174,19 @@ func (h *Host) play(id, trace string, sp run.Spec, p plan) {
 	if p.fail == "" {
 		time.AfterFunc(keepOK, func() { h.st.RemoveTask(id) })
 	}
+}
+
+// canceled ends the run r and its task as brig ends a command that got
+// Ctrl-C: the step it was in, and the run, are canceled.
+func (h *Host) canceled(id string, r *store.Run) {
+	end := time.Now()
+	r.Steps[len(r.Steps)-1].Done = true
+	r.Steps[len(r.Steps)-1].Status = "canceled"
+	r.End, r.Status = &end, "canceled"
+	h.setRun(*r)
+	h.st.UpdateTask(id, store.TopicTasks, func(t *store.Task) {
+		t.End, t.Status, t.Err = &end, store.TaskFailed, "canceled"
+	})
 }
 
 // setRun adds r to the activity log, or replaces the run with its ID.

@@ -201,6 +201,8 @@ type Task struct {
 	// Output is the end of what the command wrote to standard output and
 	// standard error, escaped for display.
 	Output string
+	// Canceling is set once the user asked to stop the command.
+	Canceling bool
 	// ShowOutput shows the output also when the command succeeded, as for
 	// a preview whose output is the point.
 	ShowOutput bool
