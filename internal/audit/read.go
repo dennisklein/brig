@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,11 +31,13 @@ type Query struct {
 	Since, Until time.Time
 	// Kinds select records of these kinds.
 	Kinds []string
-	// Denied selects denied requests, and with Kinds the other kinds too.
+	// Denied selects denied requests and drops, and with Kinds the other
+	// kinds too.
 	Denied bool
-	// Host selects requests and drafts by host: a pattern as path.Match
-	// takes it, where one without wildcards matches the host and its
-	// subdomains.
+	// Host selects requests, drafts and drops by host: a pattern as
+	// path.Match takes it, where one without wildcards matches the host
+	// and its subdomains. A drop's host is an address, which matches an
+	// address, a network such as 192.168.0.0/16, or a pattern.
 	Host string
 }
 
@@ -53,16 +56,36 @@ func (q Query) Match(r Record) bool {
 		return false
 	case q.Denied && r.Kind == KindRequest && !r.Denied():
 		return false
-	case q.Denied && len(q.Kinds) == 0 && r.Kind != KindRequest:
+	case q.Denied && len(q.Kinds) == 0 && !r.Denied():
 		return false
 	}
 	if q.Host == "" {
 		return true
 	}
-	if r.Kind == KindDraft {
+	switch r.Kind {
+	case KindDraft:
 		return slices.ContainsFunc(r.Endpoints, func(ep string) bool { return MatchHost(q.Host, splitHost(ep)) })
+	case KindDrop:
+		return MatchAddr(q.Host, r.Host)
 	}
 	return r.Kind == KindRequest && MatchHost(q.Host, r.Host)
+}
+
+// MatchAddr reports whether the address addr matches pattern: the same
+// address, a network that holds it, or a pattern as path.Match takes it.
+func MatchAddr(pattern, addr string) bool {
+	a, err := netip.ParseAddr(addr)
+	if err != nil {
+		return false
+	}
+	if p, err := netip.ParseAddr(pattern); err == nil {
+		return p.Unmap() == a.Unmap()
+	}
+	if p, err := netip.ParsePrefix(pattern); err == nil {
+		return p.Contains(a)
+	}
+	ok, _ := path.Match(strings.ToLower(pattern), addr)
+	return ok
 }
 
 // MatchHost reports whether host matches pattern, as Query.Host says.

@@ -34,7 +34,7 @@ In a terminal: `brig help audit-mode`.
 
 ### Audit trail<a id="audit-trail"></a>
 
-brig's own history of each VM: every request allowed or denied, policy revisions and who made them, drafts, sandboxes and brig commands.
+brig's own history of each VM: every request allowed or denied, drops at fence 2, policy revisions and who made them, drafts, sandboxes and brig commands.
 
 Also called: history, audit log, collector, journal, retention, prune.
 

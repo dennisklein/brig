@@ -11,5 +11,6 @@ doc: "concepts/architecture.md#network-profiles-in-detail"
 A profile allows or blocks the internet, the LAN, services on this host and
 IPv6, for the whole VM. A change applies when the VM next starts.
 
-Drops at fence 2 are not logged yet, so a request that fence 1 allows can still
-fail here without a trace in Traffic.
+What it drops is in the audit trail, and in Traffic with a fence 2 badge. It
+sees packets from the VM, not from sandboxes, so a request that fence 1 allowed
+is marked as likely dropped when a drop to its port follows it.

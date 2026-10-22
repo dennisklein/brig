@@ -11,6 +11,8 @@ import (
 	"slices"
 	"syscall"
 	"time"
+
+	"github.com/dennisklein/brig/internal/fence2"
 )
 
 // The states of a collector as Status reports them, besides the unit's.
@@ -39,6 +41,10 @@ type VMStatus struct {
 	Disk      int64     `json:"disk"`
 	Oldest    time.Time `json:"oldest,omitzero"`
 	Deleted   time.Time `json:"deleted,omitzero"`
+	// Fence2 is how fully the VM's network last recorded what fence 2
+	// drops, and Fence2Why why not itemised; empty before it ever did.
+	Fence2    fence2.Mode `json:"fence2,omitempty"`
+	Fence2Why string      `json:"fence2_why,omitempty"`
 }
 
 // Problem reports whether the VM's history has a hole now: its collector
@@ -68,6 +74,7 @@ func (s Store) Status(ctx context.Context, vms []string, info func(vm string) VM
 		st := VMStatus{
 			VM: vm, Heartbeat: x.Collector.Heartbeat, LastEvent: x.Collector.LastEvent,
 			Gaps24h: x.GapsSince(now.Add(-24 * time.Hour)), Disk: x.Disk(), Deleted: x.Deleted,
+			Fence2: x.Collector.Fence2, Fence2Why: x.Collector.Fence2Why,
 		}
 		for _, d := range x.Days {
 			st.Rows += d.Rows()

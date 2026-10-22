@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/deps"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/vmnet"
 )
 
@@ -57,8 +58,10 @@ func healthy() Host {
 			}
 			return []byte("openshell 0.1.2\n"), nil
 		},
-		Writable:     func(string) bool { return true },
-		ProbeNetwork: func(context.Context) error { return nil },
+		Writable: func(string) bool { return true },
+		ProbeNetwork: func(context.Context) (vmnet.ProbeResult, error) {
+			return vmnet.ProbeResult{Fence2: fence2.Itemised}, nil
+		},
 	}
 }
 
@@ -179,8 +182,8 @@ func TestProblems(t *testing.T) {
 
 func TestNetworkProbe(t *testing.T) {
 	h := healthy()
-	h.ProbeNetwork = func(context.Context) error {
-		return errors.New("brig-net-_probe-1.service exited after it created /run/user/1000/brig/probe-1/net.sock: Couldn't write to /proc/14/uid_map")
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) {
+		return vmnet.ProbeResult{}, errors.New("brig-net-_probe-1.service exited after it created /run/user/1000/brig/probe-1/net.sock: Couldn't write to /proc/14/uid_map")
 	}
 	r := find(t, Run(context.Background(), h), "VM network")
 	if r.Status != Fail || !strings.HasPrefix(r.Hint, "sudo dnf install brig-selinux") || !strings.Contains(r.Hint, "exited after it created") {
@@ -190,15 +193,17 @@ func TestNetworkProbe(t *testing.T) {
 		t.Errorf("detail spans lines: %q", r.Detail)
 	}
 
-	h.ProbeNetwork = func(context.Context) error { return fmt.Errorf("starting: %w", vmnet.ErrNoIPv4Gateway) }
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) {
+		return vmnet.ProbeResult{}, fmt.Errorf("starting: %w", vmnet.ErrNoIPv4Gateway)
+	}
 	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != Warn || !strings.Contains(r.Detail, "no IPv4 default gateway") {
 		t.Errorf("offline host: %+v", r)
 	}
 
 	// The probe needs pasta, so a host without it is not probed.
-	h.ProbeNetwork = func(context.Context) error {
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) {
 		t.Error("probed a host without pasta")
-		return nil
+		return vmnet.ProbeResult{}, nil
 	}
 	lookPath := h.LookPath
 	h.LookPath = func(file string) (string, error) {
@@ -209,6 +214,25 @@ func TestNetworkProbe(t *testing.T) {
 	}
 	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != Warn || !strings.Contains(r.Detail, "pasta did not pass") {
 		t.Errorf("host without pasta: %+v", r)
+	}
+}
+
+func TestFence2Audit(t *testing.T) {
+	h := healthy()
+	if r := find(t, Run(context.Background(), h), "fence 2 audit"); r.Status != OK {
+		t.Errorf("itemised: %+v", r)
+	}
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) {
+		return vmnet.ProbeResult{Fence2: fence2.CountsOnly, Why: "nft would not load the rules that log drops: Error: Could not process rule"}, nil
+	}
+	if r := find(t, Run(context.Background(), h), "fence 2 audit"); r.Status != Warn || !strings.Contains(r.Hint, "modprobe -a nft_log nfnetlink_log") || !strings.Contains(r.Hint, "Could not process rule") {
+		t.Errorf("counts only: %+v", r)
+	}
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) { return vmnet.ProbeResult{}, errors.New("exited") }
+	for _, r := range Run(context.Background(), h) {
+		if r.Name == "fence 2 audit" {
+			t.Errorf("a network that does not start was checked for drops: %+v", r)
+		}
 	}
 }
 
@@ -307,7 +331,9 @@ func TestClassifyNetwork(t *testing.T) {
 
 func TestNetworkProbeKeepsError(t *testing.T) {
 	h := healthy()
-	h.ProbeNetwork = func(context.Context) error { return errors.New("x exited before it created y: line one\nline two") }
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) {
+		return vmnet.ProbeResult{}, errors.New("x exited before it created y: line one\nline two")
+	}
 	r := find(t, Run(context.Background(), h), "VM network")
 	if !strings.Contains(r.Hint, "The error was:\nx exited before it created y: line one\nline two") {
 		t.Errorf("hint hides the error: %q", r.Hint)
@@ -381,7 +407,10 @@ func TestPreflightReturnsOnlyFailures(t *testing.T) {
 		return look(f)
 	}
 	// podman only warns, and the network is not probed.
-	h.ProbeNetwork = func(context.Context) error { t.Error("the network was probed"); return nil }
+	h.ProbeNetwork = func(context.Context) (vmnet.ProbeResult, error) {
+		t.Error("the network was probed")
+		return vmnet.ProbeResult{}, nil
+	}
 	got := Preflight(context.Background(), h)
 	if len(got) != 1 || got[0].Name != "mkosi" || got[0].Status != Fail || got[0].Hint == "" {
 		t.Errorf("Preflight = %+v, want only the missing mkosi", got)

@@ -13,12 +13,17 @@
 {{define "traffic-rows"}}{{$v := .V}}{{$c := .Compact}}
 <table class="traffic"><thead><tr><th>Time</th><th>Verdict</th>{{if not $c}}<th>Sandbox</th>{{end}}<th>Program</th><th>Request</th><th>Rule or reason</th><th></th></tr></thead><tbody>
 {{range .Rows}}{{if .Gap}}<tr class="gaprow"><td class="mono small">{{if $v.History}}{{stamp .Time}}{{else}}{{clock .Time}}{{end}}</td><td colspan="{{if $c}}5{{else}}6{{end}}"><span class="faint">{{if .Sandbox}}Requests of {{.Sandbox}}{{if multiWorkspace $v.Snap .VM}} ({{.Workspace}}){{end}}{{else}}Requests on {{.VM}}{{end}} may be missing here.</span> {{.Gap}}</td></tr>
+{{else if .Drop}}{{with .Drop}}<tr class="droprow"><td class="mono small">{{if $v.History}}{{stamp .Time}}{{else}}{{clock .Time}}{{end}}</td><td><span class="verdict deny" data-term="fence-2" title="The VM's network profile dropped this, outside the VM">DROP</span></td>{{if not $c}}<td><span class="chip f2" title="Fence 2 sees packets from the VM, not from a sandbox">fence 2</span> <span class="faint">{{.VM}}</span></td>{{end}}
+  <td class="mono small"><span class="faint">–</span></td>
+  <td class="mono small req">{{dropWhat .}}</td>
+  <td class="small">{{explainDrop .Reason}}{{with .Why}} <span class="faint">({{.}})</span>{{end}}</td>
+  <td class="act">{{with dropAct $v .}}{{template "act" .}}{{end}}</td></tr>{{end}}
 {{else if .Unparsed}}<tr><td class="mono small">{{if $v.History}}{{stamp .Time}}{{else}}{{clock .Time}}{{end}}</td><td><span class="verdict" title="brig ui could not read this line; it is shown as it came">RAW</span></td>{{if not $c}}<td><a href="{{sandboxTabURL .VM .Workspace .Sandbox "traffic"}}">{{.Sandbox}}</a>{{if multiWorkspace $v.Snap .VM}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{end}} <span class="faint">{{.VM}}</span></td>{{end}}<td colspan="3" class="mono small raw">{{.Raw}}</td><td></td></tr>
 {{else}}<tr><td class="mono small">{{if $v.History}}{{stamp .Time}}{{else}}{{clock .Time}}{{end}}</td><td>{{template "verdict" .Verdict}}</td>{{if not $c}}<td><a href="{{sandboxTabURL .VM .Workspace .Sandbox "traffic"}}">{{.Sandbox}}</a>{{if multiWorkspace $v.Snap .VM}} <span class="chip" title="Workspace">{{.Workspace}}</span>{{end}} <span class="faint">{{.VM}}</span></td>{{end}}
   <td class="mono small">{{with .Process}}{{.}}{{else}}<span class="faint">–</span>{{end}}</td>
   <td class="mono small req">{{.What}}</td>
-  <td class="small">{{if .Denied}}{{with .Reason}}{{.}}{{else}}<span class="faint">no reason given</span>{{end}}{{else}}{{with .Policy}}<span class="mono">{{.}}</span>{{else}}<span class="faint">–</span>{{end}}{{with .Engine}} <span class="faint">{{.}}</span>{{end}}{{end}}</td>
-  <td class="act">{{if and .Denied .Seq}}{{if .Draft}}<span class="chip acc" title="OpenShell drafted the rule {{.Draft.Rule}} for this">draft</span> {{end}}{{template "act" (allowAct $v .)}}{{end}}</td></tr>
+  <td class="small">{{if .Denied}}{{with .Reason}}{{.}}{{else}}<span class="faint">no reason given</span>{{end}}{{else}}{{with .Policy}}<span class="mono">{{.}}</span>{{else}}<span class="faint">–</span>{{end}}{{with .Engine}} <span class="faint">{{.}}</span>{{end}}{{with .Dropped}} <span class="chip f2" title="Fence 2 dropped {{dropWhat .}} from {{.VM}} at {{clock .Time}}: {{explainDrop .Reason}}. It sees addresses, not sandboxes, so this is matched by port and time.">likely dropped by the VM's network profile ({{.Reason}})</span>{{end}}{{end}}</td>
+  <td class="act">{{if and .Denied .Seq}}{{if .Draft}}<span class="chip acc" title="OpenShell drafted the rule {{.Draft.Rule}} for this">draft</span> {{end}}{{template "act" (allowAct $v .)}}{{else if .Dropped}}{{with dropAct $v .Dropped}}{{template "act" .}}{{end}}{{end}}</td></tr>
 {{end}}{{else}}<tr><td colspan="{{if $c}}6{{else}}7{{end}}" class="empty">{{if $v.History}}The audit trail holds no requests here.{{else if $v.Snap.Traffic}}No requests here yet.{{else}}No traffic yet. brig ui follows the log of every sandbox on a running VM's gateway.{{end}}</td></tr>{{end}}
 </tbody></table>
 {{end}}
@@ -39,7 +44,7 @@
 </tbody></table></div></section>{{end}}
 <section class="panel tw">{{template "traffic-rows" (trafficTable . (sandboxTraffic .) true)}}</section>
 <div class="stack gap-above">
-  <p class="note"><a href="{{trafficURL $g.VM $s.Workspace $s.Name true}}">Denied requests only</a> · Drops at fence 2, the VM's network profile, are not logged yet.</p>
+  <p class="note"><a href="{{trafficURL $g.VM $s.Workspace $s.Name true}}">Denied requests only</a> · Drops at {{term "fence-2" "fence 2"}}, the VM's network profile, belong to the VM, not to a sandbox: <a href="{{trafficURL $g.VM "" "" true}}">see those of {{$g.VM}}</a>.</p>
   {{template "cmd" (cmd "The same log from your terminal" (oscmd $g.VM $s.Workspace "logs" $s.Name "--tail" "--source" "sandbox"))}}
 </div>
 {{end}}

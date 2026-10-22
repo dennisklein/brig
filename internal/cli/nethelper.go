@@ -5,7 +5,10 @@ package cli
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -33,7 +36,8 @@ func newNetHelperCmd() *cobra.Command {
 	f.StringArrayVar(&o.HostAddrs, "host-addr", nil, "host address with prefix length (repeatable)")
 	f.StringArrayVar(&o.Routes, "route", nil, "destination of a host route (repeatable)")
 	f.StringVar(&o.HostNet, "host-net", "", "file the watcher writes the host's network to")
-	cmd.AddCommand(newNetWatchCmd(), newNetReloadCmd())
+	f.StringVar(&o.Spool, "spool", "", "spool of the fence 2 listener")
+	cmd.AddCommand(newNetWatchCmd(), newNetReloadCmd(), newFence2LogCmd())
 	return cmd
 }
 
@@ -77,5 +81,28 @@ func newNetReloadCmd() *cobra.Command {
 	f.StringArrayVar(&o.HostAddrs, "host-addr", nil, "host address with prefix length the firewall was loaded with (repeatable)")
 	f.StringArrayVar(&o.Routes, "route", nil, "destination of a host route the firewall was loaded with (repeatable)")
 	f.StringVar(&o.HostNet, "host-net", "", "file the watcher writes the host's network to")
+	f.StringVar(&o.Fence2, "fence2", "", "how the firewall records drops: itemised, counts only or off")
+	return cmd
+}
+
+// newFence2LogCmd is the listener that the net-helper starts beside passt,
+// to record what the firewall drops; see package fence2.
+func newFence2LogCmd() *cobra.Command {
+	var o vmnet.ListenerOptions
+	cmd := &cobra.Command{
+		Use:    "fence2-log",
+		Short:  "Record what a VM's firewall drops (internal)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return vmnet.RunListener(ctx, o)
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&o.Spool, "spool", "", "spool to write the drops to")
+	f.StringVar(&o.Mode, "mode", "", "what the firewall records")
+	f.StringVar(&o.Why, "why", "", "why it does not itemise drops")
 	return cmd
 }

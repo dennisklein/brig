@@ -13,9 +13,14 @@ brig audit status [VM]
 ## Description
 
 status shows, for each VM with an audit trail, whether its collector
-runs, since when, the time of its latest record, the gaps of the last day
-and the space its history takes. With a VM, it adds how that space splits
-by sandbox, kind and month.
+runs, since when, the time of its latest record, the gaps of the last day,
+how fully fence 2 records drops, and the space its history takes. With a
+VM, it adds how that space splits by sandbox, kind and month.
+
+FENCE 2 is itemised when each drop is recorded with its address and port,
+counts only when the host's kernel lets brig count drops per reason but
+not log them, and off when it records none; the line below the table says
+why. [`brig doctor`](brig-doctor.md) checks it too.
 
 A collector that failed, or does not run while its VM does, makes the
 exit status 1: the VM's traffic is not being recorded.

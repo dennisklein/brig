@@ -7,11 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dennisklein/brig/internal/audit"
+	"github.com/dennisklein/brig/internal/fence2"
 	"github.com/dennisklein/brig/internal/libvirt"
 )
 
@@ -198,5 +200,96 @@ func TestStopStopsTheCollector(t *testing.T) {
 	}
 	if len(stopped) != 1 || stopped[0] != "dev" {
 		t.Errorf("stopped collectors %v", stopped)
+	}
+}
+
+func TestAuditDrops(t *testing.T) {
+	a := auditFixture(t)
+	now := time.Now()
+	w, err := a.auditStore().OpenWriter("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Add(
+		audit.Record{
+			T: now.Add(-30*time.Minute - time.Second), Workspace: "default", Sandbox: "webapp", Kind: audit.KindRequest,
+			Verdict: audit.VerdictAllow, Host: "nas.lan", Port: 445, Rule: "nas",
+		},
+		audit.Record{
+			T: now.Add(-30 * time.Minute), Last: now.Add(-30*time.Minute + 2*time.Second), Kind: audit.KindDrop,
+			Reason: fence2.ReasonLAN, Proto: "tcp", Host: "192.168.1.20", Port: 445, Hits: 3,
+		},
+		audit.Record{T: now.Add(-20 * time.Minute), Kind: audit.KindDrop, Reason: fence2.ReasonInternet, Proto: "udp", Host: "9.9.9.9", Port: 123, Hits: 1},
+		audit.Record{T: now.Add(-10 * time.Minute), Kind: audit.KindDrop, Reason: fence2.ReasonUDPFlows, Hits: 18234, Why: fence2.WhyOverRate},
+	)
+	w.Update(func(s *audit.CollectorState) { s.Fence2, s.Fence2Why = fence2.CountsOnly, "no nfnetlink_log" })
+	if err := w.Flush(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, _, err := runSplit(t, "audit", "dev", "--denied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[1], "-  ") ||
+		!strings.Contains(lines[1], "drop tcp 192.168.1.20:445 ×3: lan is off (likely from webapp: fence 1 allowed nas.lan:445 at ") ||
+		!strings.Contains(lines[2], "drop udp 9.9.9.9:123: internet is off (from the VM, not through a sandbox's proxy)") ||
+		!strings.Contains(lines[3], "drop ×18234: too many UDP flows at once (over the logging rate, not itemised)") {
+		t.Errorf("denied:\n%s", out)
+	}
+	if out, _, _, _ := runSplit(t, "audit", "dev", "--host", "192.168.0.0/16"); strings.Count(out, "\n") != 1 || !strings.Contains(out, "192.168.1.20:445") {
+		t.Errorf("by network:\n%s", out)
+	}
+	if out, _, _, _ := runSplit(t, "audit", "dev", "webapp"); strings.Contains(out, "drop") {
+		t.Errorf("a sandbox's trail has drops:\n%s", out)
+	}
+
+	out, _, _, err = runSplit(t, "audit", "dev", "--summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "nas.lan:445") || !strings.Contains(out, "Dropped by the network profile (fence 2):") ||
+		!regexp.MustCompile(`dev\s+tcp 192\.168\.1\.20:445\s+lan is off\s+3\s+.*webapp`).MatchString(out) ||
+		!regexp.MustCompile(`dev\s+\(counted only\)\s+too many UDP flows at once\s+18234`).MatchString(out) ||
+		!regexp.MustCompile(`9\.9\.9\.9:123.*the VM itself`).MatchString(out) {
+		t.Errorf("summary:\n%s", out)
+	}
+
+	// The status shows fence 2 for a running collector.
+	out, _, _, _ = runSplit(t, "audit", "status")
+	if !strings.Contains(out, "FENCE 2") || !strings.Contains(out, "dev: fence 2 counts only: no nfnetlink_log") {
+		t.Errorf("status:\n%s", out)
+	}
+	if err := w.Close(nil); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _, _ = runSplit(t, "audit", "status")
+	if strings.Contains(out, "dev: fence 2") {
+		t.Errorf("status of a stopped collector:\n%s", out)
+	}
+}
+
+func TestStopDrainsTheSpool(t *testing.T) {
+	a := testApp(t)
+	stateHome(t)
+	a.dirs.State = os.Getenv("XDG_STATE_HOME") + "/brig"
+	v := testVM(t, a, "dev")
+	orig := stopAudit
+	stopAudit = func(context.Context, string) {}
+	t.Cleanup(func() { stopAudit = orig })
+	spool := fence2.Spool{Path: a.auditStore().SpoolPath("dev")}
+	if err := spool.Append(fence2.Entry{T: time.Now(), Reason: fence2.ReasonHost, Proto: "tcp", Addr: "10.0.2.2", Port: 22, Hits: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.stop(context.Background(), &fakeDomains{state: libvirt.StateRunning}, v, false); err != nil {
+		t.Fatal(err)
+	}
+	var drops []audit.Record
+	if err := a.auditStore().Read(audit.Query{Kinds: []string{audit.KindDrop}}, func(r audit.Record) bool { drops = append(drops, r); return true }); err != nil {
+		t.Fatal(err)
+	}
+	if len(drops) != 1 || drops[0].Port != 22 {
+		t.Errorf("drops after stop: %+v", drops)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/GSI-HPC/go-clikit/progress/progresstest"
 
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/fence2"
 )
 
 var testGateways = Gateways{
@@ -73,7 +75,7 @@ func TestRulesetHostAddrs(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := Ruleset(tc.profile, testGateways, testHostAddrs, nil)
+			got := Ruleset(tc.profile, testGateways, testHostAddrs, nil, fence2.Off)
 			for _, s := range tc.want {
 				if !strings.Contains(got, s) {
 					t.Errorf("missing %q in\n%s", s, got)
@@ -119,7 +121,7 @@ func TestToPrefix(t *testing.T) {
 }
 
 func TestRulesetDefaultProfile(t *testing.T) {
-	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil, nil)
+	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil, nil, fence2.Off)
 	want := `table inet brig {
 	chain output {
 		type filter hook output priority filter; policy drop;
@@ -174,7 +176,7 @@ func TestRulesetVariants(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := Ruleset(tc.profile, tc.gateways, nil, nil)
+			got := Ruleset(tc.profile, tc.gateways, nil, nil, fence2.Off)
 			for _, s := range tc.want {
 				if !strings.Contains(got, s) {
 					t.Errorf("missing %q in\n%s", s, got)
@@ -198,13 +200,13 @@ func TestRulesetLoads(t *testing.T) {
 	if exec.Command("unshare", "-Urn", "true").Run() != nil {
 		t.Skip("unprivileged user and network namespaces unavailable")
 	}
-	profiles := config.Builtin().NetworkProfiles
-	profiles["ports"] = config.NetworkProfile{Internet: true, HostPorts: []uint16{11434}, IPv6: true}
-	for name, p := range profiles {
-		cmd := exec.Command("unshare", "-Urn", "nft", "-c", "-f", "-")
-		cmd.Stdin = strings.NewReader(Ruleset(p, testGateways, testHostAddrs, testRoutes))
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Errorf("profile %s: nft rejected the ruleset: %v\n%s", name, err, out)
+	for name, p := range testProfiles() {
+		for _, mode := range []fence2.Mode{fence2.Itemised, fence2.CountsOnly, fence2.Off} {
+			cmd := exec.Command("unshare", "-Urn", "nft", "-c", "-f", "-")
+			cmd.Stdin = strings.NewReader(Ruleset(p, testGateways, testHostAddrs, testRoutes, mode))
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Errorf("profile %s, %s: nft rejected the ruleset: %v\n%s", name, mode, err, out)
+			}
 		}
 	}
 }
@@ -224,7 +226,7 @@ func TestRulesetRoutesAndWideNetworks(t *testing.T) {
 		netip.MustParsePrefix("100.20.30.40/8"),    // contains 100.64.0.0/10
 		netip.MustParsePrefix("2001:db8:2::5/128"), // DHCPv6
 	}
-	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, hostAddrs, testRoutes)
+	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, hostAddrs, testRoutes, fence2.Off)
 	for _, s := range []string{
 		"ip daddr { 10.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 255.255.255.255/32, 100.0.0.0/8, 131.169.0.0/16 } drop\n",
 		"ip daddr 169.254.1.1 drop\n",
@@ -236,7 +238,7 @@ func TestRulesetRoutesAndWideNetworks(t *testing.T) {
 	if strings.Contains(got, "0.0.0.0/1") || strings.Contains(got, "128.0.0.0/1") {
 		t.Errorf("a route standing in for the default route counts as the LAN:\n%s", got)
 	}
-	got = Ruleset(config.NetworkProfile{Internet: true, IPv6: true}, testGateways, hostAddrs, testRoutes)
+	got = Ruleset(config.NetworkProfile{Internet: true, IPv6: true}, testGateways, hostAddrs, testRoutes, fence2.Off)
 	if !strings.Contains(got, "ip6 daddr { fc00::/7, fe80::/10, ff00::/8, 2001:db8:2::/64 } drop") {
 		t.Errorf("the on-link network of a /128 address is not the LAN:\n%s", got)
 	}
@@ -244,7 +246,7 @@ func TestRulesetRoutesAndWideNetworks(t *testing.T) {
 
 func TestRulesetMultipathGateways(t *testing.T) {
 	gws := Gateways{IPv4: []netip.Addr{netip.MustParseAddr("192.168.1.1"), netip.MustParseAddr("192.168.2.1")}}
-	got := Ruleset(config.NetworkProfile{Internet: true, HostPorts: []uint16{8080}}, gws, nil, nil)
+	got := Ruleset(config.NetworkProfile{Internet: true, HostPorts: []uint16{8080}}, gws, nil, nil, fence2.Off)
 	for _, s := range []string{
 		"ip daddr { 192.168.1.1, 192.168.2.1 } tcp dport { 8080 } accept",
 		"ip daddr { 192.168.1.1, 192.168.2.1 } drop",
@@ -294,6 +296,7 @@ func TestCommand(t *testing.T) {
 		SSHPort: 40022, GatewayPort: 40670, GuestSSHPort: 22, GuestGatewayPort: 17671,
 		Profile:   config.NetworkProfile{Internet: true},
 		HostAddrs: testHostAddrs[:2],
+		Spool:     "/home/u/.local/state/brig/audit/dev/fence2.spool.jsonl",
 	}
 	argv, err := c.Command("/usr/bin/pasta", "/home/u/bin/brig")
 	if err != nil {
@@ -309,6 +312,7 @@ func TestCommand(t *testing.T) {
 		"--guest-ssh-port", "22", "--guest-gateway-port", "17671",
 		"--profile", `{"internet":true,"host":false,"lan":false,"ipv6":false}`,
 		"--host-addr", "140.181.2.3/16", "--host-addr", "2001:db8:1::abcd/64",
+		"--spool", "/home/u/.local/state/brig/audit/dev/fence2.spool.jsonl",
 		"--host-net", "/run/user/1000/brig/dev/host-net.json",
 	}
 	if !reflect.DeepEqual(argv, want) {
@@ -326,6 +330,11 @@ func TestCommand(t *testing.T) {
 	bad.Socket = "relative.sock"
 	if _, err := bad.Command("pasta", "brig"); err == nil {
 		t.Error("relative socket path accepted")
+	}
+	bad = c
+	bad.Spool = "fence2.spool.jsonl"
+	if _, err := bad.Command("pasta", "brig"); err == nil {
+		t.Error("relative spool path accepted")
 	}
 }
 
@@ -425,5 +434,253 @@ func TestAwaitSocketProgress(t *testing.T) {
 	got := w.Finish()
 	if !strings.Contains(got, "wait for the VM's network: failed") {
 		t.Errorf("progress\n%s\nwant the wait to have failed", got)
+	}
+}
+
+// testProfiles are the built-in profiles and some that cover the other
+// rules: host ports, LAN without the host, and everything off.
+func testProfiles() map[string]config.NetworkProfile {
+	profiles := config.Builtin().NetworkProfiles
+	profiles["ports"] = config.NetworkProfile{Internet: true, HostPorts: []uint16{11434}, IPv6: true}
+	profiles["lan6"] = config.NetworkProfile{LAN: true, IPv6: true}
+	profiles["nothing"] = config.NetworkProfile{}
+	profiles["host"] = config.NetworkProfile{Host: true}
+	return profiles
+}
+
+// jumpRE matches a jump to the chain of a drop's reason.
+var jumpRE = regexp.MustCompile(`jump drop_[a-z0-9_]+$`)
+
+// outputChain returns the lines of a ruleset's output chain.
+func outputChain(t *testing.T, ruleset string) []string {
+	t.Helper()
+	_, rest, ok := strings.Cut(ruleset, "\tchain output {\n")
+	body, _, ok2 := strings.Cut(rest, "\n\t}\n")
+	if !ok || !ok2 {
+		t.Fatalf("no output chain in\n%s", ruleset)
+	}
+	return strings.Split(body, "\n")
+}
+
+// TestRulesetRecordingKeepsVerdicts checks that recording drops changes no
+// verdict: the output chain with the jumps to the drop chains is the one
+// without them, but for the jump that records the policy's fall-through.
+func TestRulesetRecordingKeepsVerdicts(t *testing.T) {
+	for name, p := range testProfiles() {
+		want := outputChain(t, Ruleset(p, testGateways, testHostAddrs, testRoutes, fence2.Off))
+		for _, mode := range []fence2.Mode{fence2.Itemised, fence2.CountsOnly} {
+			got := outputChain(t, Ruleset(p, testGateways, testHostAddrs, testRoutes, mode))
+			if !p.Internet {
+				if last := got[len(got)-1]; last != "\t\tjump drop_internet" {
+					t.Errorf("%s, %s: the chain ends in %q, not the internet's drop", name, mode, last)
+				}
+				got = got[:len(got)-1]
+			}
+			for i, line := range got {
+				got[i] = jumpRE.ReplaceAllString(line, "drop")
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s, %s: the output chain is\n%s\nwant, with drops for the jumps,\n%s",
+					name, mode, strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		}
+	}
+}
+
+func TestRulesetItemisesDrops(t *testing.T) {
+	got := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil, nil, fence2.Itemised)
+	want := `table inet brig {
+	counter udp-flows {
+	}
+	counter dns {
+	}
+	counter host {
+	}
+	counter host-port {
+	}
+	counter lan {
+	}
+	counter ipv6 {
+	}
+	counter internet {
+	}
+	chain output {
+		type filter hook output priority filter; policy drop;
+		oif "lo" accept
+		ct state established,related accept
+		meta l4proto udp ct state new ct count over 1024 jump drop_udp_flows
+		ip daddr 169.254.1.1 meta l4proto { tcp, udp } th dport 53 accept
+		ip daddr 169.254.1.1 jump drop_dns
+		ip daddr 192.168.1.1 jump drop_host
+		ip daddr { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 255.255.255.255/32 } jump drop_lan
+		meta nfproto ipv6 jump drop_ipv6
+		accept
+	}
+	chain drop_udp_flows {
+		counter name "udp-flows"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "udp-flows"
+		drop
+	}
+	chain drop_dns {
+		counter name "dns"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "dns"
+		drop
+	}
+	chain drop_host {
+		counter name "host"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "host"
+		drop
+	}
+	chain drop_host_port {
+		counter name "host-port"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "host-port"
+		drop
+	}
+	chain drop_lan {
+		counter name "lan"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "lan"
+		drop
+	}
+	chain drop_ipv6 {
+		counter name "ipv6"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "ipv6"
+		drop
+	}
+	chain drop_internet {
+		counter name "internet"
+		limit rate 20/second burst 100 packets log group 1 snaplen 64 prefix "internet"
+		drop
+	}
+}
+`
+	if got != want {
+		t.Fatalf("Ruleset() =\n%s\nwant\n%s", got, want)
+	}
+	counts := Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil, nil, fence2.CountsOnly)
+	if strings.Contains(counts, "log") || !strings.Contains(counts, "\tchain drop_lan {\n\t\tcounter name \"lan\"\n\t\tdrop\n\t}\n") {
+		t.Errorf("counting only, Ruleset() =\n%s", counts)
+	}
+}
+
+// TestRulesetReasons checks the reason that each dropping rule records.
+func TestRulesetReasons(t *testing.T) {
+	for name, tc := range map[string]struct {
+		profile config.NetworkProfile
+		want    []string
+	}{
+		"host ports": {
+			profile: config.NetworkProfile{Internet: true, HostPorts: []uint16{8080}},
+			want:    []string{"ip daddr 192.168.1.1 tcp dport { 8080 } accept\n\t\tip daddr 192.168.1.1 jump drop_host_port\n"},
+		},
+		"nothing": {
+			profile: config.NetworkProfile{},
+			want: []string{
+				"ip daddr 169.254.1.1 jump drop_dns\n", "ip daddr 192.168.1.1 jump drop_host\n",
+				"ip daddr { 140.181.2.3, 192.168.1.10, 140.181.7.7 } jump drop_host\n",
+				"meta nfproto ipv6 jump drop_ipv6\n", "\t\tjump drop_internet\n\t}\n",
+			},
+		},
+		"ipv6 without host": {
+			profile: config.NetworkProfile{Internet: true, IPv6: true},
+			want: []string{
+				"ip6 daddr fe80::1 jump drop_host\n",
+				"ip6 daddr { 2001:db8:1::abcd, 2001:db8:1::1234, fe80::5 } jump drop_host\n",
+				"ip6 daddr { fc00::/7, fe80::/10, ff00::/8, 2001:db8:1::/64 } jump drop_lan\n",
+			},
+		},
+	} {
+		got := Ruleset(tc.profile, testGateways, testHostAddrs, nil, fence2.Itemised)
+		for _, s := range tc.want {
+			if !strings.Contains(got, s) {
+				t.Errorf("%s: missing %q in\n%s", name, s, got)
+			}
+		}
+	}
+}
+
+// TestLoadFirewallFallsBack checks that a kernel without logging, or
+// without counters too, still gets a firewall, one that records less.
+func TestLoadFirewallFallsBack(t *testing.T) {
+	ruleset := func(mode fence2.Mode) string {
+		return Ruleset(config.Builtin().NetworkProfiles["default"], testGateways, nil, nil, mode)
+	}
+	for _, tc := range []struct {
+		refuse string
+		want   fence2.Mode
+		why    string
+	}{
+		{"", fence2.Itemised, ""},
+		{"log group", fence2.CountsOnly, "would not load the rules that log drops: no nfnetlink_log"},
+		{"counter", fence2.Off, "would not load the rules that count drops: no nfnetlink_log"},
+	} {
+		dir := t.TempDir()
+		nft := filepath.Join(dir, "nft")
+		script := "#!/bin/sh\ncat > " + filepath.Join(dir, "loaded") + "\n"
+		if tc.refuse != "" {
+			script = "#!/bin/sh\nin=$(cat)\ncase \"$in\" in *'" + tc.refuse + "'*|*'log group'*) printf 'no nfnetlink_log\\n   ^^^\\n'; exit 1;; esac\nprintf '%s' \"$in\" > " + filepath.Join(dir, "loaded") + "\n"
+		}
+		if err := os.WriteFile(nft, []byte(script), 0o755); err != nil { //nolint:gosec // G306: the fake must be executable
+			t.Fatal(err)
+		}
+		mode, why, err := loadFirewall(nft, ruleset)
+		if err != nil || mode != tc.want || !strings.HasSuffix(why, tc.why) || (tc.why == "") != (why == "") {
+			t.Errorf("refusing %q: loadFirewall() = %q, %q, %v; want %q, %q", tc.refuse, mode, why, err, tc.want, tc.why)
+		}
+		loaded, _ := os.ReadFile(filepath.Join(dir, "loaded"))
+		if want := ruleset(tc.want); strings.TrimSpace(string(loaded)) != strings.TrimSpace(want) {
+			t.Errorf("refusing %q: loaded\n%s\nwant\n%s", tc.refuse, loaded, want)
+		}
+	}
+	nft := filepath.Join(t.TempDir(), "nft")
+	if err := os.WriteFile(nft, []byte("#!/bin/sh\necho syntax error; exit 1\n"), 0o755); err != nil { //nolint:gosec // G306: the fake must be executable
+		t.Fatal(err)
+	}
+	if _, _, err := loadFirewall(nft, ruleset); err == nil || !strings.Contains(err.Error(), "loading the firewall") || !strings.Contains(err.Error(), "syntax error") {
+		t.Errorf("loadFirewall() with an nft that refuses everything = %v", err)
+	}
+}
+
+func TestStartListener(t *testing.T) {
+	defer func(ready time.Duration) { listenerReady, executable = ready, os.Executable }(listenerReady)
+	fake := func(script string) {
+		path := filepath.Join(t.TempDir(), "brig")
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil { //nolint:gosec // G306: the fake must be executable
+			t.Fatal(err)
+		}
+		executable = func() (string, error) { return path, nil }
+	}
+	spool := filepath.Join(t.TempDir(), "audit", "dev", fence2.SpoolFile)
+	args := filepath.Join(t.TempDir(), "args")
+
+	// The helper waits for the listener to say it is ready.
+	listenerReady = 10 * time.Second
+	fake(`echo "$@" > ` + args + `; echo itemised >&3; exec sleep 1 >/dev/null 2>&1 3>&-`)
+	start := time.Now()
+	startListener(spool, fence2.Itemised, "")
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("startListener() took %v after the listener was ready", elapsed)
+	}
+	b, _ := os.ReadFile(args)
+	if want := "net-helper fence2-log --spool " + spool + " --mode itemised --why \n"; string(b) != want {
+		t.Errorf("the listener ran with %q, want %q", b, want)
+	}
+
+	// A listener that does not get ready does not hold passt up for long.
+	listenerReady = 200 * time.Millisecond
+	fake(`exec sleep 1 >/dev/null 2>&1`)
+	start = time.Now()
+	startListener(spool, fence2.CountsOnly, "no nfnetlink_log")
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("startListener() waited %v for a listener that hangs", elapsed)
+	}
+
+	// Without counters, nothing listens, and the spool says why.
+	startListener(spool, fence2.Off, "no counters")
+	var es []fence2.Entry
+	if _, _, err := fence2.ReadSpool(spool, fence2.Position{}, func(e fence2.Entry) { es = append(es, e) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(es) != 1 || es[0].State != fence2.Off || es[0].Why != "no counters" {
+		t.Errorf("spool %+v", es)
 	}
 }

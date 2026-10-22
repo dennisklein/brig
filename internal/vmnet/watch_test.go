@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/config"
+	"github.com/dennisklein/brig/internal/fence2"
 )
 
 var (
@@ -109,28 +110,39 @@ func TestReloadRulesetLoads(t *testing.T) {
 	if exec.Command("unshare", "-Urn", "true").Run() != nil {
 		t.Skip("unprivileged user and network namespaces unavailable")
 	}
-	dir := t.TempDir()
-	p := config.NetworkProfile{Internet: true, IPv6: true}
-	first := Ruleset(p, testGateways, wifi.Addrs, wifi.Routes)
-	second := reloadRuleset(Ruleset(p, testGateways, moved.Addrs, moved.Routes))
-	for name, s := range map[string]string{"first.nft": first, "second.nft": second} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(s), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cmd := exec.Command("unshare", "-Urn", "sh", "-ec", `nft -f "$0/first.nft"; nft -f "$0/second.nft"; nft list ruleset`, dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
-	}
-	got := string(out)
-	for _, s := range []string{"203.0.113.5 drop", "2001:db8:9::5 drop", "131.169.0.0/16"} {
-		if !strings.Contains(got, s) {
-			t.Errorf("missing %q in\n%s", s, got)
-		}
-	}
-	if strings.Contains(got, "192.168.1.10") || strings.Count(got, "chain output") != 1 {
-		t.Errorf("the old rules are left:\n%s", got)
+	for _, mode := range []fence2.Mode{fence2.Off, fence2.CountsOnly, fence2.Itemised} {
+		t.Run(string(mode), func(t *testing.T) {
+			dir := t.TempDir()
+			p := config.NetworkProfile{Internet: true, IPv6: true}
+			first := Ruleset(p, testGateways, wifi.Addrs, wifi.Routes, mode)
+			second := reloadRuleset(Ruleset(p, testGateways, moved.Addrs, moved.Routes, mode))
+			for name, s := range map[string]string{"first.nft": first, "second.nft": second} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(s), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command("unshare", "-Urn", "sh", "-ec", `nft -f "$0/first.nft"; nft -f "$0/second.nft"; nft list ruleset`, dir)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			got := string(out)
+			drop := "drop"
+			if mode != fence2.Off {
+				drop = "jump drop_host"
+			}
+			for _, s := range []string{"203.0.113.5 " + drop, "2001:db8:9::5 " + drop, "131.169.0.0/16"} {
+				if !strings.Contains(got, s) {
+					t.Errorf("missing %q in\n%s", s, got)
+				}
+			}
+			if strings.Contains(got, "192.168.1.10") || strings.Count(got, "chain output") != 1 {
+				t.Errorf("the old rules are left:\n%s", got)
+			}
+			if mode != fence2.Off && (strings.Count(got, "counter lan {") != 1 || strings.Count(got, "chain drop_lan {") != 1) {
+				t.Errorf("the reload doubled the counters or chains:\n%s", got)
+			}
+		})
 	}
 }
 
