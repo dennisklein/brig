@@ -4,7 +4,6 @@
 package ui
 
 import (
-	"bufio"
 	"context"
 	"io"
 	"log/slog"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/GSI-HPC/go-clikit/localweb"
 	"github.com/GSI-HPC/go-clikit/localweb/localwebtest"
+	"github.com/GSI-HPC/go-clikit/localweb/sse"
 
 	"github.com/dennisklein/brig/internal/ui/demo"
 	"github.com/dennisklein/brig/internal/ui/store"
@@ -397,33 +397,37 @@ func TestStaticFiles(t *testing.T) {
 	}
 }
 
-// nextEvent reads the next event of a stream, and skips the retry time and
-// the comments before it.
-func nextEvent(t *testing.T, sc *bufio.Scanner) (name, data string) {
+// nextEvent reads the next event of a stream.
+func nextEvent(t *testing.T, r *localwebtest.Reader) (name, data string) {
 	t.Helper()
-	var lines []string
-	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case line == "" && name != "":
-			return name, strings.Join(lines, "\n")
-		case strings.HasPrefix(line, "event: "):
-			name = strings.TrimPrefix(line, "event: ")
-		case strings.HasPrefix(line, "data: "):
-			lines = append(lines, strings.TrimPrefix(line, "data: "))
-		}
+	type result struct {
+		e   sse.Event
+		err error
 	}
-	t.Fatalf("stream ended: %v", sc.Err())
+	got := make(chan result, 1)
+	go func() {
+		e, err := r.Next()
+		got <- result{e, err}
+	}()
+	select {
+	case res := <-got:
+		if res.err != nil {
+			t.Fatalf("stream ended: %v", res.err)
+		}
+		return res.e.Name, res.e.Data
+	case <-time.After(5 * time.Second):
+		t.Fatal("no event within 5 s")
+	}
 	return "", ""
 }
 
 // openingEvents reads the events that a stream opens with, one for each of
 // the fragments, and returns them by name.
-func openingEvents(t *testing.T, sc *bufio.Scanner, fragments ...string) map[string]string {
+func openingEvents(t *testing.T, r *localwebtest.Reader, fragments ...string) map[string]string {
 	t.Helper()
 	got := map[string]string{}
 	for range fragments {
-		name, data := nextEvent(t, sc)
+		name, data := nextEvent(t, r)
 		got[name] = data
 	}
 	for _, f := range fragments {
@@ -434,39 +438,35 @@ func openingEvents(t *testing.T, sc *bufio.Scanner, fragments ...string) map[str
 	return got
 }
 
+// status returns the status of a GET of target, as a page's script sends it.
+func status(t *testing.T, c *localwebtest.Client, target string) int {
+	t.Helper()
+	resp := c.Get(t, target)
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
 func TestEvents(t *testing.T) {
-	ts := newTestServer(t)
-	ts.login()
-	srv := httptest.NewServer(ts.h)
-	defer srv.Close()
+	ts, c := newLiveServer(t)
 
 	for _, target := range []string{"/events", "/events?f=nope", "/events?f=vm&vm=Bad..Name"} {
-		if w := ts.get(target); w.Code != http.StatusBadRequest {
-			t.Errorf("%s: %d, want 400", target, w.Code)
+		if got := status(t, c, target); got != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", target, got)
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=vm-table&f=host-checks", nil)
-	req.Host = "127.0.0.1:7878"
-	req.AddCookie(ts.cookie)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	r := c.Events(t, "/events?f=vm-table&f=host-checks")
+	if r.Retry != "" {
+		t.Errorf("retry %q before the first event", r.Retry)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("Content-Type %q", ct)
-	}
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(nil, 1<<20)
-	next := func() (string, string) { return nextEvent(t, sc) }
 
 	// The stream opens with every fragment, whatever changes next.
-	opening := openingEvents(t, sc, "vm-table", "host-checks")
+	opening := openingEvents(t, r, "vm-table", "host-checks")
 	if !strings.Contains(opening["vm-table"], "<table") || !strings.Contains(opening["host-checks"], "Host") {
 		t.Errorf("opening events: %.200v", opening)
+	}
+	if r.Retry != "2000" {
+		t.Errorf("retry %q, want 2000", r.Retry)
 	}
 
 	// A change to the VMs sends the table, and only the table.
@@ -475,24 +475,13 @@ func TestEvents(t *testing.T) {
 	vms[2].State = "running"
 	vms[2].Name = "airgap2"
 	ts.st.SetVMs(store.VMState{VMs: vms, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config})
-	name, data := next()
+	name, data := nextEvent(t, r)
 	if name != "vm-table" || !strings.Contains(data, "airgap2") {
 		t.Errorf("got event %q: %.200s", name, data)
 	}
 	ts.st.SetDoctor(&store.DoctorReport{Running: true})
-	if name, data = next(); name != "host-checks" || !strings.Contains(data, "Checking") {
+	if name, data = nextEvent(t, r); name != "host-checks" || !strings.Contains(data, "Checking") {
 		t.Errorf("got event %q: %.200s", name, data)
-	}
-}
-
-func TestWriteEvent(t *testing.T) {
-	var b strings.Builder
-	if err := writeEvent(&b, "rail", "<a>\r\nevent: forged\rdata: x</a>\n"); err != nil {
-		t.Fatal(err)
-	}
-	want := "event: rail\ndata: <a>&#13;\ndata: event: forged&#13;data: x</a>\ndata: \n\n"
-	if b.String() != want {
-		t.Errorf("got %q\nwant %q", b.String(), want)
 	}
 }
 
@@ -554,29 +543,15 @@ func TestFetchMetadata(t *testing.T) {
 // is in what the stream opens with: the page is not left stale until the
 // next change.
 func TestEventsOpenWithAChangeBetweenPageAndStream(t *testing.T) {
-	ts := newTestServer(t)
-	ts.login()
-	srv := httptest.NewServer(ts.h)
-	defer srv.Close()
+	ts, c := newLiveServer(t)
 
 	sn := ts.st.Snapshot()
 	vms := append([]store.VM(nil), sn.VMs...)
 	vms[0].Name = "betweenpageandstream"
 	ts.st.SetVMs(store.VMState{VMs: vms, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=vm-table", nil)
-	req.Host = "127.0.0.1:7878"
-	req.AddCookie(ts.cookie)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(nil, 1<<20)
-	if got := openingEvents(t, sc, "vm-table")["vm-table"]; !strings.Contains(got, "betweenpageandstream") {
+	r := c.Events(t, "/events?f=vm-table")
+	if got := openingEvents(t, r, "vm-table")["vm-table"]; !strings.Contains(got, "betweenpageandstream") {
 		t.Errorf("the stream opened without the change: %.200s", got)
 	}
 }

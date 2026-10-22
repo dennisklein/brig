@@ -4,8 +4,6 @@
 package ui
 
 import (
-	"bufio"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -219,29 +217,15 @@ func TestNextFormFillsTheNextDialog(t *testing.T) {
 }
 
 func TestTrafficEvents(t *testing.T) {
-	ts := newTestServer(t)
-	ts.login()
-	if w := ts.get("/events?f=topology&sel=%3Cx%3E"); w.Code != http.StatusBadRequest {
-		t.Errorf("bad selection: %d, want 400", w.Code)
+	ts, c := newLiveServer(t)
+	if got := status(t, c, "/events?f=topology&sel=%3Cx%3E"); got != http.StatusBadRequest {
+		t.Errorf("bad selection: %d, want 400", got)
 	}
 
-	srv := httptest.NewServer(ts.h)
-	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=traffic-table&f=vm-table&vm=dev&verdict=deny", nil)
-	req.Host = "127.0.0.1:7878"
-	req.AddCookie(ts.cookie)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(nil, 1<<20)
-	openingEvents(t, sc, "traffic-table", "vm-table")
+	r := c.Events(t, "/events?f=traffic-table&f=vm-table&vm=dev&verdict=deny")
+	openingEvents(t, r, "traffic-table", "vm-table")
 	addTraffic(ts)
-	name, got := nextEvent(t, sc)
+	name, got := nextEvent(t, r)
 	// New traffic sends the table, with the page's filters, and not the
 	// VM table.
 	if name != "traffic-table" || !strings.Contains(got, "registry.npmjs.org") || strings.Contains(got, "uploads.github.com") || strings.Contains(got, "_provider_github") {

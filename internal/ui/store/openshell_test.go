@@ -3,7 +3,10 @@
 
 package store
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestUpdateGateway(t *testing.T) {
 	s := New()
@@ -20,7 +23,7 @@ func TestUpdateGateway(t *testing.T) {
 	if len(order) != 3 || order[0] != "airgap" || order[1] != "dev" || order[2] != "review" {
 		t.Fatalf("gateways out of order: %v", order)
 	}
-	if got := sub.Take(); len(got) != 1 || !got[TopicGateways] {
+	if got := sub.Take(); !slices.Equal(got, []Topic{TopicGateways}) {
 		t.Errorf("notices %v, want gateways", got)
 	}
 

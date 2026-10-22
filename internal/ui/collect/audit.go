@@ -37,7 +37,7 @@ func Audit(ctx context.Context, st *store.Store, s audit.Store) {
 		case <-sub.Changed():
 			// Only a change of the VMs can change what is read. Reading
 			// for the audit's own change would loop.
-			if !sub.Take()[store.TopicVMs] {
+			if !slices.Contains(sub.Take(), store.TopicVMs) {
 				continue
 			}
 			read()

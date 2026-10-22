@@ -118,7 +118,7 @@ func TestBrigCollect(t *testing.T) {
 	if _, ok := sn.Profiles["default"]; !ok {
 		t.Error("no built-in profiles without a config file")
 	}
-	if got := sub.Take(); len(got) != 1 || !got[store.TopicVMs] {
+	if got := sub.Take(); !slices.Equal(got, []store.Topic{store.TopicVMs}) {
 		t.Errorf("notified %v", got)
 	}
 
