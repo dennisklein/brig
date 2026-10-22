@@ -17,6 +17,8 @@ import (
 // of user 1000 connected to it from port 54321, and the server's end.
 const procNetTCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 0100007F:1EC6 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 101 1 0000000000000000 100 0 0 10 0
+   3: 0100007F:D432 0100007F:1EC6 06 00000000:00000000 03:00000000 00000000     0        0 0 3 0000000000000000
+   4: 0100007F:D433 0100007F:1EC6 01 00000000:00000000 00:00000000 00000000     0        0 0 1 0000000000000000 20 4 30 10 -1
    1: 0100007F:D431 0100007F:1EC6 01 00000000:00000000 00:00000000 00000000  1001        0 102 1 0000000000000000 20 4 30 10 -1
    2: 0100007F:1EC6 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1000        0 103 1 0000000000000000 20 4 30 10 -1
 `
@@ -30,6 +32,11 @@ func TestSocketOwner(t *testing.T) {
 	}
 	if _, err := socketOwner(strings.NewReader(procNetTCP), netip.MustParseAddrPort("127.0.0.1:1"), server); err == nil {
 		t.Error("found a socket that is not there")
+	}
+	for port, why := range map[string]string{"54322": "in TIME_WAIT", "54323": "without an inode"} {
+		if _, err := socketOwner(strings.NewReader(procNetTCP), netip.MustParseAddrPort("127.0.0.1:"+port), server); err == nil {
+			t.Errorf("found a socket %s", why)
+		}
 	}
 }
 

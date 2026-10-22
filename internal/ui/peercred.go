@@ -76,13 +76,16 @@ func procNetTCPOwner(local, remote netip.AddrPort) (int, error) {
 }
 
 // socketOwner reads a table in the format of /proc/net/tcp and returns the
-// uid of the socket bound to local and connected to remote.
+// uid of the socket bound to local and connected to remote. Only a socket
+// that is connected (state 01, ESTABLISHED) and has an inode counts: a
+// socket in TIME_WAIT that once had the same addresses has neither, and its
+// uid is 0.
 func socketOwner(r io.Reader, local, remote netip.AddrPort) (int, error) {
 	sc := bufio.NewScanner(r)
 	sc.Scan() // the header
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
-		if len(f) < 8 {
+		if len(f) < 10 || f[3] != "01" || f[9] == "0" {
 			continue
 		}
 		l, err1 := parseProcAddr(f[1])
