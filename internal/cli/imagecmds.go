@@ -259,7 +259,7 @@ NAME, the VM is the one that brig use selected.`
 			return err
 		}
 		ref := args[len(args)-1]
-		if err := a.pushImage(cmd.Context(), v, ref, cmd, resultWriter(cmd, format)); err != nil {
+		if err := a.pushImage(cmd.Context(), v, ref, cmd.ErrOrStderr(), resultWriter(cmd, format)); err != nil {
 			return err
 		}
 		if format == "json" {
@@ -302,8 +302,8 @@ func completePodmanImages(ctx context.Context) ([]string, cobra.ShellCompDirecti
 }
 
 // pushImage copies the image ref into v; podman load says on result what
-// it loaded.
-func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, cmd *cobra.Command, result io.Writer) error {
+// it loaded, and podman's errors go to errw.
+func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, errw, result io.Writer) error {
 	// brig must not keep an end of the pipe open: podman save would block
 	// forever on a full pipe once ssh exits, e.g. because the VM is down.
 	pr, pw, err := os.Pipe()
@@ -311,8 +311,8 @@ func (a *app) pushImage(ctx context.Context, v *vm.VM, ref string, cmd *cobra.Co
 		return err
 	}
 	// With -o json, podman load's result is a note on standard error too.
-	stderr := &lockedWriter{w: cmd.ErrOrStderr()}
-	if result == cmd.ErrOrStderr() {
+	stderr := &lockedWriter{w: errw}
+	if result == errw {
 		result = stderr
 	}
 	save := exec.CommandContext(ctx, "podman", "save", ref)

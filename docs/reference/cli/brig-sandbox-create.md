@@ -7,7 +7,7 @@ Create an OpenShell sandbox in a VM, with host directories mounted read-only
 ## Synopsis
 
 ```text
-brig sandbox create [NAME] [-w W] [--mount DIR:TARGET]... [--connect] [-- OPENSHELL-ARGS...]
+brig sandbox create [NAME] [-w W] [--mount DIR:TARGET]... [--service SERVICE]... [--connect] [-- OPENSHELL-ARGS...]
 ```
 
 ## Description
@@ -37,6 +37,9 @@ With --connect, brig starts the VM first if it is stopped, as [`brig start`](bri
 ready and then connects this terminal to it, as [`brig sandbox connect`](brig-sandbox-connect.md) does.
 It needs the sandbox's --name after --.
 
+--service SERVICE attaches the new sandbox to the service, as [`brig service attach`](brig-service-attach.md) does, once it is ready and before --connect connects to it, so that
+the shell finds the service's token; it also needs the --name after --.
+
 ## Examples
 
 ```sh
@@ -52,6 +55,7 @@ brig sandbox create dev --connect -m ~/src/webapp:/sandbox/src -- --name webapp 
 | --- | --- |
 | `--connect` | start the VM if needed, wait until the sandbox is ready and connect to it |
 | `-m, --mount stringArray` | show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable) |
+| `--service stringArray` | attach the sandbox to this service once it is ready (repeatable) |
 | `-w, --workspace string` | the workspace of the gateway to work in (default: $BRIG\_WORKSPACE, else default) |
 
 The [global options](brig.md#options) of brig apply too.

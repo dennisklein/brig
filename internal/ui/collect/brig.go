@@ -19,8 +19,10 @@ import (
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/image"
 	"github.com/dennisklein/brig/internal/libvirt"
+	"github.com/dennisklein/brig/internal/llmproxy"
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/paths"
+	"github.com/dennisklein/brig/internal/service"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -109,9 +111,13 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 	if imgs, err := images.List(); err == nil {
 		bases = baseImages(imgs, records)
 	}
-	// The UI shows gateways; brig service list shows services.
+	// The UI shows gateways as VMs, and services on their own.
+	svcRecords, svcErr := service.NewStore(b.Dirs).List()
+	if svcErr != nil {
+		errs = append(errs, svcErr)
+	}
 	records = slices.DeleteFunc(records, (*vm.VM).IsService)
-	if conn == nil && len(records) > 0 {
+	if conn == nil && len(records)+len(svcRecords) > 0 {
 		if conn, err = b.Connect(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("connecting to libvirt (try brig doctor): %w", err))
 			conn = nil
@@ -145,13 +151,33 @@ func (b *Brig) Collect(ctx context.Context, st *store.Store, conn Domains) Domai
 		out[i] = v
 	}
 	b.addStats(conn, running, out)
+	var svcs []store.Service
+	for _, svc := range svcRecords {
+		s := store.Service{Name: svc.Name, Type: svc.Type, Placement: string(svc.Placement), Port: svc.Port, State: "host"}
+		if svc.Placement == service.PlacementVM {
+			s.State = "unknown"
+			if conn != nil {
+				if st, err := conn.State((&vm.VM{Name: svc.Name}).DomainName()); err == nil {
+					s.State = st.String()
+				}
+			}
+		}
+		if atts, err := service.NewStore(b.Dirs).Attachments(svc.Name); err == nil {
+			s.Attachments = len(atts)
+		}
+		if svc.Type == llmproxy.TypeName && s.State == libvirt.StateRunning.String() {
+			s.UI = fmt.Sprintf("http://127.0.0.1:%d%s", svc.Port, llmproxy.UIPath)
+		}
+		svcs = append(svcs, s)
+	}
 	var msg string
 	if err := errors.Join(errs...); err != nil {
 		msg = err.Error()
 	}
 	state := store.VMState{
 		VMs: out, Err: msg, Images: bases, Profiles: cfg.NetworkProfiles,
-		Config: store.Config{Defaults: cfg.Defaults, OpenShellConfigs: cfg.OpenShell.Configs},
+		Config:   store.Config{Defaults: cfg.Defaults, OpenShellConfigs: cfg.OpenShell.Configs},
+		Services: svcs,
 	}
 	if !sameState(st.Snapshot(), state) {
 		st.SetVMs(state)
@@ -253,5 +279,6 @@ func share(part, whole float64) *float64 {
 // that an unchanged poll sends no update to the browsers.
 func sameState(sn store.Snapshot, v store.VMState) bool {
 	return sn.VMsErr == v.Err && reflect.DeepEqual(sn.VMs, v.VMs) && reflect.DeepEqual(sn.Images, v.Images) &&
-		reflect.DeepEqual(sn.Profiles, v.Profiles) && reflect.DeepEqual(sn.Config, v.Config)
+		reflect.DeepEqual(sn.Profiles, v.Profiles) && reflect.DeepEqual(sn.Config, v.Config) &&
+		reflect.DeepEqual(sn.Services, v.Services)
 }

@@ -1,0 +1,9 @@
+# The policy of the llm-proxy's LiteLLM sandbox. It allows no network: the
+# providers of the model keys add their endpoints, for their binaries only.
+version: 1
+filesystem_policy:
+  include_workdir: true          # /sandbox: Postgres's data and socket
+  read_only: [/bin, /usr, /lib, /lib64, /etc, /opt/litellm, /proc, /dev/urandom]
+  read_write: [/tmp, /dev/null, /dev/shm]
+landlock:
+  compatibility: best_effort

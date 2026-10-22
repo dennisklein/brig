@@ -35,6 +35,7 @@ var fragments = map[string][]store.Topic{
 	"needs":           {store.TopicVMs, store.TopicHost, store.TopicGateways, store.TopicTraffic, store.TopicAudit},
 	"recent-activity": {store.TopicActivity},
 	"vm-table":        {store.TopicVMs, store.TopicTasks, store.TopicActivity},
+	"service-table":   {store.TopicVMs},
 	"vm":              {store.TopicVMs, store.TopicTasks, store.TopicActivity, store.TopicGateways},
 	"images":          {store.TopicVMs},
 	"host-checks":     {store.TopicHost},

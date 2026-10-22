@@ -207,7 +207,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) vms(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "vms", "VMs")
-	v.Events = eventsURL([]string{"rail", "vm-table"}, nil)
+	v.Events = eventsURL([]string{"rail", "vm-table", "service-table"}, nil)
 	s.render(w, http.StatusOK, "vms", v)
 }
 

@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/libvirt"
+	"github.com/dennisklein/brig/internal/llmproxy"
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/paths"
+	"github.com/dennisklein/brig/internal/service"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -257,5 +259,39 @@ func TestUsageCapsCPU(t *testing.T) {
 	}
 	if got = usage(libvirt.Stats{SampledAt: t0}, libvirt.Stats{SampledAt: t0.Add(time.Second), CPUTimeNS: 5e8}, 0); got.CPU == nil || *got.CPU != 50 {
 		t.Errorf("a VM without a CPU count: %v, want 50", got.CPU)
+	}
+}
+
+func TestBrigCollectServices(t *testing.T) {
+	dirs := testDirs(t)
+	svcs := service.NewStore(dirs)
+	for _, svc := range []*service.Service{
+		{Name: "models", Type: llmproxy.TypeName, Placement: service.PlacementVM, Port: 41234},
+		{Name: "mirror", Type: "http-mirror", Placement: service.PlacementVM, Port: 41300},
+	} {
+		if err := svcs.Save(svc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svcs.SaveAttachments("models", []service.Attachment{{Gateway: "dev", Workspace: "default", Sandbox: "webapp", Provider: "brig-svc-models-webapp"}}); err != nil {
+		t.Fatal(err)
+	}
+	conn := &fakeDomains{states: map[string]libvirt.State{"brig-models": libvirt.StateRunning, "brig-mirror": libvirt.StateShutoff}}
+	b := &Brig{Dirs: dirs, Connect: func(context.Context) (Domains, error) { return conn, nil }}
+	s := store.New()
+	b.Collect(context.Background(), s, nil)
+	sn := s.Snapshot()
+	if len(sn.Services) != 2 || len(sn.VMs) != 0 {
+		t.Fatalf("services %+v, VMs %+v", sn.Services, sn.VMs)
+	}
+	byName := map[string]store.Service{}
+	for _, svc := range sn.Services {
+		byName[svc.Name] = svc
+	}
+	if m := byName["models"]; m.State != "running" || m.Attachments != 1 || m.UI != "http://127.0.0.1:41234/ui/" {
+		t.Errorf("models: %+v", m)
+	}
+	if m := byName["mirror"]; m.State != "shut off" || m.UI != "" {
+		t.Errorf("mirror: %+v", m)
 	}
 }

@@ -1,0 +1,32 @@
+#!/bin/sh
+# llm-proxy-load: take LiteLLM's keys and config from standard input, the
+# keys up to a line ---, and make llm-proxy-start load them. brig runs this
+# in the sandbox at every start of the service and after a sync.
+set -eu
+run=${LLM_PROXY_RUN:-/dev/shm/brig}
+umask 077
+mkdir -p "$run"
+trap 'rm -f "$run/keys.env.new" "$run/config.yaml.new"' EXIT
+awk -v keys="$run/keys.env.new" -v config="$run/config.yaml.new" '
+	BEGIN { f = keys }
+	f == keys && $0 == "---" { f = config; next }
+	{ print > f }
+'
+[ -s "$run/keys.env.new" ] && [ -s "$run/config.yaml.new" ] || {
+	echo "llm-proxy-load: want the keys, a line ---, and the config" >&2
+	exit 2
+}
+sum=$(cat "$run/keys.env.new" "$run/config.yaml.new" | sha256sum)
+old=$(cat "$run/loaded" 2>/dev/null || :)
+mv "$run/config.yaml.new" "$run/config.yaml"
+mv "$run/keys.env.new" "$run/keys.env"
+echo "$sum" >"$run/loaded"
+if [ -s "$run/litellm.pid" ]; then
+	if [ "$sum" = "$old" ]; then
+		# LiteLLM runs with these keys already.
+		rm -f "$run/keys.env"
+	else
+		kill "$(cat "$run/litellm.pid")" 2>/dev/null || :
+		echo reloaded
+	fi
+fi

@@ -5,10 +5,12 @@ package agent
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -355,6 +357,66 @@ func TestGuideShowsTheFiles(t *testing.T) {
 	} {
 		if _, ok := blocks[key]; !ok {
 			t.Errorf("the guide does not show %s for %s", key[1], key[0])
+		}
+	}
+}
+
+func TestLLMProxy(t *testing.T) {
+	px := &LLMProxy{Service: "llm-proxy", Port: 41234, Subscription: true}
+	p, err := New(Spec{Kind: Claude, User: "alice", LLMProxy: px})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := paths(p)
+	if _, ok := files["providers/claude-code.yaml"]; ok {
+		t.Error("claude of the llm-proxy gets a provider of its own")
+	}
+	var settings struct{ Env map[string]string }
+	if err := json.Unmarshal(files["agents/claude/managed-settings.json"].Data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings.Env["ANTHROPIC_BASE_URL"] != "http://host.openshell.internal:41234" || settings.Env["ANTHROPIC_BETAS"] != SubscriptionBeta {
+		t.Errorf("settings env = %v", settings.Env)
+	}
+	def := string(files["agents/claude/agent.yaml"].Data)
+	if !strings.Contains(def, "providers: []") || !strings.Contains(def, "services: [llm-proxy]") {
+		t.Errorf("agent.yaml:\n%s", def)
+	}
+	back, err := ParseDefinition(files["agents/claude/agent.yaml"].Data)
+	if err != nil || !slices.Equal(back.Services, []string{"llm-proxy"}) {
+		t.Errorf("ParseDefinition = %+v, %v", back, err)
+	}
+
+	// An API key needs no beta.
+	p, _ = New(Spec{Kind: Claude, User: "alice", LLMProxy: &LLMProxy{Service: "llm-proxy", Port: 41234}})
+	if strings.Contains(string(paths(p)["agents/claude/managed-settings.json"].Data), "ANTHROPIC_BETAS") {
+		t.Error("ANTHROPIC_BETAS without a subscription")
+	}
+
+	for kind, file := range map[Kind]string{Pi: "agents/pi/etc/models.json", OpenCode: "agents/opencode/etc/opencode.json"} {
+		p, err := New(Spec{Kind: kind, User: "alice", Model: "qwen", LLMProxy: px})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data := string(paths(p)[file].Data)
+		if !strings.Contains(data, "http://host.openshell.internal:41234/v1") || !strings.Contains(data, "LLM_PROXY_KEY") || strings.Contains(data, "LLM_API_KEY") {
+			t.Errorf("%s:\n%s", file, data)
+		}
+		if _, ok := paths(p)["providers/llm.yaml"]; ok || len(p.Definition.Providers) != 0 {
+			t.Errorf("%s of the llm-proxy gets providers %q", kind, p.Definition.Providers)
+		}
+		if _, err := New(Spec{Kind: kind, User: "alice", LLMProxy: px}); err == nil || !strings.Contains(err.Error(), "--model") {
+			t.Errorf("%s without --model: %v", kind, err)
+		}
+	}
+	for _, spec := range []Spec{
+		{Kind: Pi, Model: "m", Endpoint: "https://llm.example.com/v1", LLMProxy: px},
+		{Kind: OpenCode, Model: "m", Anthropic: true, LLMProxy: px},
+		{Kind: Claude, Model: "m", LLMProxy: px},
+		{Kind: Claude, LLMProxy: &LLMProxy{Service: "llm-proxy"}},
+	} {
+		if _, err := New(spec); err == nil {
+			t.Errorf("New(%+v) = nil error", spec)
 		}
 	}
 }

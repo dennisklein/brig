@@ -15,6 +15,9 @@ var (
 	// serviceDrivers holds the drivers of types whose service issues or
 	// checks tokens in its own way; the others use service.HashDriver.
 	serviceDrivers = map[string]service.Driver{}
+	// appDrivers holds the drivers that need brig's records, such as the
+	// service's VM; brig makes one for each use.
+	appDrivers = map[string]func(a *app) service.Driver{}
 	// hostRunners holds what runs the controllers of types of placement
 	// host, and what runs next to the VM of a type of placement vm on the
 	// host, such as the forwarder to a type's sandbox (see
@@ -31,9 +34,12 @@ func serviceType(name string) (service.Type, error) {
 }
 
 // serviceDriver returns the driver of type t.
-func serviceDriver(t service.Type) service.Driver {
+func (a *app) serviceDriver(t service.Type) service.Driver {
 	if d, ok := serviceDrivers[t.Name]; ok {
 		return d
+	}
+	if f, ok := appDrivers[t.Name]; ok {
+		return f(a)
 	}
 	return service.HashDriver{}
 }

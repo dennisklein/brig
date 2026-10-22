@@ -54,6 +54,20 @@ token: start them again from a new shell, `brig sandbox exec dev webapp --tty
 -- bash -l`, or stop and start the sandbox. `brig help rotate-token` has the
 short version.
 
+## Model keys in llm-proxy
+
+With an [llm-proxy](llm-proxy.md) service, the model keys are providers in
+the service's own config directory, and its VM is the only one that holds
+them. Store and rotate them as above, with the service's name for the VM:
+
+```sh
+brig secret set models anthropic
+```
+
+LiteLLM's master key and salt key are service secrets, bound in
+`services/NAME.yaml`; `brig sync models` hands changed ones to LiteLLM.
+Never change the salt key: LiteLLM encrypts its database with it.
+
 ## Use another keyring client
 
 To use another keyring client, set `openshell.secret_tool` in

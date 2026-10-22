@@ -36,6 +36,17 @@ sandbox ── http://host.openshell.internal:PORT ──> relay in the gateway 
   to, even when its network profile blocks the host. Attach and detach
   change it at once.
 
+A type whose workload runs in an OpenShell sandbox of its VM, such as
+llm-proxy, listens on the sandbox's loopback interface, which nothing in the
+VM's network reaches. brig then forwards nothing into the VM. A user unit on
+the host, `brig-svc-forward-NAME`, serves the host port instead and passes
+each connection through the service VM's OpenShell gateway to the sandbox:
+
+```text
+127.0.0.1:PORT on the host ──> brig-svc-forward-NAME
+        ──> the service VM's gateway (mTLS) ──> 127.0.0.1:4000 in the sandbox
+```
+
 ## Tokens
 
 `brig service attach mirror dev webapp` gives sandbox `webapp` of VM `dev`
@@ -80,6 +91,43 @@ copies them over SSH into `/run/brig/service/secrets/` in the VM's memory
 and starts the workload. They never reach a disk. `brig sync mirror` hands
 them over again and restarts the workload.
 
+## llm-proxy
+
+The llm-proxy type runs LiteLLM and its Postgres database in the sandbox
+`litellm` of its VM. Its tokens are LiteLLM's virtual keys: LiteLLM makes
+and checks them, so brig keeps no hash. A model call passes two
+[placeholders](openshell-config.md), and each one is swapped once:
+
+```text
+agent in sandbox webapp, gateway VM dev
+  │  Authorization: Bearer <placeholder of the virtual key>
+  ▼
+dev's OpenShell proxy: swaps in the virtual key brig/dev/default/webapp
+  │  http://host.openshell.internal:PORT
+  ▼
+host port ──> brig-svc-forward-models ──> LiteLLM in the sandbox litellm
+  │  checks the key, its models and its budget, records the spend
+  │  x-api-key: <placeholder of the model key>
+  ▼
+the service VM's OpenShell proxy: swaps in the model key
+  │
+  ▼
+api.anthropic.com
+```
+
+- No gateway VM holds a model key, and no sandbox holds a key at all: an
+  agent that prints its environment shows two placeholders.
+- LiteLLM sees only the model key's placeholder, so a LiteLLM that is
+  broken into cannot send the key elsewhere: the service VM's proxy adds it
+  only to requests from LiteLLM's Python to the hosts of the key's profile.
+- LiteLLM's master key and salt key are service secrets: brig hands them to
+  LiteLLM at every start, in the sandbox's memory. The master key gives
+  power over LiteLLM, not over the model keys.
+- Once an llm-proxy service exists, `brig sync` keeps the providers whose
+  secrets it holds off the gateways.
+
+[Route model calls through llm-proxy](../how-to/llm-proxy.md) sets one up.
+
 ## Commands
 
 | Command | What it does |
@@ -92,5 +140,6 @@ them over again and restarts the workload.
 | `brig service delete NAME` | Revoke all tokens and delete the service. |
 
 A service VM is a VM like others for `brig start`, `stop`, `show`, `ssh`,
-`update` and `sync`. `brig list` and `brig ui` leave service VMs out, and
-`brig delete` refuses them.
+`update` and `sync`. `brig list` leaves service VMs out, `brig ui` lists the
+services under the VMs, with a link to a service's own UI, and `brig delete`
+refuses them.

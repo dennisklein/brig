@@ -102,7 +102,7 @@ var ensureVMImage = func(ctx context.Context, a *app, v *vm.VM, ref string, cmd 
 		return nil
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "Copying image %s into VM %s.\n", termtext.Escape(ref), v.Name)
-	return a.pushImage(ctx, v, ref, cmd, cmd.ErrOrStderr())
+	return a.pushImage(ctx, v, ref, cmd.ErrOrStderr(), cmd.ErrOrStderr())
 }
 
 // transfer is an --upload or --download: Src is copied to Dest.

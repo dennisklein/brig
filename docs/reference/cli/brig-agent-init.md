@@ -37,6 +37,13 @@ and provider; opencode can instead use --anthropic, Anthropic's API with an API
 key. --github LOGIN adds a github provider. The image versions are pinned
 and move with brig releases.
 
+--llm-proxy SERVICE sends the agent's model calls to that service of type
+llm-proxy, which holds the model keys (see [`brig service`](brig-service.md) --help): the agent
+gets no provider for them, its sandboxes are attached to the service, and
+pi and opencode take a --model that the proxy offers. With one llm-proxy
+service and neither --endpoint nor --anthropic, that one is the default;
+--no-llm-proxy keeps the agent's own provider.
+
 Without --vm it prints the commands that finish the setup. With --vm it runs
 them, naming each: it attaches the directories to the VM, asks for the
 secrets that are missing (on a terminal only; otherwise it prints the
@@ -60,7 +67,9 @@ brig agent init opencode --anthropic --github alice --vm dev
 | `--endpoint string` | pi, opencode: the base URL of an OpenAI-compatible API |
 | `--force` | overwrite files that exist with other content |
 | `--github string` | also write a github provider whose token is in the keyring for this login |
+| `--llm-proxy string` | send the model calls to this llm-proxy service (default: the only one, unless --endpoint or --anthropic) |
 | `--model string` | pi, opencode: the model to use at the endpoint; with --anthropic, an Anthropic model ID (optional) |
+| `--no-llm-proxy` | give the agent its own model provider even when an llm-proxy service exists |
 | `--secrets-dir string` | the personal config directory for provider files (default: openshell in brig's config directory) |
 | `--vm string` | also attach the directories to this VM, store missing secrets, sync and build the image |
 

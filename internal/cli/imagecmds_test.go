@@ -64,7 +64,7 @@ func TestPushImage(t *testing.T) {
 			cmd := newImagePushCmd()
 			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
-			err := a.pushImage(ctx, v, "localhost/agent:latest", cmd, io.Discard)
+			err := a.pushImage(ctx, v, "localhost/agent:latest", cmd.ErrOrStderr(), io.Discard)
 			if ctx.Err() != nil {
 				t.Fatalf("pushImage() hung: %v", err)
 			}
@@ -90,7 +90,7 @@ func TestPushImageEscapesTheGuest(t *testing.T) {
 	cmd := newImagePushCmd()
 	var result, stderr bytes.Buffer
 	cmd.SetErr(&stderr)
-	if err := a.pushImage(t.Context(), v, "localhost/agent:latest", cmd, &result); err != nil {
+	if err := a.pushImage(t.Context(), v, "localhost/agent:latest", cmd.ErrOrStderr(), &result); err != nil {
 		t.Fatal(err)
 	}
 	for name, out := range map[string]string{"result": result.String(), "stderr": stderr.String()} {

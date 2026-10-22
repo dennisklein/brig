@@ -1,0 +1,43 @@
+# Containerfile: the llm-proxy sandbox, LiteLLM and its Postgres
+#
+# The official images of Postgres, Python and Node.js, all on Debian 13 and
+# pinned by digest. Python and Node.js live in /usr/local, so they move into
+# Postgres's image as they are, and the build installs no distribution
+# packages. Node.js runs Prisma's CLI, which LiteLLM uses for its database.
+FROM docker.io/library/python:3.13-slim-trixie@sha256:4873c73fa393882cf10f9d1054c928e95201c1559ca2107c1589786ece10f49f AS python
+FROM docker.io/library/node:24-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node
+FROM docker.io/library/postgres:17-trixie@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
+
+COPY --from=python /usr/local/ /usr/local/
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && python3.13 -c 'import ssl, ctypes, lzma, bz2' \
+ && node --version
+
+# Every package at a pinned version with its hashes; nothing comes from the
+# network at run time.
+COPY requirements.txt /opt/litellm/requirements.txt
+ENV PATH=/opt/litellm/bin:/usr/lib/postgresql/17/bin:$PATH \
+    PRISMA_BINARY_CACHE_DIR=/opt/litellm/prisma \
+    CHECKPOINT_DISABLE=1 \
+    PRISMA_HIDE_UPDATE_MESSAGE=1
+RUN python3.13 -m venv /opt/litellm \
+ && pip install --no-cache-dir --no-deps --require-hashes \
+      -r /opt/litellm/requirements.txt \
+ && cd /opt/litellm/lib/python3.13/site-packages/litellm/proxy \
+ && prisma generate \
+ && prisma --version \
+ && chmod -R a+rX /opt/litellm
+
+COPY --chmod=755 llm-proxy-start llm-proxy-load /usr/local/bin/
+RUN useradd --create-home --uid 1000 litellm
+
+USER litellm
+WORKDIR /sandbox
+ENV LITELLM_LOCAL_MODEL_COST_MAP=True \
+    LITELLM_MODE=PRODUCTION \
+    LITELLM_DONT_SHOW_FEEDBACK_BOX=True \
+    DISABLE_ADMIN_UI=False
+ENTRYPOINT []
+CMD ["llm-proxy-start"]

@@ -445,3 +445,21 @@ func TestFetchMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestServicesOnTheVMsPage(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	if body := ts.get("/vms").Body.String(); strings.Contains(body, "brig service</code>") {
+		t.Error("the VMs page shows services without any")
+	}
+	sn := ts.st.Snapshot()
+	ts.st.SetVMs(store.VMState{VMs: sn.VMs, Images: sn.Images, Profiles: sn.Profiles, Config: sn.Config, Services: []store.Service{
+		{Name: "models", Type: "llm-proxy", Placement: "vm", Port: 41234, State: "running", Attachments: 2, UI: "http://127.0.0.1:41234/ui/"},
+	}})
+	body := ts.get("/vms").Body.String()
+	for _, want := range []string{">models</td>", `href="http://127.0.0.1:41234/ui/"`, "Open its UI", `sse-swap="service-table"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the VMs page lacks %q", want)
+		}
+	}
+}
