@@ -17,6 +17,7 @@ import (
 	"text/tabwriter"
 	"unicode/utf8"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
@@ -438,7 +439,7 @@ func newSecretListCmd() *cobra.Command {
 			}
 		}
 		if format == "json" {
-			if err := writeJSON(cmd.OutOrStdout(), rep); err != nil {
+			if err := cliout.WriteJSON(cmd.OutOrStdout(), rep); err != nil {
 				return err
 			}
 		} else {

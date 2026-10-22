@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/fanout"
 	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/termtext"
@@ -641,7 +642,7 @@ func newListCmd() *cobra.Command {
 				if vms == nil {
 					vms = []vmStatus{}
 				}
-				return writeJSON(cmd.OutOrStdout(), vms)
+				return cliout.WriteJSON(cmd.OutOrStdout(), vms)
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tSTATE\tCPUS\tMEMORY\tPROFILE\tIMAGE")
@@ -661,7 +662,7 @@ func newShowCmd() *cobra.Command {
 	cmd := vmCommand("show [NAME]", "Show a VM's settings and state", func(ctx context.Context, cmd *cobra.Command, a *app, v *vm.VM) error {
 		st := a.vmShow(ctx, v, cmd.ErrOrStderr())
 		if format == "json" {
-			return writeJSON(cmd.OutOrStdout(), st)
+			return cliout.WriteJSON(cmd.OutOrStdout(), st)
 		}
 		tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		row := func(k, v any) { fmt.Fprintf(tw, "%v:\t%s\n", k, termtext.Escape(fmt.Sprint(v))) }
@@ -741,7 +742,7 @@ func (a *app) printVM(ctx context.Context, cmd *cobra.Command, v *vm.VM, format 
 	if format != "json" {
 		return nil
 	}
-	return writeJSON(cmd.OutOrStdout(), a.vmShow(ctx, v, cmd.ErrOrStderr()))
+	return cliout.WriteJSON(cmd.OutOrStdout(), a.vmShow(ctx, v, cmd.ErrOrStderr()))
 }
 
 func newUpdateCmd() *cobra.Command {

@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -156,7 +157,7 @@ func (a *app) printUp(ctx context.Context, cmd *cobra.Command, v *vm.VM, format 
 	}
 	out := cmd.OutOrStdout()
 	if format == "json" {
-		return writeJSON(out, struct {
+		return cliout.WriteJSON(out, struct {
 			VM        vmStatus    `json:"vm"`
 			Sandboxes []upSandbox `json:"sandboxes"`
 		}{a.vmShow(ctx, v, cmd.ErrOrStderr()), sandboxes})

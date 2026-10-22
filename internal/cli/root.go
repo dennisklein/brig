@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/cobratree"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
@@ -58,7 +59,7 @@ func report(cmd *cobra.Command, err error, printed bool, stdout, stderr io.Write
 	}
 	code := exitStatus(err)
 	if wantsJSON(cmd) && !printed {
-		_ = writeJSON(stdout, jsonError{Error: err.Error(), Reason: exitReasons[code], ExitCode: code})
+		_ = cliout.WriteJSON(stdout, jsonError{Error: err.Error(), Reason: exitReasons[code], ExitCode: code})
 	}
 	// An error can carry text from a guest, an image or libvirt.
 	fmt.Fprintln(stderr, "Error:", termtext.Escape(err.Error()))

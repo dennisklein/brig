@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -79,7 +80,7 @@ func (a *app) recreateAll(cmd *cobra.Command, s *snapshots, ws string, items []r
 			}
 		}
 		if o.format == "json" {
-			return writeJSON(out, plans)
+			return cliout.WriteJSON(out, plans)
 		}
 		return nil
 	}
