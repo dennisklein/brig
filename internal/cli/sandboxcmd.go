@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/libvirt"
@@ -40,9 +41,10 @@ func newSandboxCreateCmd() *cobra.Command {
 		mounts    []string
 		workspace string
 		connect   bool
+		services  []string
 	)
 	cmd := &cobra.Command{
-		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [--connect] [-- OPENSHELL-ARGS...]",
+		Use:   "create [NAME] [-w W] [--mount DIR:TARGET]... [--service SERVICE]... [--connect] [-- OPENSHELL-ARGS...]",
 		Short: "Create an OpenShell sandbox in a VM, with host directories mounted read-only",
 		Long: `Run openshell sandbox create against VM NAME's gateway, with each
 --mount DIR:TARGET showing host directory DIR read-only at TARGET in the
@@ -68,7 +70,11 @@ openshell's own behaviour.
 With --connect, brig starts the VM first if it is stopped, as brig start
 --wait does, creates the sandbox without attaching to it, waits until it is
 ready and then connects this terminal to it, as brig sandbox connect does.
-It needs the sandbox's --name after --.`,
+It needs the sandbox's --name after --.
+
+--service SERVICE attaches the new sandbox to the service, as brig service
+attach does, once it is ready and before --connect connects to it, so that
+the shell finds the service's token; it also needs the --name after --.`,
 		Example: `  brig sandbox create dev --mount ~/src/pi-kit:/usr/local/share/pi-kit -- \
     --name kit-dev --from localhost/pi-agent:2026-10-08 --provider llm
   brig use dev && brig sandbox create -m ~/notes:/usr/local/share/notes
@@ -88,6 +94,9 @@ It needs the sandbox's --name after --.`,
 			name := sandboxNameArg(pass)
 			if connect && name == "" {
 				return errors.New("--connect needs the sandbox's --name after --")
+			}
+			if len(services) > 0 && name == "" {
+				return errors.New("--service needs the sandbox's --name after --")
 			}
 			ws, err := chosenWorkspace(workspace)
 			if err != nil {
@@ -144,7 +153,7 @@ It needs the sandbox's --name after --.`,
 			if !choosesProviders(pass) {
 				argv = append(argv, "--no-auto-providers")
 			}
-			if !connect {
+			if !connect && len(services) == 0 {
 				return execve("openshell", append(argv, pass...))
 			}
 			if !slices.Contains(sandboxOptions(pass), "--detach") {
@@ -156,6 +165,14 @@ It needs the sandbox's --name after --.`,
 			if err := waitSandboxReady(cmd.Context(), v, ws, name); err != nil {
 				return err
 			}
+			for _, svc := range services {
+				if err := a.attachNewSandbox(cmd, svc, v, ws, name); err != nil {
+					return err
+				}
+			}
+			if !connect {
+				return nil
+			}
 			t := sandboxTarget{vm: v, workspace: ws}
 			return execve("openshell", t.openshell("sandbox", "connect", name))
 		},
@@ -164,7 +181,26 @@ It needs the sandbox's --name after --.`,
 	cmd.Flags().StringArrayVarP(&mounts, "mount", "m", nil, "show host directory DIR read-only at TARGET in the sandbox: DIR:TARGET (repeatable)")
 	_ = cmd.RegisterFlagCompletionFunc("mount", completeDirs)
 	cmd.Flags().BoolVar(&connect, "connect", false, "start the VM if needed, wait until the sandbox is ready and connect to it")
+	cmd.Flags().StringArrayVar(&services, "service", nil, "attach the sandbox to this service once it is ready (repeatable)")
+	_ = cmd.RegisterFlagCompletionFunc("service", completeServiceNames)
 	return cmd
+}
+
+// attachNewSandbox attaches the sandbox sb that brig sandbox create made in
+// workspace ws of v to the service called svc, as brig service attach does.
+func (a *app) attachNewSandbox(cmd *cobra.Command, svc string, v *vm.VM, ws, sb string) error {
+	s, err := a.lockServiceSandbox(cmd, []string{svc, v.Name, sb}, ws)
+	if err != nil {
+		return err
+	}
+	defer s.release()
+	att, err := a.attachService(cmd.Context(), s.conn, s.svc, s.t, s.gw, s.ws, s.sb)
+	if err != nil {
+		return fmt.Errorf("attach sandbox %s to service %s: %w", sb, svc, err)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Attached sandbox %s to service %s, with the token in $%s.\n",
+		termtext.Escape(att.Owner()), s.svc.Name, strings.Join(s.t.CredentialEnv(s.svc.Name), ", $"))
+	return nil
 }
 
 // sandboxOptions returns the openshell options in args, which end at --.

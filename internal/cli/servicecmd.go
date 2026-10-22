@@ -805,10 +805,15 @@ func (a *app) deleteService(ctx context.Context, conn domains, name string, forc
 }
 
 // completeServices completes the first argument with service names.
-func completeServices(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+func completeServices(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
+	return completeServiceNames(cmd, args, toComplete)
+}
+
+// completeServiceNames completes a flag's value with service names.
+func completeServiceNames(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	dirs, err := paths.Default()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError

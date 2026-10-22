@@ -215,3 +215,23 @@ func TestWaitSandboxReady(t *testing.T) {
 		t.Errorf("in error: %v", err)
 	}
 }
+
+func TestSandboxCreateAttachesServices(t *testing.T) {
+	f := newServiceFakes(t)
+	origRun := runCommand
+	runCommand = func(context.Context, []string) error { return nil }
+	t.Cleanup(func() { runCommand = origRun })
+	got := captureExec(t)
+	if out, err := run(t, "sandbox", "create", "dev", "--service", "echo", "--", "--name", "webapp", "--template", "pi"); err != nil {
+		t.Fatalf("brig sandbox create --service: %v: %s", err, out)
+	}
+	if atts, _ := f.a.services.Attachments("echo"); len(atts) != 1 || !atts[0].Is("dev", "default", "webapp") {
+		t.Errorf("attachments = %+v", atts)
+	}
+	if len(*got) != 0 {
+		t.Errorf("without --connect, exec %q", *got)
+	}
+	if _, err := run(t, "sandbox", "create", "dev", "--service", "echo", "--", "--template", "pi"); err == nil || !strings.Contains(err.Error(), "--service needs") {
+		t.Errorf("--service without --name: %v", err)
+	}
+}
