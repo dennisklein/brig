@@ -30,9 +30,11 @@ import (
 const policySourcesFile = "policy-sources.json"
 
 // Exit codes of brig policy diff besides 0 for no difference and 1 for an error.
+// 2 is for usage errors, as in the programs that share brig's command line
+// conventions.
 const (
 	exitDrift         = 1
-	exitSourceUnknown = 2
+	exitSourceUnknown = 7
 )
 
 func newPolicyCmd() *cobra.Command {
@@ -100,7 +102,7 @@ policies/SANDBOX.yaml and then policies/default.yaml. --source picks the file
 instead, and --remember keeps that choice for the sandbox, ahead of the
 inference. Without VM, the one that brig use selected is used.
 
-The exit status is 0 when there is no difference, 1 when there is, and 2 when
+The exit status is 0 when there is no difference, 1 when there is, and 7 when
 brig cannot tell which file to compare with.`,
 		Example: `  brig policy diff dev webapp
   brig policy diff webapp -o json

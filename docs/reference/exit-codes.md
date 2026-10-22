@@ -34,7 +34,7 @@ These commands use statuses of their own, or pass one on. Their pages say more.
 
 | Command | Status |
 | --- | --- |
-| [`brig policy diff`](cli/brig-policy-diff.md) | 0 when the sandbox agrees with its policy file, 1 when it differs, 2 when brig cannot tell which file to compare with. |
+| [`brig policy diff`](cli/brig-policy-diff.md) | 0 when the sandbox agrees with its policy file, 1 when it differs, 7 when brig cannot tell which file to compare with. |
 | [`brig sandbox run`](cli/brig-sandbox-run.md) | The status of the command in the sandbox, 124 if `--timeout` stopped it, 130 after Ctrl-C and 143 after SIGTERM. brig's own failures use the table above. |
 | [`brig sandbox exec`](cli/brig-sandbox-exec.md) | The status of the command in the sandbox. brig's own failures, before the command starts, use the table above. |
 | [`brig audit status`](cli/brig-audit-status.md) | 1 when a collector failed or does not run while its VM does, so that the VM's traffic is not recorded. |

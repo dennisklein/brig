@@ -14,7 +14,7 @@ import (
 )
 
 // Exit statuses that tell scripts why brig failed. exitCodes lists them for
-// brig --help and the reference. 2 is left out: brig policy diff uses it for
+// brig --help and the reference. 7 is left out: brig policy diff uses it for
 // an outcome.
 const (
 	exitFailure    = 1
