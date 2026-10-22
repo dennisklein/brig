@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"golang.org/x/sys/unix"
 )
 
@@ -34,7 +35,7 @@ func openPTY(t *testing.T) (master, slave *os.File) {
 		t.Skipf("cannot open the pseudo-terminal: %v", err)
 	}
 	t.Cleanup(func() { _ = slave.Close() })
-	if !isTerminal(slave) {
+	if !cliprogress.IsTerminal(slave) {
 		t.Skip("not a terminal")
 	}
 	return master, slave

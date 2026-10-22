@@ -17,6 +17,7 @@ import (
 	"text/tabwriter"
 	"unicode/utf8"
 
+	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
@@ -302,7 +303,7 @@ func usesSecret(v *vm.VM, attrs []string) bool {
 // without echo if standard input is one, else from standard input.
 func readSecret(ctx context.Context, cmd *cobra.Command, prompt string) (string, error) {
 	in := cmd.InOrStdin()
-	if f, ok := in.(*os.File); ok && isTerminal(f) {
+	if f, ok := in.(*os.File); ok && cliprogress.IsTerminal(f) {
 		return readSecretFromTerminal(ctx, f, cmd.ErrOrStderr(), prompt)
 	}
 	data, err := io.ReadAll(io.LimitReader(in, maxSecretInput+1))
