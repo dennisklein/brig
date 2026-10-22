@@ -233,6 +233,9 @@ func (a *app) applyConfigs(ctx context.Context, cli *openshell.CLI, v *vm.VM, st
 	if err != nil {
 		return err
 	}
+	if err := a.keepModelKeysOff(v, set, opts); err != nil {
+		return err
+	}
 	gw, err := cli.Gateway(v.GatewayName())
 	if err != nil {
 		return err

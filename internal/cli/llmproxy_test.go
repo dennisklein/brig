@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/dennisklein/brig/internal/llmproxy"
+	"github.com/dennisklein/brig/internal/ocsync"
+	"github.com/dennisklein/brig/internal/openshell"
 	"github.com/dennisklein/brig/internal/service"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -86,5 +89,60 @@ func TestLLMProxySetup(t *testing.T) {
 	}
 	if _, err := a.llmProxySetup(env); err == nil || !strings.Contains(err.Error(), "has "+llmproxy.ConfigFile) {
 		t.Errorf("no %s: %v", llmproxy.ConfigFile, err)
+	}
+}
+
+func TestKeepModelKeysOff(t *testing.T) {
+	a := testApp(t)
+	gwDir := t.TempDir()
+	writeFiles(t, gwDir, map[string]string{
+		"providers/claude-code.yaml": strings.Replace(claudeProvider, "name: claude", "name: claude-code", 1),
+		"providers/github.yaml":      "name: github\ntype: github\ncredentials:\n  GH_TOKEN:\n    secret_tool:\n      lookup: [service, github.com, user, alice]\n",
+	})
+	gw := testVM(t, a, "dev")
+	load := func() *ocsync.Set {
+		set, err := ocsync.Load([]string{gwDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	names := func(set *ocsync.Set) []string {
+		var out []string
+		for _, p := range set.Workspaces[openshell.DefaultWorkspace].Providers {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+
+	// Without an llm-proxy, nothing is kept off.
+	set := load()
+	if err := a.keepModelKeysOff(gw, set, ocsync.Options{}); err != nil || len(names(set)) != 2 {
+		t.Fatalf("no proxy: %q, %v", names(set), err)
+	}
+
+	testLLMProxy(t, a, subscriptionConfig)
+	set = load()
+	var out bytes.Buffer
+	var changes []ocsync.Change
+	err := a.keepModelKeysOff(gw, set, ocsync.Options{Out: &out, Record: func(c ocsync.Change) { changes = append(changes, c) }})
+	if err != nil || !slices.Equal(names(set), []string{"github"}) {
+		t.Fatalf("with proxy: %q, %v", names(set), err)
+	}
+	if !strings.Contains(out.String(), "provider claude-code: kept off the gateway: service models holds its key") || len(changes) != 1 {
+		t.Errorf("out = %q, changes = %+v", out.String(), changes)
+	}
+
+	// The service VM itself keeps its keys.
+	sv, err := a.vms.Load("models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svcSet, err := ocsync.Load(sv.OpenShellConfigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.keepModelKeysOff(sv, svcSet, ocsync.Options{}); err != nil || len(names(svcSet)) != 1 {
+		t.Errorf("service VM: %q, %v", names(svcSet), err)
 	}
 }
