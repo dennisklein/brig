@@ -52,7 +52,8 @@ into its VM's memory at every start: bind them in services/NAME.yaml of a
 config directory of the service (see brig sync --help).`,
 	}
 	cmd.AddCommand(newServiceTypesCmd(), newServiceCreateCmd(), newServiceListCmd(), newServiceShowCmd(),
-		newServiceStartCmd(), newServiceStopCmd(), newServiceAttachCmd(), newServiceDetachCmd(), newServiceDeleteCmd())
+		newServiceStartCmd(), newServiceStopCmd(), newServiceAttachCmd(), newServiceDetachCmd(), newServiceDeleteCmd(),
+		newServiceForwardCmd())
 	return cmd
 }
 
