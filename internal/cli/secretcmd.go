@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"unicode/utf8"
 
 	"github.com/GSI-HPC/go-clikit/cliout"
@@ -505,8 +504,7 @@ func checkSecrets(ctx context.Context, w ocsync.WorkspaceSet, tool ocsync.Secret
 }
 
 func printSecretList(w io.Writer, rep secretListReport) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "PROVIDER\tCREDENTIAL\tSOURCE\tSTATUS")
+	t := cliout.Table{Columns: columns("PROVIDER", "CREDENTIAL", "SOURCE", "STATUS")}
 	for _, c := range rep.Credentials {
 		source := "env " + c.Env
 		if c.Source == "secret_tool" {
@@ -516,9 +514,9 @@ func printSecretList(w io.Writer, rep secretListReport) {
 		if c.Error != "" {
 			status += ": " + c.Error
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", termtext.Escape(c.Provider), c.Credential, termtext.Escape(source), termtext.Escape(status))
+		t.Add(c.Provider, c.Credential, source, status)
 	}
-	_ = tw.Flush()
+	_ = t.Write(w, false)
 }
 
 // completeSecretArgs completes [VM] PROVIDER [CREDENTIAL] of brig secret set.

@@ -10,9 +10,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/cliout"
@@ -142,13 +142,12 @@ func newImageListCmd() *cobra.Command {
 				}
 				return cliout.WriteJSON(cmd.OutOrStdout(), out)
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tFEDORA\tOPENSHELL\tCREATED\tUSED BY")
+			t := cliout.Table{Columns: columns("ID", "FEDORA", "OPENSHELL", "CREATED", "USED BY")}
 			for _, img := range imgs {
-				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", termtext.Escape(img.ID), img.FedoraRelease, termtext.Escape(img.OpenShellVersion),
-					img.CreatedAt.Local().Format(time.DateTime), termtext.Escape(fmt.Sprint(users[img.ID])))
+				t.Add(img.ID, strconv.Itoa(img.FedoraRelease), img.OpenShellVersion,
+					img.CreatedAt.Local().Format(time.DateTime), fmt.Sprint(users[img.ID]))
 			}
-			return tw.Flush()
+			return t.Write(cmd.OutOrStdout(), false)
 		},
 	}
 	addOutputFlag(cmd, &format)

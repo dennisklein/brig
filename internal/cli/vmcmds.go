@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -644,13 +645,11 @@ func newListCmd() *cobra.Command {
 				}
 				return cliout.WriteJSON(cmd.OutOrStdout(), vms)
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tSTATE\tCPUS\tMEMORY\tPROFILE\tIMAGE")
+			t := cliout.Table{Columns: columns("NAME", "STATE", "CPUS", "MEMORY", "PROFILE", "IMAGE")}
 			for _, v := range vms {
-				fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\n", termtext.Escape(v.Name), termtext.Escape(v.State), v.CPUs, v.Memory,
-					termtext.Escape(v.NetworkProfile), termtext.Escape(v.Image))
+				t.Add(v.Name, v.State, strconv.Itoa(v.CPUs), fmt.Sprint(v.Memory), v.NetworkProfile, v.Image)
 			}
-			return tw.Flush()
+			return t.Write(cmd.OutOrStdout(), false)
 		},
 	}
 	addOutputFlag(cmd, &format)

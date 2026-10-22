@@ -6,8 +6,8 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/GSI-HPC/go-clikit/cliout"
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/deps"
@@ -39,16 +39,15 @@ dnf. The required packages are always included; --with adds optional groups.`,
 			for _, n := range names {
 				want[n] = true
 			}
-			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "GROUP\tPACKAGE\tREASON")
+			t := cliout.Table{Columns: columns("GROUP", "PACKAGE", "REASON")}
 			for _, g := range deps.Groups() {
 				for _, p := range g.Packages {
 					if want[p.Name] {
-						fmt.Fprintf(tw, "%s\t%s\t%s\n", g.Name, p.Name, p.Reason)
+						t.Add(g.Name, p.Name, p.Reason)
 					}
 				}
 			}
-			return tw.Flush()
+			return t.Write(out, false)
 		},
 	}
 	cmd.Flags().StringSliceVar(&with, "with", nil,
