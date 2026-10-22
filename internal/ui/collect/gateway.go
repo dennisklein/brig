@@ -114,7 +114,7 @@ func (g *Gateways) Run(ctx context.Context, st *store.Store) {
 		case <-ctx.Done():
 			return
 		case <-sub.Changed():
-			if !sub.Take()[store.TopicVMs] {
+			if !slices.Contains(sub.Take(), store.TopicVMs) {
 				continue
 			}
 			g.reconcile(ctx, st, workers, dirs, false)

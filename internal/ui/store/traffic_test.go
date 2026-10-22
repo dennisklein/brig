@@ -4,6 +4,7 @@
 package store
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -73,7 +74,7 @@ func TestSetDrafts(t *testing.T) {
 	npm := Draft{ID: "ch-1", Rule: "npm", Binary: "/usr/bin/node", Endpoints: []DraftEndpoint{{Host: "registry.npmjs.org", Port: 443}}}
 	s.SetDrafts("dev", "default", "webapp", []Draft{npm})
 	s.SetDrafts("dev", "default", "kit-dev", []Draft{{ID: "ch-2", Rule: "raw"}})
-	if got := sub.Take(); !got[TopicTraffic] {
+	if got := sub.Take(); !slices.Contains(got, TopicTraffic) {
 		t.Errorf("notified %v for new drafts", got)
 	}
 	// The same drafts again change nothing.

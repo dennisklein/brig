@@ -4,10 +4,7 @@
 package ui
 
 import (
-	"bufio"
-	"context"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -93,39 +90,25 @@ func TestOpenShellEscapesUntrustedText(t *testing.T) {
 }
 
 func TestOpenShellEvents(t *testing.T) {
-	ts := newTestServer(t)
-	ts.login()
+	ts, c := newLiveServer(t)
 	for _, target := range []string{
 		"/events?f=sandbox&gw=Bad..Name", "/events?f=sandbox&gw=dev&ws=default&sb=..x", "/events?f=sandbox&sb=webapp&ws=default",
 		"/events?f=sandbox&gw=dev&sb=webapp", "/events?f=sandbox&gw=dev&ws=..&sb=webapp", "/events?f=sandbox-table&wsfilter=..",
 		"/events?f=sandbox-table&filter=Bad..Name",
 	} {
-		if w := ts.get(target); w.Code != http.StatusBadRequest {
-			t.Errorf("%s: %d, want 400", target, w.Code)
+		if got := status(t, c, target); got != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", target, got)
 		}
 	}
 
-	srv := httptest.NewServer(ts.h)
-	defer srv.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events?f=sandbox&f=vm-table&gw=dev&ws=default&sb=webapp&tab=policy", nil)
-	req.Host = "127.0.0.1:7878"
-	req.AddCookie(ts.cookie)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(nil, 1<<20)
-	openingEvents(t, sc, "sandbox", "vm-table")
+	r := c.Events(t, "/events?f=sandbox&f=vm-table&gw=dev&ws=default&sb=webapp&tab=policy")
+	openingEvents(t, r, "sandbox", "vm-table")
 	ts.st.UpdateGateway("dev", func(gw *store.Gateway) bool {
 		gw.State = store.GatewayUnreachable
 		gw.Err = "brig-dev does not answer"
 		return true
 	})
-	name, data := nextEvent(t, sc)
+	name, data := nextEvent(t, r)
 	// A gateway change sends the sandbox, on its tab, and not the VM table.
 	if name != "sandbox" || !strings.Contains(data, "brig-dev does not answer") || !strings.Contains(data, "policy get webapp --full") {
 		t.Errorf("got event %q: %.300s", name, data)

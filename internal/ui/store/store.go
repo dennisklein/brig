@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/localweb/sse"
+
 	"github.com/dennisklein/brig/internal/config"
 	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/vm"
@@ -231,14 +233,15 @@ type Span struct {
 type Store struct {
 	mu   sync.Mutex
 	snap Snapshot
-	subs map[*Subscription]struct{}
+	// notifier tells the subscribers which topics changed.
+	notifier sse.Notifier[Topic]
 	// seq is the number of the last request added.
 	seq uint64
 }
 
 // New returns an empty store.
 func New() *Store {
-	return &Store{subs: map[*Subscription]struct{}{}}
+	return &Store{}
 }
 
 // Snapshot returns the current snapshot.
@@ -248,44 +251,15 @@ func (s *Store) Snapshot() Snapshot {
 	return s.snap
 }
 
-// Subscription tells a subscriber which topics changed. It keeps the set of
-// topics changed since the subscriber last took them, so that a subscriber
-// that falls behind loses no topic, only the count of changes.
-type Subscription struct {
-	s       *Store
-	wake    chan struct{}
-	pending map[Topic]bool // guarded by s.mu
-}
+// Subscribe returns a subscription to the changes of the store: it keeps the
+// set of topics changed since the subscriber last took them, so that a
+// subscriber that falls behind loses no topic, only the count of changes.
+// Close ends it.
+func (s *Store) Subscribe() *sse.Subscription[Topic] { return s.notifier.Subscribe() }
 
-// Subscribe returns a subscription to the changes of the store. Close ends
-// it.
-func (s *Store) Subscribe() *Subscription {
-	sub := &Subscription{s: s, wake: make(chan struct{}, 1), pending: map[Topic]bool{}}
-	s.mu.Lock()
-	s.subs[sub] = struct{}{}
-	s.mu.Unlock()
-	return sub
-}
-
-// Changed receives when topics have changed since the last Take.
-func (sub *Subscription) Changed() <-chan struct{} { return sub.wake }
-
-// Take returns the topics that changed since the last Take, and forgets
-// them.
-func (sub *Subscription) Take() map[Topic]bool {
-	sub.s.mu.Lock()
-	defer sub.s.mu.Unlock()
-	out := sub.pending
-	sub.pending = map[Topic]bool{}
-	return out
-}
-
-// Close ends the subscription.
-func (sub *Subscription) Close() {
-	sub.s.mu.Lock()
-	delete(sub.s.subs, sub)
-	sub.s.mu.Unlock()
-}
+// Notifier returns the notifier of the store's topics, for the stream that
+// tells a page of them (sse.Serve).
+func (s *Store) Notifier() *sse.Notifier[Topic] { return &s.notifier }
 
 // update changes the snapshot with fn under the lock and notifies the
 // subscribers of t.
@@ -297,16 +271,7 @@ func (s *Store) update(t Topic, fn func(*Snapshot)) {
 }
 
 // notify tells the subscribers that t changed. The caller holds the lock.
-func (s *Store) notify(t Topic) {
-	for sub := range s.subs {
-		sub.pending[t] = true
-		select {
-		case sub.wake <- struct{}{}:
-		default:
-			// The subscriber is already told, and takes t with the rest.
-		}
-	}
-}
+func (s *Store) notify(t Topic) { s.notifier.Notify(t) }
 
 // SetHost replaces the host description.
 func (s *Store) SetHost(h Host) {

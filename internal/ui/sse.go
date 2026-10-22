@@ -4,27 +4,20 @@
 package ui
 
 import (
-	"fmt"
-	"io"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/localweb/session"
+	"github.com/GSI-HPC/go-clikit/localweb/sse"
 
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
-const (
-	// coalesceEvery is how long changes gather before a page gets them,
-	// so that a burst of changes costs one render.
-	coalesceEvery = 250 * time.Millisecond
-	// keepAliveEvery is how often an idle stream sends a comment, so that
-	// nothing between drops it and a gone browser is noticed.
-	keepAliveEvery = 25 * time.Second
-)
+// coalesceEvery is how long changes gather before a page gets them, so
+// that a burst of changes costs one render. The kit's default is 30 ms.
+const coalesceEvery = 250 * time.Millisecond
 
 // events streams a page's live updates as Server-Sent Events: each event
 // is named after a fragment and carries its HTML, which htmx's SSE
@@ -35,7 +28,7 @@ const (
 // The stream opens with every fragment, as the page may have been rendered
 // before a change that the stream does not hear of. Then changes gather for
 // coalesceEvery, and each fragment that depends on a changed topic is
-// rendered and sent.
+// rendered and sent, unless its HTML is what the stream sent last.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	names := q["f"]
@@ -58,34 +51,18 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad gateway or sandbox name", http.StatusBadRequest)
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-	// Subscribe before the first render, so that no change falls between
-	// the two.
-	sub := s.st.Subscribe()
-	defer sub.Close()
-
-	h := w.Header()
-	h.Set("Content-Type", "text/event-stream")
-	h.Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	// The browser reconnects after this long when the stream breaks.
-	_, _ = io.WriteString(w, "retry: 2000\n\n")
-
 	csrf := session.CSRF(r.Context())
-	// send renders the fragments that want accepts, from the current
-	// snapshot, and writes them. It returns an error when the stream breaks.
-	send := func(want func(name string) bool) error {
+	// render renders the fragments that depend on a topic of changed, or
+	// all of them when changed is nil, from the current snapshot.
+	render := func(changed []store.Topic) ([]sse.Event, error) {
 		v := &view{Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo, CSRF: csrf, Asset: s.assets.url, Tab: tab(q.Get("tab"))}
 		if vmName != "" {
 			v.VM, _ = v.Snap.VM(vmName)
 		}
 		liveOpenShell(v, q)
+		var events []sse.Event
 		for _, n := range names {
-			if !want(n) {
+			if changed != nil && !slices.ContainsFunc(fragments[n], func(t store.Topic) bool { return slices.Contains(changed, t) }) {
 				continue
 			}
 			html, err := s.tmpl.fragment(n, v)
@@ -93,66 +70,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				s.log.Error("rendering fragment", "fragment", n, "err", err)
 				continue
 			}
-			if err := writeEvent(w, n, html); err != nil {
-				return err
-			}
+			events = append(events, sse.Event{Name: n, Data: html})
 		}
-		flusher.Flush()
-		return nil
+		return events, nil
 	}
-	if send(func(string) bool { return true }) != nil {
-		return
+	if err := sse.Serve(w, r, s.st.Notifier(), render, sse.Options{Coalesce: coalesceEvery, Done: s.ctx.Done()}); err != nil {
+		s.log.Error("streaming live updates", "err", err)
 	}
-
-	pending := map[store.Topic]bool{}
-	var timer <-chan time.Time
-	keepAlive := time.NewTicker(keepAliveEvery)
-	defer keepAlive.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-s.ctx.Done():
-			return
-		case <-sub.Changed():
-			for t := range sub.Take() {
-				pending[t] = true
-			}
-			if timer == nil {
-				timer = time.After(coalesceEvery)
-			}
-			continue
-		case <-keepAlive.C:
-			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
-			continue
-		case <-timer:
-		}
-		timer = nil
-		err := send(func(n string) bool {
-			return slices.ContainsFunc(fragments[n], func(t store.Topic) bool { return pending[t] })
-		})
-		clear(pending)
-		if err != nil {
-			return
-		}
-	}
-}
-
-// writeEvent writes one Server-Sent Event, a data line for each line of
-// the HTML in data. A carriage return also ends a line of the stream, so it
-// is written as a character reference, which HTML reads the same.
-func writeEvent(w io.Writer, name, data string) error {
-	var b strings.Builder
-	fmt.Fprintf(&b, "event: %s\n", name)
-	for _, line := range strings.Split(strings.ReplaceAll(data, "\r", "&#13;"), "\n") {
-		b.WriteString("data: ")
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	b.WriteByte('\n')
-	_, err := io.WriteString(w, b.String())
-	return err
 }

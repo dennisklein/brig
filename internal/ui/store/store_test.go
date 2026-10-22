@@ -4,6 +4,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestSubscribe(t *testing.T) {
 	default:
 		t.Fatal("no wake after a change")
 	}
-	if got := sub.Take(); len(got) != 2 || !got[TopicHost] || !got[TopicActivity] {
+	if got := sub.Take(); !slices.Equal(got, []Topic{TopicHost, TopicActivity}) {
 		t.Errorf("topics %v", got)
 	}
 	if got := sub.Take(); len(got) != 0 {
@@ -63,7 +64,7 @@ func TestSlowSubscriber(t *testing.T) {
 		t.Errorf("activity has %d runs, want 99", n)
 	}
 	got := sub.Take()
-	if !got[TopicVMs] || !got[TopicActivity] || !got[TopicHost] {
+	if !slices.Equal(got, []Topic{TopicVMs, TopicActivity, TopicHost}) {
 		t.Errorf("topics %v, want vms, activity and host", got)
 	}
 }
@@ -102,7 +103,7 @@ func TestTasks(t *testing.T) {
 	if t1, _ := before.Task("t1"); t1.Done() || t1.Status != TaskRunning {
 		t.Errorf("an earlier snapshot changed: %+v", t1)
 	}
-	if got := sub.Take(); len(got) != 2 || !got[TopicTasks] || !got[TopicOutput] {
+	if got := sub.Take(); !slices.Equal(got, []Topic{TopicTasks, TopicOutput}) {
 		t.Errorf("topics %v, want tasks and output", got)
 	}
 	s.RemoveTask("t1")
