@@ -10,16 +10,21 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/GSI-HPC/go-clikit/localweb"
+
 	"github.com/dennisklein/brig/internal/ui/demo"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
-const testPort = 7878
+// testBound is what the test server listens on, as far as its Host check
+// goes: it binds nothing.
+var testBound = &localweb.Bound{Addrs: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:7878")}}
 
 // testServer is a Server with the demo's data and a logged-in session.
 type testServer struct {
@@ -50,7 +55,7 @@ func newTestServer(t *testing.T) *testServer {
 	}
 	ts := &testServer{t: t, st: st, token: "the-token", starts: &fakeStarter{st: st}, files: &fakeFiles{}}
 	srv, err := newServer(ctx, serverConfig{
-		Store: st, Token: ts.token, Port: testPort, Home: "/home/dklein",
+		Store: st, Token: ts.token, Bound: testBound, Home: "/home/dklein",
 		CheckHost: func(context.Context, *store.Store) { ts.checks.Add(1) },
 		Starter:   ts.starts,
 		Files:     ts.files,
@@ -147,8 +152,14 @@ func TestHostHeader(t *testing.T) {
 	// Even the token exchange needs our host name.
 	r := request("GET", "/?token="+ts.token)
 	r.Host = "rebind.example:7878"
-	if w := ts.do(r); w.Code != http.StatusMisdirectedRequest {
+	w := ts.do(r)
+	if w.Code != http.StatusMisdirectedRequest {
 		t.Errorf("token exchange on another host: %d", w.Code)
+	}
+	// The refusal says where to find the address, and never what the host
+	// is.
+	if body := w.Body.String(); !strings.Contains(body, "Open the address that brig ui printed") || strings.Contains(body, "7878") {
+		t.Errorf("refusal: %q", body)
 	}
 }
 
@@ -203,8 +214,8 @@ func TestSecurityHeaders(t *testing.T) {
 		w := ts.get(target)
 		h := w.Header()
 		for k, want := range map[string]string{
-			"Content-Security-Policy": contentSecurityPolicy,
-			"Referrer-Policy":         "no-referrer",
+			"Content-Security-Policy": localweb.ContentSecurityPolicy,
+			"Referrer-Policy":         "same-origin",
 			"X-Content-Type-Options":  "nosniff",
 			"X-Frame-Options":         "DENY",
 			"Cache-Control":           "no-store",
