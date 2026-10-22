@@ -114,8 +114,8 @@ func TestSandboxVerbsCheckTheSandboxFirst(t *testing.T) {
 		{[]string{"exec", "dev", "old", "--", "ls"}, exitNotReady, "sandbox old is stopped; start it with brig sandbox start dev old"},
 		{[]string{"attach", "dev", "old", "github"}, exitNotReady, "is stopped"},
 		{[]string{"detach", "dev", "webapp", "gitlab"}, exitNotFound, "has no provider gitlab attached"},
-		{[]string{"exec", "dev", "webapp"}, exitFailure, "give the command after --"},
-		{[]string{"connect", "dev", "webapp", "--", "ls"}, exitFailure, "takes no command after --"},
+		{[]string{"exec", "dev", "webapp"}, exitUsage, "give the command after --"},
+		{[]string{"connect", "dev", "webapp", "--", "ls"}, exitUsage, "takes no command after --"},
 		{[]string{"connect", "dev", "web app"}, exitFailure, "invalid sandbox name"},
 		{[]string{"connect", "dev", "webapp", "-w", "Team"}, exitFailure, "invalid workspace name"},
 	} {

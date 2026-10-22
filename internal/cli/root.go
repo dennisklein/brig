@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/GSI-HPC/go-clikit/cobratree"
 	"github.com/GSI-HPC/go-clikit/termtext"
 	"github.com/spf13/cobra"
 
@@ -145,5 +146,32 @@ lists the concepts and how-tos that brig help TOPIC explains.
 			c.Annotations[noProgress] = "true"
 		}
 	}
+	cmd.InitDefaultCompletionCmd() // Strict adds it too; it is a group
+	markGroups(cmd)
+	// Last, once the tree is built: a word that names no command, and an
+	// argument check that fails, are usage errors.
+	cobratree.Strict(cmd, nil)
 	return cmd
 }
+
+// groupAnnotation marks a command that only holds subcommands.
+const groupAnnotation = "brig.group"
+
+// markGroups notes cmd and each command below it that only holds
+// subcommands. Strict gives such a command a function that prints its help,
+// so that Runnable no longer tells it from a command that does something.
+func markGroups(cmd *cobra.Command) {
+	for _, c := range cmd.Commands() {
+		markGroups(c)
+	}
+	if cmd.HasSubCommands() && !cmd.Runnable() {
+		if cmd.Annotations == nil {
+			cmd.Annotations = map[string]string{}
+		}
+		cmd.Annotations[groupAnnotation] = "true"
+	}
+}
+
+// IsGroup reports whether c only holds subcommands, such as brig sandbox,
+// as tools that document the command tree need to know.
+func IsGroup(c *cobra.Command) bool { return c.Annotations[groupAnnotation] == "true" }

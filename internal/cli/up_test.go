@@ -25,8 +25,8 @@ func TestUpRefuses(t *testing.T) {
 		message string
 	}{
 		{[]string{"nosuch"}, exitNotFound, "brig up --create creates it"},
-		{[]string{"dev", "--", "--cpus", "2"}, exitFailure, "are for --create"},
-		{[]string{"dev", "web"}, exitFailure, "at most one VM name"},
+		{[]string{"dev", "--", "--cpus", "2"}, exitUsage, "are for --create"},
+		{[]string{"dev", "web"}, exitUsage, "at most one VM name"},
 		// The flags after -- reach brig create.
 		{[]string{"new", "--create", "--", "--cpus", "0"}, exitFailure, "at least 1 CPU"},
 		{[]string{"new", "--create", "--", "--no-start"}, exitFailure, "none of the others"},

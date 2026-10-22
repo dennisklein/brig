@@ -22,8 +22,9 @@ leave NAME out, and says so on standard error.
 Configuration lives in $XDG\_CONFIG\_HOME/brig/config.yaml. brig help topics
 lists the concepts and how-tos that brig help TOPIC explains.
 
-Exit status: 0 success, 3 not found, 4 exists already, 5 not ready (VM,
-gateway or sandbox), 6 OpenShell config sync failed, 1 any other failure.
+Exit status: 0 success, 2 usage error, 3 not found, 4 exists already, 5 not
+ready (VM, gateway or sandbox), 6 OpenShell config sync failed, 1 any other
+failure.
 
 [Exit codes](../exit-codes.md) says what each status means.
 

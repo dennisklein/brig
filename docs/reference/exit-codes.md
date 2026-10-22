@@ -9,6 +9,7 @@ same statuses.
 | --- | --- | --- |
 | 0 |  | The command did what you asked. |
 | 1 | `failed` | Any other failure. The message on standard error says which. |
+| 2 | `usage` | The command line is wrong: a flag or a command that brig does not know, or arguments that the command does not take. |
 | 3 | `not_found` | The VM, image or other object that you named does not exist. |
 | 4 | `exists` | The VM or other object that you asked to create exists already. |
 | 5 | `not_ready` | The VM does not run, its gateway does not answer, or the sandbox is not ready. |

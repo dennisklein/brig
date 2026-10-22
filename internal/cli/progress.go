@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/GSI-HPC/go-clikit/cobratree"
 	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"github.com/GSI-HPC/go-clikit/progress/display"
@@ -180,7 +181,8 @@ func inheritedTrace() progress.TraceContext {
 
 // progressClass returns the fallback rule of the classes the spans of a
 // command end with, for an error that the kit's own rules leave open. The
-// kit tells an error that wraps context.Canceled by itself. A child that the
+// kit tells an error that wraps context.Canceled by itself. A usage error
+// is the command line's. A child that the
 // interrupt killed fails with "signal: interrupt" alone, so once interrupt,
 // the context of the command line, has ended, a failure of a child that a
 // signal ended is canceled. Any other failure stays the target's: a
@@ -188,6 +190,9 @@ func inheritedTrace() progress.TraceContext {
 // interrupt stopped.
 func progressClass(interrupt context.Context) func(error) progress.Class {
 	return func(err error) progress.Class {
+		if cobratree.IsUsage(err) {
+			return progress.ClassUsage
+		}
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok && interrupt.Err() != nil && ee.ExitCode() == -1 {
 			return progress.ClassCanceled
 		}

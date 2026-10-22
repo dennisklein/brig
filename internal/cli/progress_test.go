@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/GSI-HPC/go-clikit/cobratree"
 	"github.com/GSI-HPC/go-clikit/progress"
 	"github.com/GSI-HPC/go-clikit/progress/cliprogress"
 	"github.com/GSI-HPC/go-clikit/progress/display"
@@ -59,6 +60,7 @@ func TestProgressClass(t *testing.T) {
 		{"killed child after the interrupt", interrupted, fmt.Errorf("podman: %w", killed), progress.ClassCanceled},
 		{"killed child without an interrupt", context.Background(), killed, progress.ClassNone},
 		{"failed child after the interrupt", interrupted, failed, progress.ClassNone},
+		{"usage error", context.Background(), cobratree.Usagef("takes no argument"), progress.ClassUsage},
 		{"other failure after the interrupt", interrupted, errors.New("rollback failed"), progress.ClassNone},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
