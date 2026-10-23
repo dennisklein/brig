@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/dennisklein/brig/internal/paths"
 )
 
 // The host's networks change while a VM runs: a new DHCP lease, a VPN, an
@@ -65,16 +67,7 @@ func writeHostNet(path string, h HostNet) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+hostNetFile+"-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	_, err = tmp.Write(b)
-	if err = errors.Join(err, tmp.Close()); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return paths.WriteFile(path, b, 0o600)
 }
 
 // watchSettle is how long the watcher waits after a change for more of

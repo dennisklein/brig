@@ -29,7 +29,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dennisklein/brig/internal/vm"
+	"github.com/dennisklein/brig/internal/paths"
 )
 
 // InstallHint tells users how to install the openshell CLI from the brig dnf
@@ -279,7 +279,7 @@ func (c *CLI) keepActive(gateway string) (restore func() error, err error) {
 		if !selectedByUs() {
 			return nil
 		}
-		return vm.WriteFileAtomic(path, data, fi.Mode().Perm())
+		return paths.WriteFile(path, data, fi.Mode().Perm())
 	}, nil
 }
 

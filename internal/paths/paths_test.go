@@ -84,3 +84,46 @@ func TestEnsurePrivate(t *testing.T) {
 		t.Fatalf("mode = %v, want 0700", fi.Mode().Perm())
 	}
 }
+
+func TestWriteFileGivesExactlyPerm(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil { //nolint:gosec // G306: a too-open file that WriteFile must tighten
+		t.Fatal(err)
+	}
+	if err := WriteFile(path, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "new" {
+		t.Fatalf("content = %q, %v; want new", data, err)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, %v; want 0600", fi.Mode().Perm(), err)
+	}
+}
+
+func TestWriteFileMakesTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a", "file")
+	if err := WriteFile(path, []byte("x"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %v, %v; want 0640", fi.Mode().Perm(), err)
+	}
+}
+
+func TestWriteFileLeavesNothingOnAnError(t *testing.T) {
+	dir := t.TempDir()
+	// A directory at the path: the rename of the new file over it fails.
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(target, []byte("new"), 0o700); err == nil {
+		t.Fatal("WriteFile over a directory succeeded")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "target" {
+		t.Fatalf("directory holds %v, %v; want target alone", entries, err)
+	}
+}

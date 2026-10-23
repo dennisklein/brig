@@ -25,6 +25,8 @@ import (
 	"text/template"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/dennisklein/brig/internal/paths"
 )
 
 //go:embed all:templates
@@ -432,31 +434,9 @@ func Write(files []File, roots Roots, force bool, skip func(File) string) ([]Res
 		if err := os.MkdirAll(filepath.Dir(r.Path), dirMode); err != nil {
 			return nil, err
 		}
-		if err := writeFile(r.Path, r.File.Data, r.File.Mode); err != nil {
+		if err := paths.WriteFile(r.Path, r.File.Data, r.File.Mode); err != nil {
 			return nil, err
 		}
 	}
 	return results, nil
-}
-
-// writeFile writes data to a temporary file next to path and renames it, so
-// that a reader never sees half a file.
-func writeFile(path string, data []byte, mode fs.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".brig-agent-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }

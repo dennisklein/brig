@@ -295,7 +295,7 @@ func (a *app) writeKeys(v *vm.VM) error {
 		{hostKeyFile, host},
 	}
 	for _, f := range files {
-		if err := vm.WriteFileAtomic(a.vmFile(v, f.name), f.data, 0o600); err != nil {
+		if err := paths.WriteFile(a.vmFile(v, f.name), f.data, 0o600); err != nil {
 			return err
 		}
 	}

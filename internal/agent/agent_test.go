@@ -22,7 +22,7 @@ var guideSpecs = map[Kind]Spec{
 	OpenCode: {Kind: OpenCode, User: "alice", Endpoint: "https://llm.example.com/v1", Model: "your-model-id"},
 }
 
-func paths(p *Plan) map[string]File {
+func byPath(p *Plan) map[string]File {
 	m := map[string]File{}
 	for _, f := range p.Files {
 		m[f.Path] = f
@@ -61,7 +61,7 @@ func TestNew(t *testing.T) {
 			t.Errorf("New(%+v): %v", tc.spec, err)
 			continue
 		}
-		files := paths(p)
+		files := byPath(p)
 		for _, want := range tc.want {
 			if _, ok := files[want]; !ok {
 				t.Errorf("New(%+v) lacks %s; it has %v", tc.spec, want, p.Files)
@@ -125,7 +125,7 @@ func TestEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := paths(p)
+	files := byPath(p)
 	if prof := string(files["profiles/llm.yaml"].Data); !strings.Contains(prof, "host: ollama.lan ") || !strings.Contains(prof, "port: 11434\n") {
 		t.Errorf("profile:\n%s", prof)
 	}
@@ -149,7 +149,7 @@ func TestProviderFileQuotesOddAttributes(t *testing.T) {
 			} `yaml:"secret_tool"`
 		} `yaml:"credentials"`
 	}
-	if err := yaml.Unmarshal(paths(p)["providers/claude-code.yaml"].Data, &prov); err != nil {
+	if err := yaml.Unmarshal(byPath(p)["providers/claude-code.yaml"].Data, &prov); err != nil {
 		t.Fatal(err)
 	}
 	got := prov.Credentials["CLAUDE_CODE_OAUTH_TOKEN"].SecretTool.Lookup
@@ -329,7 +329,7 @@ func TestGuideShowsTheFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f, ok := paths(p)[key[1]]
+		f, ok := byPath(p)[key[1]]
 		if !ok {
 			t.Errorf("guide shows %s for %s, which brig agent init does not write", key[1], kind)
 			continue

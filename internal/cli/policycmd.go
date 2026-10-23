@@ -20,6 +20,7 @@ import (
 
 	"github.com/dennisklein/brig/internal/ocsync"
 	"github.com/dennisklein/brig/internal/openshell"
+	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/policy"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -317,7 +318,7 @@ func (a *app) rememberPolicySource(v *vm.VM, workspace, sandbox, path string) er
 	if err != nil {
 		return err
 	}
-	return vm.WriteFileAtomic(a.vmFile(v, policySourcesFile), append(data, '\n'), 0o600)
+	return paths.WriteFile(a.vmFile(v, policySourcesFile), append(data, '\n'), 0o600)
 }
 
 func printPolicyReport(w io.Writer, rep *policyReport, format outputFormat) error {

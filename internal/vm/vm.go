@@ -163,7 +163,7 @@ func (s Store) Save(v *VM) error {
 	if err != nil {
 		return err
 	}
-	return WriteFileAtomic(s.recordPath(v.Name), append(data, '\n'), 0o600)
+	return paths.WriteFile(s.recordPath(v.Name), append(data, '\n'), 0o600)
 }
 
 // List returns all VM records sorted by name. Directories without a record
@@ -242,29 +242,4 @@ func (s Store) Remove(name string) error {
 		return err
 	}
 	return os.RemoveAll(s.Dir(name))
-}
-
-// WriteFileAtomic writes data to a temporary file next to path and renames it
-// over path, so readers never see a partial file.
-func WriteFileAtomic(path string, data []byte, perm fs.FileMode) error {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer func() { _ = os.Remove(tmp) }() // no-op after a successful rename
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Chmod(perm)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
