@@ -242,7 +242,7 @@ func run(ctx context.Context, args ...string) (out []byte, err error) {
 	// so that a rollback that ignores Ctrl-C can finish.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var stderr bytes.Buffer
-	cmd.Stderr = progress.Tee(ctx, &stderr, progress.Stderr, nil)
+	cmd.Stderr = progress.Tee(ctx, &stderr, progress.StreamStderr, nil)
 	out, err = cmd.Output()
 	switch {
 	case err == nil:

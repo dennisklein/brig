@@ -151,7 +151,7 @@ lists the concepts and how-tos that brig help TOPIC explains.
 	markGroups(cmd)
 	// Last, once the tree is built: a word that names no command, and an
 	// argument check that fails, are usage errors.
-	cobratree.Strict(cmd, nil)
+	cobratree.Strict(cmd)
 	return cmd
 }
 
