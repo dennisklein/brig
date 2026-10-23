@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/GSI-HPC/go-clikit/localweb"
 	"github.com/GSI-HPC/go-clikit/localweb/assets"
 	"github.com/GSI-HPC/go-clikit/localweb/htmx"
+	"github.com/GSI-HPC/go-clikit/localweb/page"
 	"github.com/GSI-HPC/go-clikit/localweb/session"
 
 	"github.com/dennisklein/brig/internal/audit"
@@ -32,7 +34,7 @@ type Server struct {
 	st        *store.Store
 	sessions  *session.Sessions
 	bound     *localweb.Bound
-	tmpl      *templates
+	tmpl      *page.Set
 	static    *assets.Assets
 	vendor    *assets.Assets
 	help      *help.Help
@@ -107,9 +109,14 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	fm["asset"] = static.URL
 	fm["vendor"] = vendor.URL
 	fm["htmxConfig"] = func() string { return htmx.Config }
-	t, err := newTemplates(site, fm, dev)
+	t, err := page.Parse(site, page.Options{Funcs: fm, Reload: dev}, "templates/*.tmpl")
 	if err != nil {
 		return nil, err
+	}
+	for _, name := range pageNames {
+		if !t.Has("page-" + name) {
+			return nil, fmt.Errorf("no template defines the page %s", name)
+		}
 	}
 	goRun := c.Go
 	if goRun == nil {
@@ -193,16 +200,11 @@ func (s *Server) newView(r *http.Request, page, title string) *view {
 
 // render writes a page, or a server error.
 func (s *Server) render(w http.ResponseWriter, status int, name string, v *view) {
-	v.HelpPage = name
-	html, err := s.tmpl.page(name, v)
-	if err != nil {
+	v.HelpPage, v.Content = name, "page-"+name
+	if err := s.tmpl.Respond(w, status, "layout", v); err != nil {
 		s.log.Error("rendering page", "page", name, "err", err)
 		http.Error(w, "brig ui could not render this page; its log says why", http.StatusInternalServerError)
-		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write(html) //nolint:gosec // G705: html/template output, escaped in context
 }
 
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
@@ -263,7 +265,7 @@ func (s *Server) host(w http.ResponseWriter, r *http.Request) {
 func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 	s.startCheck()
 	// The live update brings the result; the answer shows them running.
-	html, err := s.tmpl.fragment("host-checks", s.newView(r, "host", "Host"))
+	html, err := s.tmpl.Render("host-checks", s.newView(r, "host", "Host"))
 	if err != nil {
 		s.log.Error("rendering host checks", "err", err)
 		http.Error(w, "rendering failed", http.StatusInternalServerError)
@@ -301,7 +303,7 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) palette(w http.ResponseWriter, r *http.Request) {
 	v := s.newView(r, "", "")
 	v.Query = r.URL.Query().Get("q")
-	html, err := s.tmpl.fragment("palette-list", v)
+	html, err := s.tmpl.Render("palette-list", v)
 	if err != nil {
 		s.log.Error("rendering palette", "err", err)
 		http.Error(w, "rendering failed", http.StatusInternalServerError)
