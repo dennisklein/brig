@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/GSI-HPC/go-clikit/localweb"
+	"github.com/GSI-HPC/go-clikit/localweb/htmx"
 	"github.com/GSI-HPC/go-clikit/localweb/localwebtest"
 	"github.com/GSI-HPC/go-clikit/localweb/sse"
 
@@ -372,7 +374,7 @@ func TestPageCSRFHeader(t *testing.T) {
 func TestStaticFiles(t *testing.T) {
 	ts := newTestServer(t)
 	ts.login()
-	url := ts.srv.assets.url("app.css")
+	url := ts.srv.static.URL("app.css")
 	w := ts.get(url)
 	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/css") {
 		t.Fatalf("%s: %d %s", url, w.Code, w.Header().Get("Content-Type"))
@@ -382,18 +384,44 @@ func TestStaticFiles(t *testing.T) {
 	}
 	for _, target := range []string{
 		"/static/0123456789ab/app.css",
-		"/static/" + ts.srv.assets.version + "/nope.js",
+		"/static/" + ts.srv.static.Version() + "/nope.js",
 	} {
 		if w := ts.get(target); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", target, w.Code)
 		}
 	}
 	// The mux cleans the path and redirects; the templates stay unserved.
-	if w := ts.get("/static/" + ts.srv.assets.version + "/../templates/layout.tmpl"); w.Code == http.StatusOK || strings.Contains(w.Body.String(), "define") {
+	if w := ts.get("/static/" + ts.srv.static.Version() + "/../templates/layout.tmpl"); w.Code == http.StatusOK || strings.Contains(w.Body.String(), "define") {
 		t.Errorf("a template was served: %d", w.Code)
 	}
-	if w := ts.get(ts.srv.assets.url("fonts/ibm-plex-sans-latin-400-normal.woff2")); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "font/woff2" {
+	if w := ts.get(ts.srv.static.URL("fonts/ibm-plex-sans-latin-400-normal.woff2")); w.Code != http.StatusOK || w.Header().Get("Content-Type") != "font/woff2" {
 		t.Errorf("font: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+// A page links to htmx, from the kit, and the page's files are all served.
+func TestPageLinksResolve(t *testing.T) {
+	ts := newTestServer(t)
+	ts.login()
+	body := ts.get("/host").Body.String()
+	if want := `content='` + html.EscapeString(htmx.Config) + `'`; !strings.Contains(body, want) {
+		t.Errorf("the page does not carry the configuration of htmx, %s", want)
+	}
+	links := regexp.MustCompile(`(?:src|href)="(/(?:static|htmx)/[^"]+)"`).FindAllStringSubmatch(body, -1)
+	if len(links) < 6 {
+		t.Fatalf("the page links to %d files; want at least 6", len(links))
+	}
+	var scripts int
+	for _, m := range links {
+		if w := ts.get(m[1]); w.Code != http.StatusOK {
+			t.Errorf("%s: %d", m[1], w.Code)
+		}
+		if strings.HasPrefix(m[1], "/htmx/") {
+			scripts++
+		}
+	}
+	if scripts != 2 {
+		t.Errorf("the page links to %d scripts of the kit, want htmx and its SSE extension", scripts)
 	}
 }
 

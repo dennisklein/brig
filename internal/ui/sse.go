@@ -55,7 +55,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	// render renders the fragments that depend on a topic of changed, or
 	// all of them when changed is nil, from the current snapshot.
 	render := func(changed []store.Topic) ([]sse.Event, error) {
-		v := &view{Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo, CSRF: csrf, Asset: s.assets.url, Tab: tab(q.Get("tab"))}
+		v := &view{Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo, CSRF: csrf, Tab: tab(q.Get("tab"))}
 		if vmName != "" {
 			v.VM, _ = v.Snap.VM(vmName)
 		}

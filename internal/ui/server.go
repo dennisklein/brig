@@ -5,12 +5,15 @@ package ui
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"sync/atomic"
 
 	"github.com/GSI-HPC/go-clikit/localweb"
+	"github.com/GSI-HPC/go-clikit/localweb/assets"
+	"github.com/GSI-HPC/go-clikit/localweb/htmx"
 	"github.com/GSI-HPC/go-clikit/localweb/session"
 
 	"github.com/dennisklein/brig/internal/audit"
@@ -30,7 +33,8 @@ type Server struct {
 	sessions  *session.Sessions
 	bound     *localweb.Bound
 	tmpl      *templates
-	assets    *assets
+	static    *assets.Assets
+	vendor    *assets.Assets
 	help      *help.Help
 	demo      bool
 	log       *slog.Logger
@@ -75,7 +79,20 @@ type serverConfig struct {
 }
 
 func newServer(ctx context.Context, c serverConfig) (*Server, error) {
-	a, err := newAssets(c.DevAssets)
+	site, err := siteFiles(c.DevAssets)
+	if err != nil {
+		return nil, err
+	}
+	files, err := fs.Sub(site, "static")
+	if err != nil {
+		return nil, err
+	}
+	dev := c.DevAssets != ""
+	static, err := assets.New(files, "/static/", assets.Options{Dev: dev})
+	if err != nil {
+		return nil, err
+	}
+	vendor, err := assets.New(htmx.Files(), "/htmx/", assets.Options{})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +104,10 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	for name, fn := range helpFuncs(h) {
 		fm[name] = fn
 	}
-	t, err := newTemplates(a.fs, fm, a.dev)
+	fm["asset"] = static.URL
+	fm["vendor"] = vendor.URL
+	fm["htmxConfig"] = func() string { return htmx.Config }
+	t, err := newTemplates(site, fm, dev)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +117,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	}
 	s := &Server{
 		goRun: goRun,
-		st:    c.Store, bound: c.Bound, tmpl: t, assets: a, help: h,
+		st:    c.Store, bound: c.Bound, tmpl: t, static: static, vendor: vendor, help: h,
 		demo: c.Demo, log: c.Log, checkHost: c.CheckHost, starter: c.Starter, files: c.Files, history: c.History, home: c.Home, ctx: ctx, mux: http.NewServeMux(),
 	}
 	// The cookie goes to pages on other ports of 127.0.0.1 too, which count
@@ -111,7 +131,8 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	// not at a link on another: no navigation from another page lists the
 	// files of a sandbox or opens a stream.
 	own := localweb.SameOrigin(localweb.Origin{Refuse: s.refuse})
-	s.mux.Handle("GET /static/", a)
+	s.mux.Handle("GET /static/", static)
+	s.mux.Handle("GET /htmx/", vendor)
 	s.mux.HandleFunc("GET /{$}", s.overview)
 	s.mux.HandleFunc("GET /vms", s.vms)
 	s.mux.HandleFunc("GET /vms/{name}", s.vm)
@@ -166,7 +187,7 @@ func (s *Server) refuse(w http.ResponseWriter, _ *http.Request, f localweb.Refus
 func (s *Server) newView(r *http.Request, page, title string) *view {
 	return &view{
 		Page: page, Title: title, Snap: s.st.Snapshot(), Now: clock(), Demo: s.demo,
-		CSRF: session.CSRF(r.Context()), Asset: s.assets.url,
+		CSRF: session.CSRF(r.Context()),
 	}
 }
 
