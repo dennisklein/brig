@@ -299,7 +299,7 @@ func TestAllowAnnotations(t *testing.T) {
 	got := allowAnnotations(ctx, req)
 	want := map[string]string{
 		"brig.dev/by": "policy-allow", "brig.dev/rule": "pip", "brig.dev/host": "pypi.org",
-		"brig.dev/port": "443", "brig.dev/binary": "/usr/bin/pip", "brig.dev/trace": bus.Trace().String(),
+		"brig.dev/port": "443", "brig.dev/binary": "/usr/bin/pip", "brig.dev/trace": bus.TraceID().String(),
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("annotations = %v, want %v", got, want)

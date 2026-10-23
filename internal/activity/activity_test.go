@@ -53,7 +53,7 @@ func startDev(ctx context.Context) error {
 	sctx, s := progress.Start(ctx, progress.KindStep, "Apply OpenShell config directories")
 	_, t := progress.Start(sctx, progress.KindTarget, "provider gitlab")
 	t.Skip("no secret in keyring")
-	_, h := progress.Start(sctx, progress.KindCall, "secret-tool", progress.WithFlags(progress.Hidden))
+	_, h := progress.Start(sctx, progress.KindCall, "secret-tool", progress.Flagged(progress.FlagHidden))
 	h.End(nil)
 	s.Skip("1 provider skipped")
 	return nil
@@ -68,7 +68,7 @@ func failingStop(ctx context.Context) error {
 // feed gives the lines of log to red.
 func feed(red *Reducer, log []byte) {
 	for line := range bytes.SplitSeq(log, []byte("\n")) {
-		red.red.Line(line)
+		red.red.Take(line)
 	}
 }
 

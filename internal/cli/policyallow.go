@@ -286,7 +286,7 @@ func allowAnnotations(ctx context.Context, req allowRequest) map[string]string {
 		policy.AnnotationBinary: req.binary,
 	}
 	if b := progress.BusFrom(ctx); b != nil {
-		a[policy.AnnotationTrace] = b.Trace().String()
+		a[policy.AnnotationTrace] = b.TraceID().String()
 	}
 	return a
 }
