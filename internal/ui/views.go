@@ -160,8 +160,6 @@ type view struct {
 	Query string
 	// HelpPage names the page for the help pane: the page's template.
 	HelpPage string
-	// Asset returns the URL of a static file.
-	Asset func(string) string
 }
 
 // eventsURL returns the URL of the live updates of the named fragments,

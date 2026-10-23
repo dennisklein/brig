@@ -5,9 +5,6 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 The web UI (internal/ui/web/static) embeds:
 
-- htmx 2.0.11, under the Zero-Clause BSD license
-- htmx's SSE extension 2.2.4, Copyright Alexander Petros, under the
-  Zero-Clause BSD license
 - IBM Plex Sans, Copyright IBM Corp., under the SIL Open Font License 1.1
 - JetBrains Mono, Copyright The JetBrains Mono Project Authors, under the
   SIL Open Font License 1.1
@@ -15,3 +12,8 @@ The web UI (internal/ui/web/static) embeds:
   under the SIL Open Font License 1.1
 
 Their licenses are in internal/ui/web/static/licenses.
+
+The web UI also serves htmx 2.0.11, its SSE extension 2.2.4, Copyright
+Alexander Petros, and idiomorph 0.7.4, which the module
+github.com/GSI-HPC/go-clikit embeds in localweb/htmx, under the Zero-Clause
+BSD license (LICENSES/0BSD.txt in that module).

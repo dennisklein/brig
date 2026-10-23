@@ -82,6 +82,7 @@ as `brig help fence-2`. `brig ui` explains its pages when you press `?`.
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The web UI embeds
-htmx (0BSD) and the IBM Plex Sans, JetBrains Mono and Bricolage Grotesque
-fonts (OFL-1.1); their licenses are in
-[internal/ui/web/static/licenses](internal/ui/web/static/licenses).
+the IBM Plex Sans, JetBrains Mono and Bricolage Grotesque fonts (OFL-1.1);
+their licenses are in
+[internal/ui/web/static/licenses](internal/ui/web/static/licenses). It
+serves htmx (0BSD) from go-clikit.

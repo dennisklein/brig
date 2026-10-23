@@ -6,14 +6,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"historyCacheSize":0}'>
+<meta name="htmx-config" content='{{htmxConfig}}'>
 <title>{{if .Title}}{{.Title}} · {{end}}brig ui</title>
-<link rel="icon" type="image/svg+xml" href="{{call .Asset "icon.svg"}}">
-<link rel="stylesheet" href="{{call .Asset "app.css"}}">
-<script src="{{call .Asset "app.js"}}"></script>
-<script src="{{call .Asset "help.js"}}" defer></script>
-<script src="{{call .Asset "htmx.min.js"}}" defer></script>
-<script src="{{call .Asset "htmx-ext-sse.js"}}" defer></script>
+<link rel="icon" type="image/svg+xml" href="{{asset "icon.svg"}}">
+<link rel="stylesheet" href="{{asset "app.css"}}">
+<script src="{{asset "app.js"}}"></script>
+<script src="{{asset "help.js"}}" defer></script>
+<script src="{{vendor "htmx.min.js"}}" defer></script>
+<script src="{{vendor "htmx-ext-sse.js"}}" defer></script>
 </head>
 <body hx-headers='{"X-Brig-CSRF": "{{.CSRF}}"}' data-help-page="{{.HelpPage}}" data-help-tab="{{.Tab}}">
 <div class="app"{{if .Events}} hx-ext="sse" sse-connect="{{.Events}}"{{end}}>
