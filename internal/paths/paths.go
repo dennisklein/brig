@@ -8,9 +8,12 @@ package paths
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/GSI-HPC/go-clikit/fsutil"
 )
 
 // Dirs holds brig's base directories.
@@ -86,4 +89,17 @@ func EnsurePrivate(dir string) error {
 		return err
 	}
 	return os.Chmod(dir, 0o700) //nolint:gosec // G302 targets files; directories need the execute bit
+}
+
+// WriteFile replaces the file at path with data, whole or not at all, and
+// gives it exactly perm: a file that exists with another mode is changed
+// before the new content is written, so that a private file never holds its
+// content with a wider mode.
+func WriteFile(path string, data []byte, perm fs.FileMode) error {
+	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm() != perm {
+		if err := os.Chmod(path, perm); err != nil {
+			return err
+		}
+	}
+	return fsutil.WriteAtomic(path, data, perm)
 }

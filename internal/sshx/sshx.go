@@ -27,7 +27,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/dennisklein/brig/internal/vm"
+	"github.com/dennisklein/brig/internal/paths"
 )
 
 // GenerateKey returns a new ed25519 key as OpenSSH private key PEM and its
@@ -70,7 +70,7 @@ func WriteKnownHosts(path, alias string, pub ssh.PublicKey) error {
 		return fmt.Errorf("invalid host key alias %q", alias)
 	}
 	line := alias + " " + AuthorizedKey(pub, "") + "\n"
-	return vm.WriteFileAtomic(path, []byte(line), 0o600)
+	return paths.WriteFile(path, []byte(line), 0o600)
 }
 
 // Target is an SSH login on a VM. All fields are required. The file paths

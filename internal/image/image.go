@@ -34,7 +34,6 @@ import (
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/qemuimg"
-	"github.com/dennisklein/brig/internal/vm"
 )
 
 // Image is brig's record of a base image.
@@ -360,7 +359,7 @@ func (s Store) install(ctx context.Context, img Image, out, dir string) (err err
 	if err != nil {
 		return err
 	}
-	if err := vm.WriteFileAtomic(filepath.Join(dir, recordFile), append(data, '\n'), 0o644); err != nil {
+	if err := paths.WriteFile(filepath.Join(dir, recordFile), append(data, '\n'), 0o644); err != nil {
 		return err
 	}
 	return os.Rename(dir, s.dir(img.ID))

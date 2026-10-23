@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dennisklein/brig/internal/ocsync"
+	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/policy"
 	"github.com/dennisklein/brig/internal/vm"
 )
@@ -290,7 +291,7 @@ func (a *app) policySave(ctx context.Context, v *vm.VM, req saveRequest, out, wa
 		if !bytes.Equal(now, old) {
 			return fmt.Errorf("%s changed while brig was saving to it; run brig policy save again", target)
 		}
-		if err := vm.WriteFileAtomic(target, edited, fi.Mode().Perm()); err != nil {
+		if err := paths.WriteFile(target, edited, fi.Mode().Perm()); err != nil {
 			return err
 		}
 	}
