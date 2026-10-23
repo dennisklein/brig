@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	clidoctor "github.com/GSI-HPC/go-clikit/doctor"
+
 	"github.com/dennisklein/brig/internal/deps"
 	"github.com/dennisklein/brig/internal/vmnet"
 )
@@ -62,7 +64,7 @@ func healthy() Host {
 	}
 }
 
-func find(t *testing.T, results []Result, name string) Result {
+func find(t *testing.T, results []clidoctor.Check, name string) clidoctor.Check {
 	t.Helper()
 	for _, r := range results {
 		if r.Name == name {
@@ -70,18 +72,18 @@ func find(t *testing.T, results []Result, name string) Result {
 		}
 	}
 	t.Fatalf("no result named %q", name)
-	return Result{}
+	return clidoctor.Check{}
 }
 
 func TestHealthyHost(t *testing.T) {
 	results := Run(context.Background(), healthy())
 	for _, r := range results {
-		if r.Status != OK {
+		if r.Status != clidoctor.StatusOK {
 			t.Errorf("%s: %v %s", r.Name, r.Status, r.Detail)
 		}
 	}
-	if Worst(results) != OK {
-		t.Fatal("Worst() != OK")
+	if clidoctor.Worst(results) != clidoctor.StatusOK {
+		t.Fatal("Worst() != clidoctor.StatusOK")
 	}
 	if got := find(t, results, "virtqemud").Detail; got != "/usr/sbin/virtqemud" {
 		t.Errorf("virtqemud detail = %q, want fallback path", got)
@@ -92,16 +94,16 @@ func TestProblems(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mutate func(*Host)
 		check  string
-		want   Status
+		want   clidoctor.Status
 	}{
-		"root":             {func(h *Host) { h.Getuid = func() int { return 0 } }, "user", Fail},
-		"kvm not writable": {func(h *Host) { h.Writable = func(string) bool { return false } }, "kvm", Fail},
+		"root":             {func(h *Host) { h.Getuid = func() int { return 0 } }, "user", clidoctor.StatusFailed},
+		"kvm not writable": {func(h *Host) { h.Writable = func(string) bool { return false } }, "kvm", clidoctor.StatusFailed},
 		"userns disabled": {func(h *Host) {
 			h.ReadFile = func(string) ([]byte, error) { return []byte("0"), nil }
-		}, "user namespaces", Fail},
+		}, "user namespaces", clidoctor.StatusFailed},
 		"old mkosi": {func(h *Host) {
 			h.Output = func(context.Context, string, ...string) ([]byte, error) { return []byte("mkosi 24"), nil }
-		}, "mkosi", Fail},
+		}, "mkosi", clidoctor.StatusFailed},
 		"no openshell": {func(h *Host) {
 			look := h.LookPath
 			h.LookPath = func(f string) (string, error) {
@@ -110,7 +112,7 @@ func TestProblems(t *testing.T) {
 				}
 				return look(f)
 			}
-		}, "openshell", Fail},
+		}, "openshell", clidoctor.StatusFailed},
 		"no podman": {func(h *Host) {
 			look := h.LookPath
 			h.LookPath = func(f string) (string, error) {
@@ -119,9 +121,9 @@ func TestProblems(t *testing.T) {
 				}
 				return look(f)
 			}
-		}, "podman", Warn},
-		"no runtime dir":   {func(h *Host) { h.Getenv = func(string) string { return "" } }, "XDG_RUNTIME_DIR", Fail},
-		"runtime dir gone": {func(h *Host) { h.Getenv = func(string) string { return "/run/user/1" } }, "XDG_RUNTIME_DIR", Fail},
+		}, "podman", clidoctor.StatusWarning},
+		"no runtime dir":   {func(h *Host) { h.Getenv = func(string) string { return "" } }, "XDG_RUNTIME_DIR", clidoctor.StatusFailed},
+		"runtime dir gone": {func(h *Host) { h.Getenv = func(string) string { return "/run/user/1" } }, "XDG_RUNTIME_DIR", clidoctor.StatusFailed},
 		"no user manager": {func(h *Host) {
 			h.Output = func(_ context.Context, name string, _ ...string) ([]byte, error) {
 				if name == "systemctl" {
@@ -129,7 +131,7 @@ func TestProblems(t *testing.T) {
 				}
 				return []byte("mkosi 26.1"), nil
 			}
-		}, "systemd --user", Fail},
+		}, "systemd --user", clidoctor.StatusFailed},
 		"no kvm": {func(h *Host) {
 			stat := h.Stat
 			h.Stat = func(n string) (os.FileInfo, error) {
@@ -138,7 +140,7 @@ func TestProblems(t *testing.T) {
 				}
 				return stat(n)
 			}
-		}, "kvm", Fail},
+		}, "kvm", clidoctor.StatusFailed},
 		"no tun": {func(h *Host) {
 			h.Writable = func(n string) bool { return n != "/dev/net/tun" }
 			stat := h.Stat
@@ -148,11 +150,11 @@ func TestProblems(t *testing.T) {
 				}
 				return stat(n)
 			}
-		}, "/dev/net/tun", Fail},
-		"tun not writable": {func(h *Host) { h.Writable = func(n string) bool { return n != "/dev/net/tun" } }, "/dev/net/tun", Fail},
+		}, "/dev/net/tun", clidoctor.StatusFailed},
+		"tun not writable": {func(h *Host) { h.Writable = func(n string) bool { return n != "/dev/net/tun" } }, "/dev/net/tun", clidoctor.StatusFailed},
 		"unreadable userns": {func(h *Host) {
 			h.ReadFile = func(string) ([]byte, error) { return nil, errors.New("no /proc") }
-		}, "user namespaces", Warn},
+		}, "user namespaces", clidoctor.StatusWarning},
 		"no firmware": {func(h *Host) {
 			stat := h.Stat
 			h.Stat = func(n string) (os.FileInfo, error) {
@@ -161,7 +163,7 @@ func TestProblems(t *testing.T) {
 				}
 				return stat(n)
 			}
-		}, "UEFI firmware", Fail},
+		}, "UEFI firmware", clidoctor.StatusFailed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := healthy()
@@ -170,7 +172,7 @@ func TestProblems(t *testing.T) {
 			if r.Status != tc.want {
 				t.Fatalf("%s: status %v (%s), want %v", tc.check, r.Status, r.Detail, tc.want)
 			}
-			if r.Hint == "" {
+			if r.Remediation == "" {
 				t.Errorf("%s: no hint", tc.check)
 			}
 		})
@@ -183,7 +185,7 @@ func TestNetworkProbe(t *testing.T) {
 		return errors.New("brig-net-_probe-1.service exited after it created /run/user/1000/brig/probe-1/net.sock: Couldn't write to /proc/14/uid_map")
 	}
 	r := find(t, Run(context.Background(), h), "VM network")
-	if r.Status != Fail || !strings.HasPrefix(r.Hint, "sudo dnf install brig-selinux") || !strings.Contains(r.Hint, "exited after it created") {
+	if r.Status != clidoctor.StatusFailed || !strings.HasPrefix(r.Remediation, "sudo dnf install brig-selinux") || !strings.Contains(r.Remediation, "exited after it created") {
 		t.Errorf("failing probe: %+v", r)
 	}
 	if strings.Contains(r.Detail, "\n") {
@@ -191,7 +193,7 @@ func TestNetworkProbe(t *testing.T) {
 	}
 
 	h.ProbeNetwork = func(context.Context) error { return fmt.Errorf("starting: %w", vmnet.ErrNoIPv4Gateway) }
-	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != Warn || !strings.Contains(r.Detail, "no IPv4 default gateway") {
+	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != clidoctor.StatusWarning || !strings.Contains(r.Detail, "no IPv4 default gateway") {
 		t.Errorf("offline host: %+v", r)
 	}
 
@@ -207,7 +209,7 @@ func TestNetworkProbe(t *testing.T) {
 		}
 		return lookPath(file)
 	}
-	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != Warn || !strings.Contains(r.Detail, "pasta did not pass") {
+	if r := find(t, Run(context.Background(), h), "VM network"); r.Status != clidoctor.StatusWarning || !strings.Contains(r.Detail, "pasta did not pass") {
 		t.Errorf("host without pasta: %+v", r)
 	}
 }
@@ -309,8 +311,8 @@ func TestNetworkProbeKeepsError(t *testing.T) {
 	h := healthy()
 	h.ProbeNetwork = func(context.Context) error { return errors.New("x exited before it created y: line one\nline two") }
 	r := find(t, Run(context.Background(), h), "VM network")
-	if !strings.Contains(r.Hint, "The error was:\nx exited before it created y: line one\nline two") {
-		t.Errorf("hint hides the error: %q", r.Hint)
+	if !strings.Contains(r.Remediation, "The error was:\nx exited before it created y: line one\nline two") {
+		t.Errorf("hint hides the error: %q", r.Remediation)
 	}
 }
 
@@ -327,18 +329,18 @@ func TestPackageHints(t *testing.T) {
 		return h
 	}
 	results := Run(context.Background(), missing("passt"))
-	if got := find(t, results, "passt").Hint; got != "sudo dnf install passt" {
+	if got := find(t, results, "passt").Remediation; got != "sudo dnf install passt" {
 		t.Errorf("one missing package: hint %q", got)
 	}
 	results = Run(context.Background(), missing("passt", "pasta", "qemu-img"))
 	for _, n := range []string{"passt", "pasta", "qemu-img"} {
-		if got := find(t, results, n).Hint; got != depsHint {
+		if got := find(t, results, n).Remediation; got != depsHint {
 			t.Errorf("%s with several missing: hint %q", n, got)
 		}
 	}
 	// Optional packages are named alone.
 	results = Run(context.Background(), missing("passt", "pasta", "podman"))
-	if got := find(t, results, "podman").Hint; got != "sudo dnf install podman" {
+	if got := find(t, results, "podman").Remediation; got != "sudo dnf install podman" {
 		t.Errorf("podman: hint %q", got)
 	}
 }
@@ -361,8 +363,8 @@ func TestHintsStartWithAction(t *testing.T) {
 	h.Getenv = func(string) string { return "" }
 	h.ReadFile = func(string) ([]byte, error) { return []byte("0"), nil }
 	for _, r := range Run(context.Background(), h) {
-		if r.Status != OK && r.Hint != "" && (r.Hint[0] == '\n' || r.Hint[0] == ' ') {
-			t.Errorf("%s: hint %q does not start with the action", r.Name, r.Hint)
+		if r.Status != clidoctor.StatusOK && r.Remediation != "" && (r.Remediation[0] == '\n' || r.Remediation[0] == ' ') {
+			t.Errorf("%s: hint %q does not start with the action", r.Name, r.Remediation)
 		}
 	}
 }
@@ -383,7 +385,7 @@ func TestPreflightReturnsOnlyFailures(t *testing.T) {
 	// podman only warns, and the network is not probed.
 	h.ProbeNetwork = func(context.Context) error { t.Error("the network was probed"); return nil }
 	got := Preflight(context.Background(), h)
-	if len(got) != 1 || got[0].Name != "mkosi" || got[0].Status != Fail || got[0].Hint == "" {
+	if len(got) != 1 || got[0].Name != "mkosi" || got[0].Status != clidoctor.StatusFailed || got[0].Remediation == "" {
 		t.Errorf("Preflight = %+v, want only the missing mkosi", got)
 	}
 }
