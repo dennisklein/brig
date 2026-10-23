@@ -15,7 +15,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/dennisklein/brig/internal/vm"
+	"github.com/dennisklein/brig/internal/paths"
 )
 
 // RepoKeyPath is where the brig repository's OpenPGP key is installed, both
@@ -173,5 +173,5 @@ func writeFile(path string, data []byte) error {
 	if bytes.HasPrefix(data, []byte("#!")) {
 		perm = 0o755
 	}
-	return vm.WriteFileAtomic(path, data, perm)
+	return paths.WriteFile(path, data, perm)
 }

@@ -15,7 +15,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/dennisklein/brig/internal/vm"
+	"github.com/dennisklein/brig/internal/paths"
 )
 
 // StateFile is the name of the file in a VM's directory that holds its
@@ -147,7 +147,7 @@ func (st *State) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	return vm.WriteFileAtomic(path, append(data, '\n'), 0o600)
+	return paths.WriteFile(path, append(data, '\n'), 0o600)
 }
 
 // fingerprint returns a keyed hash of a provider credential's value,

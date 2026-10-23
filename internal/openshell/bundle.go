@@ -19,7 +19,6 @@ import (
 	"github.com/dennisklein/brig/internal/guest"
 	"github.com/dennisklein/brig/internal/paths"
 	"github.com/dennisklein/brig/internal/sshx"
-	"github.com/dennisklein/brig/internal/vm"
 )
 
 // ErrNoBundle is returned by SyncBundle while the gateway has not generated
@@ -98,7 +97,7 @@ func SyncBundle(ctx context.Context, t sshx.Target, configHome, gateway string) 
 		if unchanged(path, files[i]) {
 			continue
 		}
-		if err := vm.WriteFileAtomic(path, files[i], 0o600); err != nil {
+		if err := paths.WriteFile(path, files[i], 0o600); err != nil {
 			return changed, err
 		}
 		changed = true
