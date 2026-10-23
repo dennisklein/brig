@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
+	clidoctor "github.com/GSI-HPC/go-clikit/doctor"
 	"github.com/GSI-HPC/go-clikit/localweb/sse"
 
 	"github.com/dennisklein/brig/internal/config"
-	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
@@ -145,7 +145,7 @@ type Image struct {
 // DoctorReport is the outcome of brig doctor's checks.
 type DoctorReport struct {
 	Time    time.Time
-	Results []doctor.Result
+	Results []clidoctor.Check
 	// Running is set while the checks run again.
 	Running bool
 }

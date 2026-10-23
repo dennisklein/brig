@@ -67,7 +67,7 @@ func listener(t *testing.T) int {
 func runningUI(t *testing.T, url string) (runtimeDir, brigDir string) {
 	t.Helper()
 	runtimeDir = t.TempDir()
-	inst, err := launch.Acquire(runtimeDir, "brig")
+	inst, err := launch.Acquire(t.Context(), runtimeDir, "brig")
 	if err != nil {
 		t.Fatal(err)
 	}

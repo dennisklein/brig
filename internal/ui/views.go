@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	clidoctor "github.com/GSI-HPC/go-clikit/doctor"
+
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
-	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
@@ -136,14 +137,14 @@ func needs(sn store.Snapshot) []need {
 	}
 	if d := sn.Doctor; d != nil {
 		for _, r := range d.Results {
-			if r.Status == doctor.OK {
+			if r.Status == clidoctor.StatusOK {
 				continue
 			}
 			sev := "warn"
-			if r.Status == doctor.Fail {
+			if r.Status == clidoctor.StatusFailed {
 				sev = "bad"
 			}
-			out = append(out, need{Sev: sev, Title: "Host check " + r.Name + ": " + r.Detail, Detail: firstLine(r.Hint), Link: "/host", Action: "Show"})
+			out = append(out, need{Sev: sev, Title: "Host check " + r.Name + ": " + r.Detail, Detail: firstLine(r.Remediation), Link: "/host", Action: "Show"})
 		}
 	}
 	for _, v := range sn.VMs {
@@ -234,21 +235,14 @@ func funcs(home string) template.FuncMap {
 			}
 			return "skip"
 		},
-		"checkClass": func(s doctor.Status) string {
+		"checkClass": func(s clidoctor.Status) string {
 			switch s {
-			case doctor.OK:
+			case clidoctor.StatusOK:
 				return ""
-			case doctor.Warn:
+			case clidoctor.StatusWarning:
 				return "warn"
 			}
 			return "bad"
-		},
-		"checkCounts": func(rs []doctor.Result) map[string]int {
-			m := map[string]int{}
-			for _, r := range rs {
-				m[r.Status.String()]++
-			}
-			return m
 		},
 		"vmTabs": func() any { return vmTabs },
 		"hostPorts": func(ports []uint16) string {

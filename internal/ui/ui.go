@@ -92,7 +92,7 @@ func Run(ctx context.Context, o Options) error {
 	var inst *launch.Instance
 	if !o.Demo && o.RuntimeDir != "" {
 		var err error
-		if inst, err = launch.Acquire(o.RuntimeDir, "brig"); err != nil {
+		if inst, err = launch.Acquire(ctx, o.RuntimeDir, "brig"); err != nil {
 			return fmt.Errorf("preparing the runtime directory: %w", err)
 		}
 		// The lock is dropped once the record is written, or on an error.
@@ -211,7 +211,7 @@ func Run(ctx context.Context, o Options) error {
 		if err := inst.Publish(url); err != nil {
 			return err
 		}
-		defer func() { _ = inst.Retire() }()
+		defer func() { _ = inst.Retire(ctx) }()
 	}
 	if o.Demo {
 		fmt.Fprintln(o.Stdout, "brig ui is serving made-up VMs; nothing touches this host.")

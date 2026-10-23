@@ -32,11 +32,11 @@ const csrfHeader = "X-Brig-CSRF"
 // Server serves brig ui's pages and live updates for one store.
 type Server struct {
 	st        *store.Store
-	sessions  *session.Sessions
+	sessions  *session.Manager
 	bound     *localweb.Bound
 	tmpl      *page.Set
-	static    *assets.Assets
-	vendor    *assets.Assets
+	static    *assets.Set
+	vendor    *assets.Set
 	help      *help.Help
 	demo      bool
 	log       *slog.Logger
@@ -109,7 +109,7 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	fm["asset"] = static.URL
 	fm["vendor"] = vendor.URL
 	fm["htmxConfig"] = func() string { return htmx.Config }
-	t, err := page.Parse(site, page.Options{Funcs: fm, Reload: dev}, "templates/*.tmpl")
+	t, err := page.Parse(site, page.Options{Funcs: fm, Dev: dev}, "templates/*.tmpl")
 	if err != nil {
 		return nil, err
 	}
@@ -130,14 +130,14 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 	// The cookie goes to pages on other ports of 127.0.0.1 too, which count
 	// as the same site, so the sessions come behind localweb.SameOrigin.
 	// Its name ends in the port.
-	s.sessions, err = session.New(session.Options{Token: c.Token, Cookie: "brig_ui_", Header: csrfHeader, Refuse: s.refuse})
+	s.sessions, err = session.New(session.Options{Token: c.Token, CookiePrefix: "brig_ui_", CSRFHeader: csrfHeader, Refuse: s.refuse})
 	if err != nil {
 		return nil, err
 	}
 	// What a page asks for itself must start at one of our own pages, and
 	// not at a link on another: no navigation from another page lists the
 	// files of a sandbox or opens a stream.
-	own := localweb.SameOrigin(localweb.Origin{Refuse: s.refuse})
+	own := localweb.SameOrigin(localweb.OriginPolicy{Refuse: s.refuse})
 	s.mux.Handle("GET /static/", static)
 	s.mux.Handle("GET /htmx/", vendor)
 	s.mux.HandleFunc("GET /{$}", s.overview)
@@ -174,8 +174,8 @@ func newServer(ctx context.Context, c serverConfig) (*Server, error) {
 
 // Handler returns the server's handler with every check in front of it.
 func (s *Server) Handler() http.Handler {
-	navigate := localweb.SameOrigin(localweb.Origin{Navigate: true, Refuse: s.refuse})
-	return localweb.Headers("")(localweb.NoStore(localweb.Hosts(s.bound.Answers, s.refuse)(navigate(s.sessions.Middleware(s.mux)))))
+	navigate := localweb.SameOrigin(localweb.OriginPolicy{Navigate: true, Refuse: s.refuse})
+	return localweb.Headers("")(localweb.NoStore(localweb.Hosts(s.bound.Answers, localweb.HostsOptions{Refuse: s.refuse})(navigate(s.sessions.Middleware(s.mux)))))
 }
 
 // refuse answers a request that a check of localweb refuses: with its
