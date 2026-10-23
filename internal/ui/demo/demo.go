@@ -14,9 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	clidoctor "github.com/GSI-HPC/go-clikit/doctor"
+
 	"github.com/dennisklein/brig/internal/bytesize"
 	"github.com/dennisklein/brig/internal/config"
-	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/ui/store"
 	"github.com/dennisklein/brig/internal/version"
 	"github.com/dennisklein/brig/internal/vm"
@@ -286,21 +287,21 @@ func Activity(now time.Time) []store.Run {
 }
 
 // Checks returns the demo's host checks.
-func Checks() []doctor.Result {
-	return []doctor.Result{
-		{Name: "user", Status: doctor.OK, Detail: "running unprivileged"},
-		{Name: "kvm", Status: doctor.OK, Detail: "/dev/kvm is usable"},
-		{Name: "user namespaces", Status: doctor.OK, Detail: "enabled"},
-		{Name: "libvirt session", Status: doctor.OK, Detail: "qemu:///session answers"},
-		{Name: "virtiofsd", Status: doctor.OK, Detail: "/usr/libexec/virtiofsd"},
-		{Name: "podman", Status: doctor.OK, Detail: "for brig image push"},
-		{Name: "secret-tool", Status: doctor.OK, Detail: "keyring unlocked"},
-		{Name: "openshell", Status: doctor.OK, Detail: "0.1.2, matches the gateways' minor version"},
-		{Name: "mkosi", Status: doctor.OK, Detail: "26.1"},
+func Checks() []clidoctor.Check {
+	return []clidoctor.Check{
+		{Name: "user", Status: clidoctor.StatusOK, Detail: "running unprivileged"},
+		{Name: "kvm", Status: clidoctor.StatusOK, Detail: "/dev/kvm is usable"},
+		{Name: "user namespaces", Status: clidoctor.StatusOK, Detail: "enabled"},
+		{Name: "libvirt session", Status: clidoctor.StatusOK, Detail: "qemu:///session answers"},
+		{Name: "virtiofsd", Status: clidoctor.StatusOK, Detail: "/usr/libexec/virtiofsd"},
+		{Name: "podman", Status: clidoctor.StatusOK, Detail: "for brig image push"},
+		{Name: "secret-tool", Status: clidoctor.StatusOK, Detail: "keyring unlocked"},
+		{Name: "openshell", Status: clidoctor.StatusOK, Detail: "0.1.2, matches the gateways' minor version"},
+		{Name: "mkosi", Status: clidoctor.StatusOK, Detail: "26.1"},
 		{
-			Name: "subordinate IDs", Status: doctor.Warn, Detail: "dklein has 65536 in /etc/subuid; 2 VMs share the range",
-			Hint: "give dklein a larger range in /etc/subuid and /etc/subgid",
+			Name: "subordinate IDs", Status: clidoctor.StatusWarning, Detail: "dklein has 65536 in /etc/subuid; 2 VMs share the range",
+			Remediation: "give dklein a larger range in /etc/subuid and /etc/subgid",
 		},
-		{Name: "VM network", Status: doctor.OK, Detail: "passt can sandbox itself (brig-selinux loaded)"},
+		{Name: "VM network", Status: clidoctor.StatusOK, Detail: "passt can sandbox itself (brig-selinux loaded)"},
 	}
 }

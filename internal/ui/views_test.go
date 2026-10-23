@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
+	clidoctor "github.com/GSI-HPC/go-clikit/doctor"
+
 	"github.com/dennisklein/brig/internal/bytesize"
-	"github.com/dennisklein/brig/internal/doctor"
 	"github.com/dennisklein/brig/internal/ui/demo"
 	"github.com/dennisklein/brig/internal/ui/store"
 )
@@ -18,10 +19,10 @@ func TestNeeds(t *testing.T) {
 	newest := demo.Images(now)[0]
 	sn := store.Snapshot{
 		VMs: demo.VMs(now), NewestImage: &newest, VMsErr: "vm.json: broken",
-		Doctor: &store.DoctorReport{Results: []doctor.Result{
-			{Name: "kvm", Status: doctor.OK},
-			{Name: "subids", Status: doctor.Warn, Detail: "few", Hint: "add more\nsecond line"},
-			{Name: "passt", Status: doctor.Fail, Detail: "missing"},
+		Doctor: &store.DoctorReport{Results: []clidoctor.Check{
+			{Name: "kvm", Status: clidoctor.StatusOK},
+			{Name: "subids", Status: clidoctor.StatusWarning, Detail: "few", Remediation: "add more\nsecond line"},
+			{Name: "passt", Status: clidoctor.StatusFailed, Detail: "missing"},
 		}},
 	}
 	var got []string
