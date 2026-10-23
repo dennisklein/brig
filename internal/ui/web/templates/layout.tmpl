@@ -28,7 +28,7 @@
     <button type="button" class="btn ghost sm" data-theme-toggle title="Switch theme">◐</button>
   </header>
   <nav class="rail" id="rail" sse-swap="rail">{{template "rail" .}}</nav>
-  <main class="main">{{template "content" .}}</main>
+  <main class="main">{{include .Content .}}</main>
   <div class="tasks" id="tasks" sse-swap="tasks" aria-live="polite">{{template "tasks" .}}</div>
 </div>
 <div id="layer"></div>

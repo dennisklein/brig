@@ -1,7 +1,7 @@
 {{/* SPDX-FileCopyrightText: Dennis Klein <d.klein@gsi.de> */}}
 {{/* SPDX-License-Identifier: Apache-2.0 */}}
 
-{{define "content"}}
+{{define "page-vms"}}
 <div class="head"><div class="titles"><h1>VMs</h1><div class="sub">Each VM runs one OpenShell gateway, registered on this host as brig-NAME.</div></div>
   <div class="actions">{{template "act" (act $ "create" "" "primary")}}</div></div>
 <section class="panel tw" sse-swap="vm-table">{{template "vm-table" .}}</section>

@@ -406,7 +406,7 @@ func (s *Server) dialog(w http.ResponseWriter, r *http.Request) {
 		d.Spec.Defaults(d)
 	}
 	d.Typed = a.Want(d.Form)
-	body, err := s.tmpl.fragment("dlg-"+a.ID, d)
+	body, err := s.tmpl.Render("dlg-"+a.ID, d)
 	if err != nil {
 		s.log.Error("rendering dialog", "action", a.ID, "err", err)
 		http.Error(w, "brig ui could not render this dialog; its log says why", http.StatusInternalServerError)
@@ -531,7 +531,7 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 
 // fragmentResponse writes the named fragment.
 func (s *Server) fragmentResponse(w http.ResponseWriter, status int, name string, data any) {
-	html, err := s.tmpl.fragment(name, data)
+	html, err := s.tmpl.Render(name, data)
 	if err != nil {
 		s.log.Error("rendering fragment", "fragment", name, "err", err)
 		http.Error(w, "rendering failed", http.StatusInternalServerError)

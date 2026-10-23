@@ -65,7 +65,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			if changed != nil && !slices.ContainsFunc(fragments[n], func(t store.Topic) bool { return slices.Contains(changed, t) }) {
 				continue
 			}
-			html, err := s.tmpl.fragment(n, v)
+			html, err := s.tmpl.Render(n, v)
 			if err != nil {
 				s.log.Error("rendering fragment", "fragment", n, "err", err)
 				continue

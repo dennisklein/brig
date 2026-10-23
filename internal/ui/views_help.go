@@ -152,7 +152,7 @@ func (s *Server) helpSearch(w http.ResponseWriter, r *http.Request) {
 
 // writeFragment writes the named fragment, or a server error.
 func (s *Server) writeFragment(w http.ResponseWriter, name string, data any) {
-	html, err := s.tmpl.fragment(name, data)
+	html, err := s.tmpl.Render(name, data)
 	if err != nil {
 		s.log.Error("rendering", "fragment", name, "err", err)
 		http.Error(w, "rendering failed", http.StatusInternalServerError)

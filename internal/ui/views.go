@@ -4,15 +4,12 @@
 package ui
 
 import (
-	"bytes"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"math"
 	"net/url"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dennisklein/brig/internal/bytesize"
@@ -21,7 +18,8 @@ import (
 	"github.com/dennisklein/brig/internal/ui/store"
 )
 
-// pageNames are the page templates, one file each in web/templates.
+// pageNames are the pages: each is the block page-NAME, defined in the file
+// NAME.tmpl in web/templates.
 var pageNames = []string{"overview", "vms", "vm", "images", "host", "activity", "notfound", "sandboxes", "sandbox", "gateway", "traffic", "topology"}
 
 // fragments are the parts of pages that live updates replace: each is a
@@ -59,72 +57,6 @@ var vmTabs = []struct{ Key, Label string }{
 	{"shell", "Shell"},
 }
 
-// templates holds the parsed templates: a base set with the layout and the
-// fragments, and per page a clone of it with the page added.
-type templates struct {
-	load  func() (*template.Template, map[string]*template.Template, error)
-	dev   bool
-	mu    sync.Mutex
-	base  *template.Template
-	pages map[string]*template.Template
-}
-
-func newTemplates(fsys fs.FS, funcs template.FuncMap, dev bool) (*templates, error) {
-	t := &templates{dev: dev, load: func() (*template.Template, map[string]*template.Template, error) {
-		base, err := template.New("").Funcs(funcs).ParseFS(fsys, "templates/layout.tmpl", "templates/parts.tmpl", "templates/dialogs.tmpl", "templates/openshell.tmpl", "templates/trafficparts.tmpl", "templates/auditparts.tmpl", "templates/help.tmpl")
-		if err != nil {
-			return nil, nil, err
-		}
-		pages := map[string]*template.Template{}
-		for _, name := range pageNames {
-			c, err := base.Clone()
-			if err != nil {
-				return nil, nil, err
-			}
-			if pages[name], err = c.ParseFS(fsys, "templates/"+name+".tmpl"); err != nil {
-				return nil, nil, err
-			}
-		}
-		return base, pages, nil
-	}}
-	var err error
-	t.base, t.pages, err = t.load()
-	return t, err
-}
-
-// get returns the base set and the page sets, parsed again in dev mode.
-func (t *templates) get() (*template.Template, map[string]*template.Template, error) {
-	if !t.dev {
-		return t.base, t.pages, nil
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.load()
-}
-
-// page renders the named page.
-func (t *templates) page(name string, v *view) ([]byte, error) {
-	_, pages, err := t.get()
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	err = pages[name].ExecuteTemplate(&buf, "layout", v)
-	return buf.Bytes(), err
-}
-
-// fragment renders the named fragment from data, which is a *view or a
-// value that embeds one.
-func (t *templates) fragment(name string, data any) (string, error) {
-	base, _, err := t.get()
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	err = base.ExecuteTemplate(&buf, name, data)
-	return buf.String(), err
-}
-
 // view is what a page or a fragment is rendered from.
 type view struct {
 	// Page names the page, and the rail entry it lights up.
@@ -160,6 +92,8 @@ type view struct {
 	Query string
 	// HelpPage names the page for the help pane: the page's template.
 	HelpPage string
+	// Content is the block of the page, which the layout includes.
+	Content string
 }
 
 // eventsURL returns the URL of the live updates of the named fragments,
