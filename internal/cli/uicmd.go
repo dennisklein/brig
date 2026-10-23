@@ -6,6 +6,7 @@ package cli
 import (
 	"errors"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -26,7 +27,8 @@ brig or openshell command it runs, and runs exactly that.
 
 Only you can open it: it prints a URL with a token that is new each run,
 and it refuses other users' connections. A second brig ui opens the
-running one instead.
+running one instead. Under SSH, or without a display, it opens no browser
+and only prints the URL.
 
 --demo serves made-up VMs and touches nothing on this host. With --still the
 demo also stands at a fixed time, in UTC, and its meters and requests stay,
@@ -51,6 +53,7 @@ are taken that way.`,
 			// so they create no state directory for it themselves.
 			o.ActivityLog = defaultActivityLog(dirs)
 			o.RuntimeDir = os.Getenv("XDG_RUNTIME_DIR")
+			o.GOOS, o.Getenv = runtime.GOOS, os.Getenv
 			o.Stdout, o.Stderr = cmd.OutOrStdout(), cmd.ErrOrStderr()
 			return ui.Run(cmd.Context(), o)
 		},

@@ -111,6 +111,6 @@ and each links to its page in these docs.
 Only you can open it. It prints a URL with a token that is new each run and
 swaps it for a cookie, answers only to `127.0.0.1:PORT`, refuses
 connections from other users' processes, and loads nothing from the
-network. A second `brig ui` opens the running one. `--port` picks the port,
-`--no-open` only prints the URL, and `--demo` serves made-up VMs without
-touching the host.
+network. A second `brig ui` opens the running one. `--port` picks the port.
+`--no-open` only prints the URL, and so does `brig ui` under SSH or without
+a display. `--demo` serves made-up VMs without touching the host.
