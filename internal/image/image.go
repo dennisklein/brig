@@ -304,7 +304,7 @@ func (s Store) runMkosi(ctx context.Context, tmp, out, cacheDir string, o BuildO
 		return fmt.Errorf("writing mkosi configuration: %w", err)
 	}
 
-	ctx, step := progress.Start(ctx, progress.KindStep, "build with mkosi", progress.WithFlags(progress.ShowLines))
+	ctx, step := progress.Start(ctx, progress.KindStep, "build with mkosi", progress.Flagged(progress.FlagShowLines))
 	err = func() (err error) {
 		// The tree shows a line of output on the row of a target.
 		ctx, target := progress.Start(ctx, progress.KindTarget, fmt.Sprintf("Fedora %d", o.FedoraRelease))
@@ -316,8 +316,8 @@ func (s Store) runMkosi(ctx context.Context, tmp, out, cacheDir string, o BuildO
 		cmd := exec.CommandContext(ctx, s.mkosi, "-C", cfg, "--output-directory="+out,
 			"--package-cache-dir="+cacheDir, "--workspace-directory="+work, "--cache-only=never", "-f", "build")
 		// Tee returns log itself when no display wants the lines.
-		cmd.Stdout = progress.Tee(ctx, log, progress.Stdout, nil)
-		cmd.Stderr = progress.Tee(ctx, log, progress.Stderr, nil)
+		cmd.Stdout = progress.Tee(ctx, log, progress.StreamStdout, nil)
+		cmd.Stderr = progress.Tee(ctx, log, progress.StreamStderr, nil)
 		// On SIGTERM, mkosi stops and removes its workspace.
 		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 		cmd.WaitDelay = time.Minute

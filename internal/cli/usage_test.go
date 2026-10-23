@@ -27,6 +27,7 @@ func TestUsageErrorsExitWith2(t *testing.T) {
 		{[]string{"list", "--nosuch"}, "unknown flag: --nosuch"},
 		{[]string{"list", "extra"}, "(usage: brig list"},
 		{[]string{"show", "-o", "yaml"}, "unknown output format"},
+		{[]string{"create", "--no-start", "--wait", "x"}, "none of the others can be"},
 	} {
 		out, err := run(t, tc.args...)
 		if code := exitStatus(err); code != exitUsage || err == nil || !strings.Contains(err.Error(), tc.message) {

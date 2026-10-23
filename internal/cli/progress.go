@@ -38,7 +38,7 @@ type progressFlags struct{ mode, log string }
 // progressRun is the progress of one invocation: the display, and the span of
 // the command.
 type progressRun struct {
-	run  atomic.Pointer[cliprogress.Run] // atomic for tests that draw by hand
+	run  atomic.Pointer[cliprogress.Session] // atomic for tests that draw by hand
 	span *progress.Span
 	// vm is the VM the command works on, once it named one.
 	vm string
@@ -46,7 +46,7 @@ type progressRun struct {
 	options func(*cliprogress.Options)
 }
 
-// runKey is the context key of the *cliprogress.Run of a command.
+// runKey is the context key of the *cliprogress.Session of a command.
 type runKey struct{}
 
 // vmKey is the context key of where a command records the VM it works on.
@@ -64,7 +64,7 @@ func recordVM(ctx context.Context, name string) {
 // progressMode returns the mode of the display that shows the command whose
 // context is ctx, or cliprogress.ModeNone if there is none.
 func progressMode(ctx context.Context) cliprogress.Mode {
-	if r, ok := ctx.Value(runKey{}).(*cliprogress.Run); ok {
+	if r, ok := ctx.Value(runKey{}).(*cliprogress.Session); ok {
 		return r.Mode()
 	}
 	return cliprogress.ModeNone

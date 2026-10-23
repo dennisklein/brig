@@ -24,7 +24,7 @@ type Reducer struct{ red *eventlog.Reducer }
 
 // NewReducer returns an empty reducer that keeps the newest keep runs.
 func NewReducer(keep int) *Reducer {
-	return &Reducer{red: eventlog.NewReducer(eventlog.Options{Keep: keep})}
+	return &Reducer{red: eventlog.NewReducer(eventlog.ReducerOptions{KeepRuns: keep})}
 }
 
 // Runs returns the runs with a command span, newest first.
@@ -37,7 +37,7 @@ func (r *Reducer) Runs() []store.Run {
 		}
 		root := ru.Root
 		sr := store.Run{
-			ID: ru.ID, Trace: ru.Trace.Trace.String(), Title: program + " " + root.Name, Start: root.Queued,
+			ID: ru.ID, Trace: ru.Trace.ID.String(), Title: program + " " + root.Name, Start: root.Queued,
 			Status: statusOf(root), Err: root.Err, Program: program, Version: ru.Version,
 			VM: root.Node, Steps: steps(root),
 		}
@@ -54,7 +54,7 @@ func (r *Reducer) Runs() []store.Run {
 func steps(sp eventlog.Span) []store.Span {
 	var out []store.Span
 	for _, c := range sp.Children {
-		if c.Flags&progress.Hidden != 0 {
+		if c.Flags&progress.FlagHidden != 0 {
 			continue
 		}
 		out = append(out, store.Span{
