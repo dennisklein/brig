@@ -136,7 +136,6 @@ lists the concepts and how-tos that brig help TOPIC explains.
 		cmd.AddCommand(c)
 	}
 	cmd.AddCommand(newShellInitCmd(), newVersionCmd(), newNetHelperCmd())
-	addHelpTopics(cmd)
 	// These own the terminal, or must keep standard output exactly as is;
 	// ui runs until stopped and is no work to show.
 	for _, path := range [][]string{{"ssh"}, {"console"}, {"env"}, {"use"}, {"shell-init"}, {"version"}, {"net-helper"}, {"sandbox", "create"}, {"secret", "set"}, {"agent", "init"}, {"agent", "build"}, {"ui"}} {
@@ -151,7 +150,7 @@ lists the concepts and how-tos that brig help TOPIC explains.
 	markGroups(cmd)
 	// Last, once the tree is built: a word that names no command, and an
 	// argument check that fails, are usage errors.
-	cobratree.Strict(cmd)
+	cobratree.Strict(cmd, helpTopics())
 	return cmd
 }
 

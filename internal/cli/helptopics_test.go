@@ -45,7 +45,7 @@ func TestHelpCommandsExist(t *testing.T) {
 	var lines []string
 	for _, k := range []help.Kind{help.Concept, help.Task} {
 		for _, tp := range h.Topics(k) {
-			if c, _, err := root.Find([]string{tp.ID}); err == nil && c != root && !c.Hidden {
+			if c, _, err := root.Find([]string{tp.ID}); err == nil && c != root {
 				t.Errorf("topic %s is named like the command brig %s, so brig help %s cannot show it", tp.ID, c.Name(), tp.ID)
 			}
 			lines = append(lines, tp.Commands...)
