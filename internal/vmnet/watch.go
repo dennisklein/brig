@@ -238,6 +238,7 @@ func (r *reloader) run(ctx context.Context) error {
 // again whenever the watcher writes another host network to o.HostNet. It
 // returns when its parent, passt by then, exits.
 func RunReloader(ctx context.Context, o HelperOptions) error {
+	StderrToJournal()
 	if !filepath.IsAbs(o.HostNet) {
 		return errors.New("the host network's path must be absolute")
 	}
