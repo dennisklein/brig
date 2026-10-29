@@ -113,6 +113,11 @@ func TestParseRequestNotTraffic(t *testing.T) {
 	for _, line := range []string{
 		// From OpenShell's shorthand tests: not about requests.
 		"NET:OPEN [INFO] [msg:relay open (channel_id=ch-42)]",
+		// The proxy listening, and the supervisor's session with the
+		// gateway opening and closing.
+		"NET:LISTEN [INFO] 127.0.0.1:3128",
+		"NET:OPEN [INFO] 127.0.0.1:17670",
+		"NET:CLOSE [INFO] 127.0.0.1:17670",
 		"SSH:OPEN [INFO] ALLOWED 10.42.0.1:48201 [auth:NSSH1]",
 		"PROC:LAUNCH [INFO] python3(42) [cmd:python3 /app/main.py]",
 		"PROC:TERMINATE [INFO] python3(42) [exit:0]",

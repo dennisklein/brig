@@ -36,6 +36,11 @@ var otherClasses = map[string]bool{
 	"PROC": true, "SSH": true, "FINDING": true, "CONFIG": true, "LIFECYCLE": true, "API": true, "EVENT": true,
 }
 
+// ownActivities are the activities of the network events that OpenShell
+// writes of its own sockets, without a verdict or a process. A sandbox's
+// request always has a verdict.
+var ownActivities = map[string]bool{"LISTEN": true, "OPEN": true, "CLOSE": true}
+
 var severityTags = map[string]bool{
 	"[INFO]": true, "[LOW]": true, "[MED]": true, "[HIGH]": true, "[CRIT]": true, "[FATAL]": true,
 }
@@ -74,6 +79,10 @@ func ParseRequest(line string) (store.Request, bool) {
 	switch {
 	case !ok:
 		return store.Request{Raw: Redact(line)}, true
+	case r.Verdict == "" && r.Process == "" && r.PID == 0 && ownActivities[m[2]]:
+		// OpenShell's own: its proxy listening, or its session with the
+		// gateway, such as NET:OPEN [INFO] 127.0.0.1:17670.
+		return store.Request{}, false
 	case r.Host == "" && r.Verdict != store.VerdictDeny:
 		// Such as a relay opening: no request.
 		return store.Request{}, false
