@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -69,6 +70,11 @@ func RunHelper(o HelperOptions) error {
 	gateways, err := ReadGateways()
 	if err != nil {
 		return err
+	}
+	if !profile.IPv6 {
+		if err := disableIPv6(); err != nil {
+			fmt.Fprintf(os.Stderr, "brig: IPv6 stays on in the VM's network namespace: %v\n", err)
+		}
 	}
 	nftPath, err := lookPath("nft")
 	if err != nil {
@@ -209,6 +215,28 @@ func RunListener(ctx context.Context, o ListenerOptions) error {
 		Log:      slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	return l.Run(ctx, os.NewFile(3, "ready"))
+}
+
+// procSysNet holds the network settings of the namespace's kernel; tests
+// replace it.
+var procSysNet = "/proc/sys/net"
+
+// disableIPv6 turns IPv6 off in the namespace, for a profile without it.
+// pasta configures only IPv4 then, but the namespace's kernel still gives
+// its interface a link-local IPv6 address, solicits routers and reports
+// its multicast groups. The firewall drops all of it, and fence 2 would
+// record it as the VM's. A kernel without IPv6 has nothing to turn off.
+func disableIPv6() error {
+	for _, conf := range []string{"default", "all"} {
+		err := os.WriteFile(filepath.Join(procSysNet, "ipv6", "conf", conf, "disable_ipv6"), []byte("1\n"), 0o600)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // lookPath finds a program in PATH or, as on systems that keep it out of

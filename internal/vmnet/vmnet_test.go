@@ -695,3 +695,24 @@ func TestStartListener(t *testing.T) {
 		t.Errorf("spool %+v", es)
 	}
 }
+
+func TestDisableIPv6(t *testing.T) {
+	defer func(p string) { procSysNet = p }(procSysNet)
+	procSysNet = t.TempDir()
+	if err := disableIPv6(); err != nil {
+		t.Errorf("a kernel without IPv6: disableIPv6() = %v", err)
+	}
+	for _, conf := range []string{"all", "default"} {
+		if err := os.MkdirAll(filepath.Join(procSysNet, "ipv6", "conf", conf), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := disableIPv6(); err != nil {
+		t.Fatal(err)
+	}
+	for _, conf := range []string{"all", "default"} {
+		if b, _ := os.ReadFile(filepath.Join(procSysNet, "ipv6", "conf", conf, "disable_ipv6")); string(b) != "1\n" {
+			t.Errorf("%s/disable_ipv6 = %q", conf, b)
+		}
+	}
+}
