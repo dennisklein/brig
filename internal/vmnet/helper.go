@@ -46,6 +46,7 @@ type HelperOptions struct {
 // itself with passt. If the firewall cannot be loaded, passt never starts
 // and the VM has no network; recording drops never keeps it from starting.
 func RunHelper(o HelperOptions) error {
+	restoreStderr := StderrToJournal()
 	profile, err := decodeProfile(o.Profile)
 	if err != nil {
 		return err
@@ -94,6 +95,8 @@ func RunHelper(o HelperOptions) error {
 		return err
 	}
 	argv := c.passtArgs(passt)
+	// passt logs to syslog as well as to stderr.
+	restoreStderr()
 	return syscall.Exec(passt, argv, os.Environ())
 }
 
@@ -191,6 +194,7 @@ type ListenerOptions struct {
 // on file descriptor 3, and writes the drops to the spool until it is
 // stopped or its parent, passt by then, exits.
 func RunListener(ctx context.Context, o ListenerOptions) error {
+	StderrToJournal()
 	if !filepath.IsAbs(o.Spool) {
 		return errors.New("the spool's path must be absolute")
 	}
