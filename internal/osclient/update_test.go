@@ -151,7 +151,8 @@ func TestWaitLoadedFails(t *testing.T) {
 	c = serve(t, &policyGateway{status: pb.PolicyStatus_POLICY_STATUS_PENDING})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, _, err := c.WaitLoaded(ctx, "default", "webapp", 4); err == nil || !strings.Contains(err.Error(), "deadline") {
+	// The deadline ends the wait, or the gRPC stream it was reading.
+	if _, _, err := c.WaitLoaded(ctx, "default", "webapp", 4); err == nil || !strings.Contains(strings.ToLower(err.Error()), "deadline") {
 		t.Errorf("WaitLoaded of a pending revision = %v", err)
 	}
 }
