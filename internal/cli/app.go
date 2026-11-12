@@ -19,15 +19,17 @@ import (
 	"github.com/dennisklein/brig/internal/image"
 	"github.com/dennisklein/brig/internal/libvirt"
 	"github.com/dennisklein/brig/internal/paths"
+	"github.com/dennisklein/brig/internal/service"
 	"github.com/dennisklein/brig/internal/vm"
 )
 
 // app bundles what the VM and image commands share.
 type app struct {
-	dirs   paths.Dirs
-	cfg    *config.Config
-	vms    vm.Store
-	images image.Store
+	dirs     paths.Dirs
+	cfg      *config.Config
+	vms      vm.Store
+	images   image.Store
+	services service.Store
 }
 
 func newApp() (*app, error) {
@@ -39,7 +41,7 @@ func newApp() (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &app{dirs: dirs, cfg: cfg, vms: vm.NewStore(dirs), images: image.NewStore(dirs)}, nil
+	return &app{dirs: dirs, cfg: cfg, vms: vm.NewStore(dirs), images: image.NewStore(dirs), services: service.NewStore(dirs)}, nil
 }
 
 // connect connects to the libvirt session daemon.

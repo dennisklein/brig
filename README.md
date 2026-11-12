@@ -65,6 +65,7 @@ same commands:
   [more](docs/index.md#how-to)
 - **Understand:** [architecture](docs/concepts/architecture.md),
   [OpenShell config](docs/concepts/openshell-config.md),
+  [services](docs/concepts/services.md),
   [disks and images](docs/concepts/disks-and-images.md),
   [audit trail](docs/concepts/audit-trail.md)
 - **Look up:** [commands](docs/reference/cli/README.md),
