@@ -167,6 +167,10 @@
 <p class="muted">Stops {{.Form.Get "sandbox"}}, and every program in it. The workspace /sandbox, its providers and policy stay; start it again later.</p>
 {{end}}
 
+{{define "dlg-spike-destroy"}}<input type="hidden" name="service" value="{{.Form.Get "service"}}"><input type="hidden" name="id" value="{{.Form.Get "id"}}">
+<p class="muted">An agent started this VM. Destroying it is safe for the host; the agent's next call on it fails.</p>
+{{end}}
+
 {{define "dlg-sandbox-delete"}}{{template "sbfields" .}}
 <div class="callout bad">This deletes the workspace /sandbox of {{.Form.Get "sandbox"}}: checkouts, agent settings and sessions. Providers, templates and images stay. Push branches and copy sessions out first.</div>
 {{end}}
